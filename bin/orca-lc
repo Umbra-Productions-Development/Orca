@@ -12,7 +12,7 @@ USAGE='usage: orca-lc <command> [args]
   name [--set]                     this session identity (--set writes it once)
   notify <target> <text>           message a peer: session id/prefix, name, pane id, or ticket [--role r]
   inbox send <ticket> <text>|read  queue for a ticket with no live session / drain
-  handoff write <t> <role>|read <t> [role]|list|consume <file>
+  handoff write <t> <role> [--as <name>]|read <t> [role]|list|consume <file>
   discover <slug> "<rule>" [hook|skill|memory|reference|none]
   discover set <slug> <enforced-by> | archive <slug>
   triage                           discoveries nothing enforces yet
@@ -20,7 +20,7 @@ USAGE='usage: orca-lc <command> [args]
   review-queue                     open PRs by others awaiting my review
   test-lock on|off|status          allow edits to test files in this worktree
   worktree up <ticket> [branch] [--stack] | down <ticket> [--force]
-  role start <ticket> <role> < body   tab + named agent + handoff (body on stdin) + first prompt
+  role start <ticket> <role> [--as <name>] < body   tab + named agent + handoff (body on stdin) + first prompt
   role owner <ticket> [--set <role>]  the role that owns the ticket now
   config <key>                     read a key from .orca/config.json'
 
@@ -32,7 +32,20 @@ gitdir() { git rev-parse --git-dir 2>/dev/null; }
 cfgfile() { local r; r=$(root) || return 1; [ -f "$r/.orca/config.json" ] && echo "$r/.orca/config.json"; }
 cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r "$1 // empty" "$f" 2>/dev/null); echo "${v:-${2:-}}"; }
 shared() { cfg '.sharedDir' "$(root)/.orca"; }
-ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1 | tr 'A-Z' 'a-z'; }
+ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); tkey "$( { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1)"; }
+# The one case a ticket takes wherever it keys shared state (handoffs, inbox, owners, identity).
+tkey() { echo "$1" | tr 'A-Z' 'a-z'; }
+# A free path for name in dir: name, then name-2, name-3, ... before the extension.
+free_path() { local b e t i=2; b="${2%.md}"; e="${2#"$b"}"; t="$1/$2"; while [ -e "$t" ]; do t="$1/$b-$i$e"; i=$((i+1)); done; echo "$t"; }
+# Moves a file into dir under a free name (its own, or the third argument); prints where it went.
+mv_free() { local t; mkdir -p "$2"; t=$(free_path "$2" "${3:-$(basename "$1")}"); mv -n "$1" "$t" && echo "$t"; }
+# A ticket's folder under handoffs/ or inbox/. A folder for the same ticket in another case, made by
+# an older orca-lc (ABC-1 beside abc-1), is folded into it on first use, every file kept.
+tdir() { local k o f; k=$(tkey "$2")
+  for o in "$1"/*/; do o="${o%/}"; [ "$o" != "$1/$k" ] && [ "$(tkey "$(basename "$o")")" = "$k" ] || continue
+    (cd "$o" && find . -type f) | while read -r f; do mv_free "$o/$f" "$1/$k/$(dirname "$f")" >/dev/null; done
+    find "$o" -depth -type d -empty -delete; done
+  echo "$1/$k"; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
 tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
@@ -137,7 +150,7 @@ resolve_target() { # -> one agent json or list on stderr
   local hit; hit=$(jq -c --arg t "$t" '[.[] | select(.sid!="" and (.sid|startswith($t)))]' <<<"$a")
   [ "$(jq length <<<"$hit")" = 0 ] && hit=$(jq -c --arg t "$t" '[.[] | select(.name==$t or .pane==$t)]' <<<"$a")
   if [ "$(jq length <<<"$hit")" = 0 ]; then
-    local tk; tk=$(echo "$t" | tr 'A-Z' 'a-z'); hit=$(jq -c --arg t "$tk" --arg r "$role" '[.[] | select((.dir|ascii_downcase)==$t) | select($r=="" or (.name|endswith("-"+$r)))]' <<<"$a")
+    local tk; tk=$(tkey "$t"); hit=$(jq -c --arg t "$tk" --arg r "$role" '[.[] | select((.dir|ascii_downcase)==$t) | select($r=="" or (.name|endswith("-"+$r)))]' <<<"$a")
   fi
   case "$(jq length <<<"$hit")" in
     0) return 1;;
@@ -163,7 +176,7 @@ cmd_notify() {
       die "herdr refused the prompt to $dest"
     fi
   fi
-  local tk; tk=$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1 | tr 'A-Z' 'a-z')
+  local tk; tk=$(tkey "$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1)")
   [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
   echo "no live session for $tk, queued: $(cmd_inbox send "$tk" "$text")"
 }
@@ -171,10 +184,11 @@ cmd_notify() {
 cmd_inbox() {
   local d; d="$(shared)/inbox"; mkdir -p "$d"
   case "${1:-}" in
-    send) need ticket "${2:-}"; need text "${3:-}"; local t="$2"; shift 2; mkdir -p "$d/$t"; local i; i=$(me id | cut -c1-8); local f="$d/$t/$(date +%s)-${i:-anon}.md"
+    send) need ticket "${2:-}"; need text "${3:-}"; local td; td=$(tdir "$d" "$2"); shift 2; mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
+          local f; f=$(free_path "$td" "$(date +%s)-${i:-anon}.md")
           printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; echo "$f";;
-    read) local t="${2:-$(ticket)}"; [ -n "$t" ] && [ -d "$d/$t" ] || return 0; mkdir -p "$d/$t/archive"
-          for f in "$d/$t"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv "$f" "$d/$t/archive/"; done;;
+    read) local t="${2:-$(ticket)}"; [ -n "$t" ] || return 0; local td; td=$(tdir "$d" "$t"); [ -d "$td" ] || return 0
+          for f in "$td"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv_free "$f" "$td/archive" >/dev/null; done;;
     *) usage "inbox send|read";;
   esac
 }
@@ -182,19 +196,33 @@ cmd_inbox() {
 cmd_handoff() {
   local d; d="$(shared)/handoffs"; mkdir -p "$d"
   case "${1:-}" in
-    write) need ticket "${2:-}"; need role "${3:-}"; local t="$2" r="$3"; mkdir -p "$d/$t"; local f="$d/$t/$r-$(date +%F).md"; [ -e "$f" ] && f="$d/$t/$r-$(date +%F-%H%M).md"
-           printf -- '---\nticket: %s\nrole: %s\nwritten: %s\nby: %s\nconsumed-by:\n---\n\n' "$t" "$r" "$(date -Is)" "$(me id)" > "$f"
+    write) need ticket "${2:-}"; need role "${3:-}"; local t r as="" td id o ob; t=$(tkey "$2"); r="$3"
+           if [ "${4:-}" = --as ]; then need name "${5:-}"; as="$5"; elif [ -n "${4:-}" ]; then usage "handoff write <ticket> <role> [--as <name>]"; fi
+           td=$(tdir "$d" "$t"); mkdir -p "$td"; id=$(me id)
+           # One live handoff per ticket and role: a second session would split the work. The lock makes check and write one step.
+           exec 9>"$td/.lock"; flock 9
+           for o in "$td"/*.md; do [ -f "$o" ] || continue
+             [ "$(sed -n 's/^role: //p' "$o" | head -1)" = "$r" ] && ! grep -q '^consumed-by: .' "$o" || continue
+             ob=$(sed -n 's/^by: //p' "$o" | head -1)
+             [ -n "$as" ] || { [ -n "$id" ] && [ "$ob" = "$id" ]; } || die "live $r handoff for $t from session ${ob:-unknown}: $o (read it, or pass --as <name> to write anyway)"
+           done
+           local f ax=""; f=$(free_path "$td" "$r-$(date +%F-%H%M%S).md"); [ -n "$as" ] && ax="as: $as"$'\n'
+           printf -- '---\nticket: %s\nrole: %s\nwritten: %s\nby: %s\n%sconsumed-by:\n---\n\n' "$t" "$r" "$(date -Is)" "$id" "$ax" > "$f"
            # The role's boundaries come from the skill's Roles section, so a session gets them even when the writer forgets.
            local b; b=$(awk -v h="### $r" '$0==h{on=1;next} on&&/^#/{exit} on&&NF' "$(dirname "$(readlink -f "$0")")/../skills/orca/SKILL.md" 2>/dev/null)
            [ -n "$b" ] && printf '## Role: %s\n%s\nPush, PRs, and tracker writes happen only when the user asks for them in the current turn.\n\n' "$r" "$b" >> "$f"
            # Apply and review work against the ticket's own stack; name its ports so nobody guesses.
            case "$r" in apply|review) local sp; sp=$(stack_ports "$t"); [ -n "$sp" ] && printf 'Stack ports: %s\n\n' "$(echo $sp)" >> "$f";; esac
            echo "$f";;
-    read)  need ticket "${2:-}"; local t="$2" r="${3:-}" f; f=$(ls -t "$d/$t"/${r:+$r-}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
+    read)  need ticket "${2:-}"; local t r="${3:-}" f; t=$(tkey "$2"); f=$(ls -t "$(tdir "$d" "$t")"/${r:+$r-[0-9]}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
            cat "$f"; cmd_handoff consume "$f" >/dev/null;;
-    consume) need file "${2:-}"; local f="$2"; case "$f" in */archive/*) return 0;; esac
-           sed -i "s/^consumed-by:.*/consumed-by: $(me id) $(date -Is)/" "$f"; local a; a="$(dirname "$f")/archive"; mkdir -p "$a"; mv "$f" "$a/"; echo "$a/$(basename "$f")";;
-    list)  find "$d" -name '*.md' -not -path '*/archive/*' | sort;;
+    consume) need file "${2:-}"; local f="$2"; case "$f" in */archive/*) return 0;; esac; [ -f "$f" ] || die "no handoff at $f"
+           # Archived by role and the second it was written, with -2, -3 on a tie, so same-day handoffs never collide.
+           local r w s; r=$(sed -n 's/^role: //p' "$f" | head -1); w=$(sed -n 's/^written: //p' "$f" | head -1)
+           s=$(date -d "${w:-now}" +%F-%H%M%S 2>/dev/null || date +%F-%H%M%S)
+           sed -i "s/^consumed-by:.*/consumed-by: $(me id) $(date -Is)/" "$f"; mv_free "$f" "$(dirname "$f")/archive" "${r:-handoff}-$s.md";;
+    list)  local o; for o in "$d"/*/; do [ -d "$o" ] && tdir "$d" "$(basename "$o")" >/dev/null; done
+           find "$d" -name '*.md' -not -path '*/archive/*' | sort;;
     *) usage "handoff write|read|consume|list";;
   esac
 }
@@ -261,7 +289,7 @@ cmd_worktree() {
   case "$sub" in
     up)
       need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
-      [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(echo "$t" | tr 'A-Z' 'a-z')/work"
+      [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(tkey "$t")/work"
       local main; main=$(root); local dir; dir=$(wt_dir "$t")
       if [ ! -d "$dir" ]; then
         # Cut from the remote base: the main checkout's own branch may be stale or somebody else's.
@@ -308,7 +336,7 @@ cmd_worktree() {
 }
 
 # ---- roles: the orchestrator starts each session in its own tab of the ticket's workspace
-owner_file() { echo "$(shared)/owners/$(echo "$1" | tr 'A-Z' 'a-z')"; }
+owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 cmd_role() {
   local sub="${1:-}"; shift || true
   case "$sub" in
@@ -322,10 +350,11 @@ cmd_role() {
       need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role start needs herdr"
       [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
-      local t r dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
+      local t r as="" dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
+      [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
-      name="$(echo "${t//-/}" | tr 'A-Z' 'a-z')-$r"
+      name="$(tkey "${t//-/}")-$r"
       # Idempotent: a rerun after answering a startup prompt skips to the handoff and first prompt.
       local ag; ag=$(herdr agent list 2>/dev/null | jq -c --arg n "$name" '[.result.agents[] | select((.agent_name // .name)==$n)][0] // empty')
       if [ -z "$ag" ]; then
@@ -336,7 +365,7 @@ cmd_role() {
         fi
       fi
       [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
-      local f; f=$(cmd_handoff write "$t" "$r"); printf '%s\n' "$body" >> "$f"
+      local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
       case " propose apply review " in *" $r "*) cmd_role owner "$t" --set "$r" >/dev/null;; esac
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
@@ -347,7 +376,7 @@ cmd_role() {
 cmd_context() {
   echo "orca-lc: project=$(cfg '.project') session=$(me id | cut -c1-8) name=$(me name) ticket=$(me ticket) role=$(me role) gate=$(cmd_gate_fresh && echo fresh || echo stale) test-edits=$(cmd_test_lock status)"
   local p; p=$(cmd_peers); [ -n "$p" ] && { echo "peers (this repo, all worktrees; first column is the notify target):"; echo "$p"; }
-  local t; t=$(me ticket); [ -n "$t" ] && { local h; h=$(ls "$(shared)/handoffs/$t"/*.md 2>/dev/null | grep -v archive | sort | tail -3); [ -n "$h" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; echo "$h"; }; }
+  local t; t=$(me ticket); [ -n "$t" ] && { local h; h=$(ls "$(tdir "$(shared)/handoffs" "$t")"/*.md 2>/dev/null | sort | tail -3); [ -n "$h" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; echo "$h"; }; }
   cmd_inbox read
   local u; u=$(cmd_triage | wc -l); [ "$u" -gt 0 ] && echo "discoveries awaiting enforcement: $u (orca-lc triage)"
   local ec; ec=$(cfg '.envCommand'); if [ -n "$ec" ]; then local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && echo "gate env: $kv" || echo "WARNING: no stack for this worktree; gate tests will fail (orca-lc worktree up <ticket> --stack)"; fi
