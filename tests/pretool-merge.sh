@@ -21,4 +21,7 @@ check 2 'git merge --ff-only x'
 check 2 'git merge'
 check 2 'git fetch && git merge origin/main'
 check 2 'git status; git  merge feature'
+check 2 'git merge;echo hi'
+check 2 'git merge&&echo hi'
+check 2 'git merge|cat'
 exit $fail
