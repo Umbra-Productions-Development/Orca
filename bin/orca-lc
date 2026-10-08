@@ -10,6 +10,7 @@ USAGE='usage: orca-lc <command> [args]
   evidence [base]                  write blast radius + affected tests for the diff
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
+  ticket                           ticket of this directory or its branch, empty when none
   notify <target> <text>           message a peer: session id/prefix, name, pane id, or ticket [--role r]
   inbox send <ticket> <text>|read  queue for a ticket with no live session / drain
   handoff write <t> <role>|read <t> [role]|list|consume <file>
@@ -361,5 +362,6 @@ case "$cmd" in
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
+  ticket) ticket;;
   *) usage "unknown command '$cmd'";;
 esac

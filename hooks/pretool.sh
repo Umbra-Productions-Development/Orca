@@ -79,8 +79,9 @@ case "$tool" in
     [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge\b' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     t=$(git_targets commit "$cmd" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
-      me=$(orca-lc name 2>/dev/null); r=$(jq -r '.role // ""' <<<"$me")
-      case "$r" in ""|session|orchestrator) ;; *) advise "Once this commit lands, report it: orca-lc notify $(jq -r .ticket <<<"$me") --role orchestrator \"<sha> <subject>\"";; esac
+      # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
+      r=$(orca-lc name 2>/dev/null | jq -r '.role // ""'); tk=$(cd "$t" && orca-lc ticket 2>/dev/null)
+      case "$r" in ""|session|orchestrator) ;; *) [ -n "$tk" ] && advise "Once this commit lands, report it: orca-lc notify $tk --role orchestrator \"<sha> <subject>\"";; esac
     fi
     [ -n "$root" ] || exit 0
     grep -qE '(^|[;&|]\s*)git\s+rebase\b' <<<"$cmd" && advise "After the rebase, run the gate's type check even when git reports no conflict: two edits to different lines of one logic rebase clean and still break the build."
