@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Fake gh for tests. PRs live in $GH_STUB/prs.json, installed extensions in $GH_STUB/extensions,
+# and every call is appended to $GH_STUB/calls.
+s="$GH_STUB"; f="$s/prs.json"; echo "$*" >> "$s/calls"; [ -f "$f" ] || echo '[]' > "$f"
+arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { echo "$2"; return; }; shift; done; }
+save() { jq "$@" "$f" > "$f.t" && mv "$f.t" "$f"; }
+case "$1 ${2:-}" in
+  "extension list") cat "$s/extensions" 2>/dev/null;;
+  "pr list") q=$(arg -q "$@")
+    jq --arg h "$(arg --head "$@")" --arg s "$(arg --state "$@")" \
+      '[.[] | select(.headRefName==$h) | select($s=="all" or (.state|ascii_downcase)==$s)] | reverse' "$f" | jq -r "${q:-.}";;
+  "pr create") n=$(( $(jq length "$f") + 1 ))
+    save --argjson n "$n" --arg h "$(arg --head "$@")" --arg b "$(arg --base "$@")" '. + [{number:$n, headRefName:$h, baseRefName:$b, state:"OPEN"}]'
+    echo "https://example.test/pull/$n";;
+  "pr edit") save --argjson n "$3" --arg b "$(arg --base "$@")" 'map(if .number==$n then .baseRefName=$b else . end)';;
+  "stack view") [ "${3:-}" = --short ] || [ -f "$s/stack" ];;
+  "stack init") touch "$s/stack";;
+  stack\ *) ;;
+  *) echo "gh stub: unhandled: $*" >&2; exit 1;;
+esac
