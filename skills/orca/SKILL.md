@@ -7,6 +7,8 @@ description: Working rules for a repository that carries .orca/config.json — g
 
 `orca-lc` is a shell command; `orca-lc help` lists subcommands. `orca-lc context` prints the current state; the SessionStart hook already ran it.
 
+Never run `install.sh` outside the checkout the install comes from, including test clones and worktrees: it relinks `orca-lc`, the hooks, the skills and the agents to wherever it runs. It refuses when the links belong to another checkout; `--force` is for the user switching the install on purpose.
+
 ## Gate
 
 `orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.

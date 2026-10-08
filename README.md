@@ -48,7 +48,7 @@ git clone https://github.com/Umbra-Productions-Development/Orca.git
 cd Orca && ./install.sh
 ```
 
-`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling.
+`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling. When the links already point at another checkout it changes nothing and says so; `./install.sh --force` moves the install to the checkout it runs from.
 
 ## Quickstart
 
