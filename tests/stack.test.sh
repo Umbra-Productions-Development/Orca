@@ -12,6 +12,8 @@ squash_merge() { local c; c=$(mktemp -d); git clone -q "$(git remote get-url ori
 r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1
 out=$(orca-lc stack add two 2>&1); assert_status $? 1 "stack add on main: $out"; assert_contains "$out" "ticket branch"
 git checkout -q -b abc-1/one; commit one
+# A review fixup: the squash no longer matches any single commit, so git can't skip them by patch.
+echo fixup >> one; git commit -qam "one fixup"
 assert_contains "$(orca-lc stack add two)" "abc-1/two on abc-1/one"; commit two
 orca-lc stack add three >/dev/null; commit three
 assert_eq "$(git branch --show-current)" abc-1/three
