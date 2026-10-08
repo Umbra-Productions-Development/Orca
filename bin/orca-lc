@@ -356,7 +356,7 @@ cmd_context() {
 
 cmd="${1:-}"; shift || true
 # `<cmd> [sub] -h|--help` prints that command's USAGE lines and runs nothing (an unknown cmd falls through)
-for a in "${1:-}" "${2:-}"; do case "$a" in -h|--help) grep -E "^  $cmd( |\$)" <<<"$USAGE" && exit 0;; esac; done
+for a in "${1:-}" "${2:-}"; do case "$a" in -h|--help) [[ $cmd =~ ^[a-z-]+$ ]] && grep -E "^  $cmd( |\$)" <<<"$USAGE" && exit 0;; esac; done
 case "$cmd" in
   -h|--help|help|"") echo "$USAGE";;
   context) cmd_context;; gate) cmd_gate "$@";; gate-fresh) cmd_gate_fresh;; test-affected) cmd_test_affected;; evidence) cmd_evidence "$@";;
