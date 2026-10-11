@@ -4,10 +4,8 @@ Work top to bottom. Check a box only once its test passes, or for a task with no
 
 ## 0. Base
 
-- [ ] 0.1 Get the test harness from PR #49 (design.md, Test harness).
-  - If #49 is on main, rebase `orca-16/work` on main.
-  - Otherwise, rebase onto `fix/test-harness`, and note the stack in the PR body.
-- [ ] 0.2 If PR #46 is merged, rebase on it. Then remove its `pairs`/`--force` check as part of task 2.3, keeping its behaviour (design.md, Relationship with #42).
+- [ ] 0.1 Confirm that #46 is merged to main and that `fix/test-harness` contains it (`git merge-base --is-ancestor`). If it does not, ask the orchestrator and stop; do not rebase #49 yourself.
+- [ ] 0.2 Rebase `orca-16/work` onto `fix/test-harness` (design.md, Test harness). #46's `pairs`/`--force` check is replaced in task 2.3, keeping its behaviour (design.md, Relationship with #42).
 - [ ] 0.3 Confirm `bash tests/run.sh` passes on the base before any change.
 
 ## 1. Tests first (test-lock on)
@@ -70,7 +68,10 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
 - [ ] 1.17 Uninstall:
   - Afterwards `$HOME` matches the pre-install snapshot, with no manifest, no state dir and no directories Orca created.
   - A file the user added inside `~/.claude/skills` survives, and that directory stays.
-- [ ] 1.18 Uninstall leaves an edited copy in place, names it, and exits 1.
+- [ ] 1.18 Uninstall with two edited copies and one foreign file inside a recorded directory:
+  - every path left in place is listed on its own `left: <path> (<reason>)` line
+  - nothing else is listed
+  - the run exits 1
 - [ ] 1.19 Flags:
   - an unknown flag exits 2 and prints usage on stderr
   - `--yes --no-optional` exits 2
@@ -108,11 +109,11 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
   - link mode vs copy mode and what each means for updates
   - where the manifest lives
   - "never removes what it did not create" and `--force` backups
-  - Replace the "It is idempotent; run it again after pulling" sentence, and the #46 sentence if present.
+  - Replace the "It is idempotent; run it again after pulling" sentence and the #46 sentence.
   - Update any flags or commands table the README has (applyChecks).
 - [ ] 3.2 README.md: an "Update" paragraph (`git pull`, then `./install.sh`) and an "Uninstall" paragraph (`./install.sh --uninstall`, what it keeps, exit 1 when it leaves something).
-- [ ] 3.3 docs/daily-use.md: update the Orca-stable row and the take-a-new-release lines with pull + rerun, the copy-mode note and the uninstall command. Replace the #46 line if present.
-- [ ] 3.4 If #46 was not merged, carry its notes in `skills/orca/SKILL.md` and `agents/orca-verifier.md`, reworded for this change.
+- [ ] 3.3 docs/daily-use.md: update the Orca-stable row and the take-a-new-release lines with pull + rerun, the copy-mode note and the uninstall command. Replace the #46 line.
+- [ ] 3.4 Check that #46's lines in `skills/orca/SKILL.md` and `agents/orca-verifier.md` still match the new behaviour; reword only what no longer does.
 - [ ] 3.5 Check that the docs say nothing install.sh does not do. Run `./install.sh --help` and compare. Commit.
 
 ## 4. Gate
@@ -120,4 +121,4 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 - [ ] 4.1 Run `applyChecks` from `.orca/config.json`. Fix what they raise, or say in the commit body why it stays.
 - [ ] 4.2 Run `orca-lc gate` and make it pass. shellcheck and gitleaks are skipped on this machine; say so in the report.
 - [ ] 4.3 Run `orca-lc evidence`, dispatch `orca-verifier`, and report to the orchestrator.
-- [ ] 4.4 Leave the Linux and WSL2 acceptance boxes in proposal.md for the orchestrator. Name them in the report as not yet verified.
+- [ ] 4.4 Leave the Linux and WSL2 acceptance boxes in proposal.md unchecked; the user verifies them by hand. Name them in the report as not yet verified.

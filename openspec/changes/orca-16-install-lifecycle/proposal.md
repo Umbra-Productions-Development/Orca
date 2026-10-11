@@ -21,7 +21,7 @@ Ticket: GitHub issue #16. Related: #42 (PR #46, relink guard), PR #49 (test harn
 - **Ownership manifest.** Install records every link, copy, directory, settings.json creation and hook entry it creates in `~/.local/state/orca/install.manifest`. Uninstall and "never overwrite what we did not create" both read it. The same rules work in link mode (Linux, macOS, Git Bash with Developer Mode) and copy mode (Git Bash without it).
 - **Never remove what Orca did not create.** An existing target that is not Orca's is reported and install stops before changing anything. `--force` moves such a target aside to `<target>.orca-bak-<UTC timestamp>`; it never deletes it.
 - **settings.json written only on change.** Install writes the file only when the merged content differs, saves the original bytes once, and uninstall restores them exactly when nobody edited the file since install. Other hooks are always kept.
-- **Uninstall.** `./install.sh --uninstall` removes what the manifest says Orca created and is still unchanged, removes Orca's hook entries, restores or deletes settings.json, and lists what it left in place. It never uninstalls dependencies.
+- **Uninstall.** `./install.sh --uninstall` removes what the manifest says Orca created and is still unchanged, removes Orca's hook entries, restores or deletes settings.json, and lists every path it left in place with the reason, exiting 1 if there is any. It never uninstalls dependencies.
 - **Update.** `git pull` in the install checkout, then `./install.sh` again. In copy mode this refreshes copies Orca still owns.
 - **Tests.** `tests/install.test.sh` proves each acceptance criterion under a temporary HOME and a PATH that contains only the tools each test names, with stubs for everything external. Tests never touch the real HOME or install anything.
 - **Docs.** README.md and docs/daily-use.md cover install, update, uninstall, the flags, both platforms' modes, and the manifest.
@@ -40,12 +40,12 @@ Ticket: GitHub issue #16. Related: #42 (PR #46, relink guard), PR #49 (test harn
 - [ ] A missing required tool exits non-zero and names the tool.
 - [ ] `--no-optional`, and declining every prompt, install nothing.
 - [ ] An existing file at a link target is reported, not removed.
-- [ ] Verified on Linux (manual, by the orchestrator or the user).
-- [ ] Verified on WSL2 (manual, by the orchestrator or the user).
+- [ ] Verified on Linux (manual, by the user).
+- [ ] Verified on WSL2 (manual, by the user).
 
 ## Impact
 
 - `install.sh` grows from about 25 lines to about 150 to 200 lines. It is one change in one PR.
-- New: `tests/install.test.sh`, and `tests/run.sh` plus `tests/lib.sh` from PR #49 (see design.md, Test harness).
+- New: `tests/install.test.sh`. The harness (`tests/run.sh`, `tests/lib.sh`) comes from PR #49, which this PR stacks on, after #46 merges (design.md, Test harness).
 - Docs: README.md, docs/daily-use.md.
 - Existing installs migrate on their first run under the new script (design.md, Migration).
