@@ -120,6 +120,7 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
   - no-`-f` variant (older macOS): add a `readlink` wrapper that exits 1 when any argument is `-f` and otherwise execs the real `readlink`. Use a two-hop chain, `~/.claude/settings.json` → `$d/hop1` → `dotfiles/settings.json` (relative, so the loop must resolve it from `$d`). Install and uninstall as above: both links are unchanged, the target holds Orca's four hooks after install, and `cmp` the target against the saved bytes after uninstall.
   - created-then-linked variant: start with no settings.json, install, then move the file to `$d/dotfiles/settings.json` and link `~/.claude/settings.json` to it, content unchanged (its hash still equals `settings-post`). Uninstall:
     - the run exits 0
+    - stdout has `settings.json is a symlink; removed Orca's hooks only, kept the link and its target` and not the `was edited after install` line
     - the link is still there with the same target, and the target still exists
     - the target holds none of Orca's four commands
     - a following install exits 0 (no dangling-link conflict)
