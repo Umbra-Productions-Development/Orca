@@ -5,7 +5,7 @@ Work top to bottom. Check a box only once its test passes, or for a task with no
 ## 0. Base
 
 - [ ] 0.1 `git fetch origin`, then pick the base from the table in design.md, Test harness:
-  - #46 and #49 both merged (`tests/run.sh` exists on `origin/main`): base `origin/main`, PR targets `main`.
+  - #46 and #49 both merged (`tests/run.sh` exists on `origin/main`, and `git merge-base --is-ancestor <#46 merge commit> origin/main` succeeds): base `origin/main`, PR targets `main`.
   - #46 merged, #49 open, and `git merge-base --is-ancestor <#46 merge commit> origin/fix/test-harness` succeeds: base `origin/fix/test-harness`, PR targets `fix/test-harness`.
   - Anything else: notify the orchestrator and stop. Do not rebase #49 yourself.
 - [ ] 0.2 Rebase `orca-16/work` onto the base 0.1 picked. #46's `pairs`/`--force` check is replaced in task 2.3, keeping its behaviour (design.md, Relationship with #42).
@@ -18,11 +18,15 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
 - [ ] 1.1 Sandbox helper `sandbox [mode]` (design.md, Test isolation):
   - `d=$(mktemp -d)`, `HOME=$d/home`, `unset XDG_STATE_HOME`, `PATH=$d/bin` only.
   - Wrapper scripts (not symlinks) for the external commands listed in install.sh's header comment, plus real `jq`.
-  - `exit 0` stubs for `claude git gh herdr`.
+  - `exit 0` stubs for `git gh herdr`. The `claude` stub exits 0, appends `claude plugin install ...` calls to `$d/calls`, and prints nothing for `claude plugin list`.
   - Recorder stubs for `npm brew go pipx uv curl` that append to `$d/calls`.
+  - A `uname` stub that prints `$ORCA_TEST_UNAME`, default `Linux`. Tests never read the host platform.
   - `mode=copy` replaces the `ln` wrapper with one that runs `cp -R`.
   - `mode=link` first probes real symlink support (`ln -s` in a `mktemp -d`, then `[ -L ]`). Without it, the case prints `SKIP link mode: no symlinks`, returns without asserting, and is not counted as passed. Below, "both modes" means copy mode always and link mode when available.
   - Copies the checkout's install.sh, bin/, hooks/, skills/ and agents/ into `$d/src`, so tests never write to the real checkout.
+- [ ] 1.1b Table helpers (design.md, Test isolation):
+  - `table_rows`: reads the block between `# BEGIN recommended-tools` and `# END recommended-tools` in `$d/src/install.sh` and prints, per row, the name, the enables text and the command for the platform `ORCA_TEST_UNAME` pins (`-` for none).
+  - `use_fixture_table`: replaces that block in `$d/src/install.sh` with three rows: `fix-a` and `fix-b` with an `npm` command on every platform, `fix-c` link-only, each with a presence check that fails in the sandbox. The fixture always has two command rows, so no test needs a fewer-than-two SKIP.
 - [ ] 1.2 Helper `snapshot <dir>`: a sorted listing of every path under `$HOME`, with type, link target and sha256 of content, plus each file's mode when the link-mode probe succeeded (design.md, Test isolation). Two snapshots compare with `assert_eq`.
 - [ ] 1.3 Guard: each test asserts that `$HOME` starts with `$d/`, and that no run exits 127.
 - [ ] 1.4 **AC: twice is a no-op.** Run in both modes:
@@ -43,7 +47,12 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
 - [ ] 1.7b settings.json edited between two installs (design.md, settings.json, install step 4). Both modes:
   - Seed settings.json with a foreign hook. Install.
   - Add a key, and delete one of Orca's four hooks. Install again: it re-adds that hook and prints that uninstall will remove Orca's hooks only. The manifest has no `settings-orig` record, and `settings.json.orig` is gone.
-  - Uninstall: the added key and the foreign hook remain, and none of Orca's four hooks is left.
+  - Delete one of Orca's hooks again and install a third time: it re-adds the hook, and the manifest still has no `settings-orig` record (the file is not pristine, so Orca's own hooks are never saved as the original).
+  - Uninstall: the added key and the foreign hook remain, and none of Orca's four commands is left.
+- [ ] 1.7c Legacy variant (design.md, Migration, settings.json). Both modes:
+  - Seed settings.json with a foreign hook and all four of Orca's hooks, and no manifest (the old layout, as in 1.14). Delete one of Orca's hooks.
+  - Install: the hook is re-added, and the manifest has no `settings-orig` record.
+  - Uninstall: the foreign hook remains, and none of Orca's four commands is left.
 - [ ] 1.8 **AC: missing required tool.** For each of `claude git jq gh herdr`, remove its stub or wrapper, then:
   - exit status is 1
   - stderr names the tool
@@ -56,12 +65,14 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
   - stdin piped from `yes y`, without the override: no prompt is printed (a non-terminal stdin declines even `y`)
   
   For all four, `$d/calls` does not exist, and none of the recommended tools' install targets exist.
-- [ ] 1.10b **Mixed answers.** With `ORCA_INSTALL_PROMPT_STDIN=1`, and two recommended tools that have commands and launcher stubs, answer `y` to the first prompt and `n` to the second:
-  - `$d/calls` holds exactly one line, the first tool's command
+- [ ] 1.10b **Mixed answers.** `use_fixture_table`, `ORCA_TEST_UNAME=Linux`, `ORCA_INSTALL_PROMPT_STDIN=1`, `npm` stub present. Answer `y` to the `fix-a` prompt and `n` to the `fix-b` prompt:
+  - `$d/calls` holds exactly one line, `fix-a`'s command
   - stdout holds both prompts, each with its tool's `enables` text
-  - the second tool prints its `not installed (<enables>); see <link>` line
+  - `fix-b` prints its `not installed (<enables>); see <link>` line, and `fix-c` (link-only) prints its link with its `enables` text and no prompt
   - the exit status is 0
-- [ ] 1.11 `--yes` runs exactly the commands in the platform table, and only when their launcher stub is present. With the launcher absent, the install link is printed with the tool's `enables` text, and nothing is called. `curl` never appears in `$d/calls`.
+- [ ] 1.11 `--yes`, for each of `ORCA_TEST_UNAME=Linux`, `Darwin` and `MINGW64_NT-10.0`:
+  - Real table: with every launcher stub present, `$d/calls` holds exactly the commands `table_rows` lists for that platform, in table order (`grilling` among them as a `claude plugin install` line when 2.7 verified it), and nothing for a `-` row. `curl` never appears in `$d/calls`.
+  - `use_fixture_table`, `npm` stub removed: nothing is called, and each of `fix-a`, `fix-b` and `fix-c` prints its link with its `enables` text.
 - [ ] 1.12 **AC: existing file at a link target.** Run in both modes with a regular file at `~/.claude/agents/orca-verifier.md`, then at `~/.local/bin/orca-lc`, then a directory at `~/.claude/skills/orca`. For each:
   - exit status is 1
   - stderr names the path
@@ -89,16 +100,22 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
   - the file survives byte for byte, and `~/.claude/skills` stays
   - stdout has exactly one `left:` line, `left: <HOME>/.claude/skills (not empty: holds files Orca did not create)`
   - the run exits 1
-- [ ] 1.18 Uninstall with two edited copies and one foreign file inside a recorded directory:
-  - every path left in place is listed on its own `left: <path> (<reason>)` line, the recorded directory among them
+- [ ] 1.18 Copy mode (design.md, Directories). After install, edit two installed copies inside `~/.claude/skills/orca`, and add one foreign file inside `~/.claude/agents`:
+  - each edited copy and the foreign file is listed on its own `left: <path> (<reason>)` line
+  - `~/.claude/agents` is listed, since it directly holds the foreign file, which no other `left:` line names
+  - `~/.claude/skills/orca` and `~/.claude/skills` stay on disk but are not listed: they hold only paths other `left:` lines already name
   - nothing else is listed
   - the run exits 1
 - [ ] 1.19 Flags:
   - an unknown flag exits 2 and prints usage on stderr
   - `--yes --no-optional` exits 2
   - `--help` exits 0
-- [ ] 1.21 **macOS hash path.** Remove the `sha256sum` wrapper and add a `shasum` wrapper that accepts `-a 256` (it may exec the real `sha256sum` and fail on any other `-a`). Install, snapshot, install again, snapshot: the snapshots are equal, and the second run exits 0.
-- [ ] 1.22 State permissions, when the link-mode probe succeeded (modes are reliable): the state dir is `0700`, and the manifest and `settings.json.orig` are `0600`. A settings.json seeded with mode `0600` is still `0600` after install and after uninstall.
+- [ ] 1.20 **macOS hash path.** Remove the `sha256sum` wrapper and add a `shasum` wrapper that accepts `-a 256` (it may exec the real `sha256sum` and fail on any other `-a`). Install, snapshot, install again, snapshot: the snapshots are equal, and the second run exits 0.
+- [ ] 1.21 State permissions, when the link-mode probe succeeded (modes are reliable): the state dir is `0700`, and the manifest and `settings.json.orig` are `0600`. A settings.json seeded with mode `0600` is still `0600` after install and after uninstall.
+- [ ] 1.22 Symlinked settings.json, link mode only (design.md, settings.json). Put the real file at `$d/dotfiles/settings.json` with a foreign hook, save its bytes, and make `~/.claude/settings.json` a symlink to it:
+  - install: `~/.claude/settings.json` is still a symlink with the same target, and `$d/dotfiles/settings.json` holds the foreign hook and Orca's four
+  - uninstall: the link is still there with the same target, and `cmp` the target against the saved bytes
+  - dangling variant: point the link at a missing path; install exits 1, stderr says `settings.json is a dangling symlink`, and the `$HOME` snapshot is unchanged
 - [ ] 1.23 Run `orca-lc test-lock off`. The new tests fail against the current install.sh; that is expected. Commit.
 
 ## 2. install.sh
@@ -107,19 +124,20 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 
 - [ ] 2.1 Flag parsing and usage (design.md, Shape). Makes 1.19 pass.
 - [ ] 2.2 Required-tool preflight with the URL table. Makes 1.8 and 1.9 pass.
-- [ ] 2.3 Mode probe, hash helper (`sha256sum` when on PATH, else `shasum -a 256`), manifest read and atomic write under `umask 077`, and the target classifier from the table in design.md. Remove `rm -rf`. The preflight reports every conflict before any write. Makes 1.12, 1.14, 1.15 (the conflict part) and 1.21 pass.
+- [ ] 2.3 Mode probe, hash helper (`sha256sum` when on PATH, else `shasum -a 256`), manifest read and atomic write under `umask 077`, and the target classifier from the table in design.md. Remove `rm -rf`. The preflight reports every conflict before any write, a dangling settings.json symlink among them. Makes 1.12, 1.14, 1.15 (the conflict part), 1.20 and the dangling part of 1.22 pass.
 - [ ] 2.4 Apply phase: link or copy, `dir` records, `--force` backups, and the `--force` switch from another checkout (replace recorded targets, carry settings, hook and dir records over). Write the manifest only when its content changes. Makes 1.4, 1.13, 1.15 and 1.16 pass.
 - [ ] 2.5 settings.json:
-  - write only on change, atomically, keeping the file's mode
-  - save `settings.json.orig` once, under `umask 077`
-  - drop `settings-orig` and `settings-created` when the file was edited since the last `settings-post`
+  - write only on change, atomically, keeping the file's mode; when settings.json is a symlink, write the resolved target (`readlink -f`, or a `readlink` + `cd` loop where `-f` is missing) and never replace the link
+  - save `settings.json.orig` once, under `umask 077`, and only from a pristine file: no `settings-post` record and none of Orca's four commands present
+  - drop `settings-orig` and `settings-created` when the file was edited since the last `settings-post`; keep the `settings-post` record
   - record `settings-created`, `settings-post` and `hook`
   
-  Makes 1.5, 1.6 and 1.22 pass on the install side.
-- [ ] 2.6 `--uninstall`: targets, directories (a kept non-empty recorded dir is listed as left), settings restore or jq removal, manifest cleanup, the left-in-place report and exit code. Makes 1.5, 1.6, 1.7, 1.7b, 1.17a, 1.17b, 1.18 and 1.22 pass.
+  Makes 1.5, 1.6, 1.7b, 1.7c, 1.21 and 1.22 pass on the install side.
+- [ ] 2.6 `--uninstall`: targets, directories (a kept recorded dir is listed as left only when it directly holds something no other `left:` line names), settings restore or jq removal (both through a symlink to its target), manifest cleanup, the left-in-place report and exit code. Makes 1.5, 1.6, 1.7, 1.7b, 1.7c, 1.17a, 1.17b, 1.18, 1.21 and 1.22 pass.
 - [ ] 2.7 Recommended-tool table and prompts:
+  - Keep the table as one tab-separated row per line between `# BEGIN recommended-tools` and `# END recommended-tools` (design.md, Recommended tools), since tests read and replace that block.
   - Each row gets its `enables` line. Fill in the install commands from each tool's own docs, package-manager commands only. Put the source URL in a comment next to each command, and leave a row link-only when it can't be verified or its only installer is a downloaded script.
-  - `grilling`: use the upstream source the orchestrator supplies. With none, drop the row and say so in the report.
+  - `grilling`: source https://github.com/mattpocock/skills, `skills/productivity/grilling` (MIT). Verify upstream that `claude plugin install mattpocock-skills@claude-plugins-official` installs it, then use that command on every platform, with `claude` as the launcher. If it cannot be verified, leave the row link-only. Never drop the row.
   - Prompt reading only when `[ -t 0 ]` or `ORCA_INSTALL_PROMPT_STDIN=1`; name the variable as test-only in the header comment. `--yes` and `--no-optional`.
   
   Makes 1.10, 1.10b and 1.11 pass.
