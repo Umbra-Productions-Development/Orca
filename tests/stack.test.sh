@@ -19,6 +19,10 @@ orca-lc stack add three >/dev/null; commit three
 assert_eq "$(git branch --show-current)" abc-1/three
 l=$(orca-lc stack list); assert_contains "$l" "  abc-1/one <- main"; assert_contains "$l" "* abc-1/three <- abc-1/two"
 assert_eq "$(grep -c . <<<"$l")" 3 "list: $l"
+# A second child of two would fork the stack, and stack_branches only follows one child.
+git checkout -q abc-1/two; out=$(orca-lc stack add four 2>&1); assert_status $? 1 "stack add under a child: $out"
+assert_eq "$(git branch --list abc-1/four)" "" "no fork branch"; assert_eq "$(git config branch.abc-1/four.orcaParent)" "" "no fork config"
+assert_eq "$(git branch --show-current)" abc-1/two; git checkout -q abc-1/three
 
 out=$(orca-lc stack prs 2>&1); assert_status $? 1 "prs without a gate: $out"; assert_contains "$out" "gate"
 # A gate on a lower branch says nothing about the branches above it, which prs would push too.

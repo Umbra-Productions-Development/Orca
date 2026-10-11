@@ -345,6 +345,9 @@ cmd_stack() {
         esac
         ghx stack add "$b" >/dev/null || die "gh stack add $b failed"
       else
+        # A second child would fork the stack; stack_branches, rebase and prs follow one child only.
+        local up; up=$(stack_child "$cur" | head -1)
+        [ -z "$up" ] || die "$cur already has $up above it: add from the top of the stack"
         # Branch first: a name git refuses (abc-12/x next to abc-12) leaves no stack config behind.
         git checkout -q -b "$b" || die "git checkout -b $b failed"
         if [ -z "$(stack_parent "$cur")" ]; then
