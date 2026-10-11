@@ -71,6 +71,9 @@ assert_eq "$(git branch --show-current)" abc-12
 GH_STUB=$(mktemp -d); echo "gh stack  github/gh-stack  v1.0.0" > "$GH_STUB/extensions"
 r=$(new_repo '{"project":"p","gate":"true"}'); cd "$r" || exit 1
 git checkout -q -b abc-2/one; commit one
+# gh stack view failing for another reason (not exit 2) must not start a stack.
+touch "$GH_STUB/view-fails"; out=$(orca-lc stack add two 2>&1); assert_status $? 1 "stack add when view fails: $out"
+assert_not_contains "$(cat "$GH_STUB/calls")" "stack init"; rm "$GH_STUB/view-fails"
 orca-lc stack add two >/dev/null || fail "native stack add failed"
 orca-lc stack add three >/dev/null; orca-lc stack list >/dev/null; orca-lc gate >/dev/null; orca-lc stack prs >/dev/null; orca-lc stack rebase >/dev/null
 c=$(grep '^stack' "$GH_STUB/calls")

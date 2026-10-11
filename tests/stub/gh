@@ -13,7 +13,8 @@ case "$1 ${2:-}" in
     save --argjson n "$n" --arg h "$(arg --head "$@")" --arg b "$(arg --base "$@")" '. + [{number:$n, headRefName:$h, baseRefName:$b, state:"OPEN"}]'
     echo "https://example.test/pull/$n";;
   "pr edit") save --argjson n "$3" --arg b "$(arg --base "$@")" 'map(if .number==$n then .baseRefName=$b else . end)';;
-  "stack view") [ "${3:-}" = --short ] || [ -f "$s/stack" ];;
+  # Like gh-stack: exit 2 when not in a stack. $GH_STUB/view-fails forces another failure (auth, network).
+  "stack view") [ -f "$s/view-fails" ] && exit 1; [ "${3:-}" = --short ] || [ -f "$s/stack" ] || exit 2;;
   "stack init") touch "$s/stack";;
   stack\ *) ;;
   *) echo "gh stub: unhandled: $*" >&2; exit 1;;
