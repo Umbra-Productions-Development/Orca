@@ -25,6 +25,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
+- **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
 `orca-lc help` lists every command.

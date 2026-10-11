@@ -21,6 +21,7 @@
   "stackDown": "./scripts/stack-down.sh",
   "migrateCommand": "",
   "prShareLimit": 1500,
+  "stackTool": "auto",
   "discoveriesDir": "discoveries",
   "handoffArchiveDays": 7
 }
