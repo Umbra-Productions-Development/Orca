@@ -50,6 +50,11 @@ echo theirs > "$c/theirs"; git -C "$c" add theirs;git -C "$c" commit -qm theirs;
 git fetch -q origin; theirs=$(git rev-parse origin/abc-1/three)
 out=$(orca-lc stack prs 2>&1); assert_status $? 1 "prs over someone else's push: $out"
 assert_eq "$(git ls-remote origin refs/heads/abc-1/three | cut -f1)" "$theirs" "their push kept"
+# The top PR merges: rebase drops it from the stack, and prs carries on with the rest.
+jq 'map(if .headRefName=="abc-1/three" then .state="MERGED" else . end)' "$GH_STUB/prs.json" > "$GH_STUB/t" && mv "$GH_STUB/t" "$GH_STUB/prs.json"
+orca-lc stack rebase >/dev/null || fail "stack rebase after the top merged failed"
+assert_eq "$(git branch --show-current)" abc-1/two; assert_eq "$(git config branch.abc-1/three.orcaParent)" "" "merged top left the stack"
+orca-lc gate >/dev/null; out=$(orca-lc stack prs 2>&1) || fail "stack prs after the top merged failed: $out"
 
 # ---- a hand-rebase leaves orcaParentTip stale: the upstream falls back to the old parent branch
 r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1

@@ -385,8 +385,11 @@ cmd_stack() {
         fi
         git config "branch.$b.orcaParentTip" "$(git rev-parse "$onto")"; echo "$b on $p"
       done
-      # Back where we started, or on the top of the stack when that branch merged.
-      local top=""; for b in $bs; do [ "$(pr_state "$b")" = MERGED ] || top="$b"; done
+      # Back where we started, or on the top of the stack when that branch merged. A merged branch
+      # no child moved off (the top) leaves the stack here, or prs would refuse it forever.
+      local top=""; for b in $bs; do
+        if [ "$(pr_state "$b")" = MERGED ]; then [ -z "$(stack_parent "$b")" ] || stack_forget "$b"; else top="$b"; fi
+      done
       [ "$(pr_state "$cur")" = MERGED ] && cur="${top:-$base}"
       git checkout -q "$cur";;
     prs)
