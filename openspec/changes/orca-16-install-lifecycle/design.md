@@ -193,10 +193,10 @@ There is no `--update` flag. The docs give the two commands.
 
 PR #46 adds `--force` and refuses to relink when a managed symlink points outside `$here`. This change keeps both behaviours. The "another checkout" row is that check, and `--force` keeps its meaning. It extends them to copy mode and to non-symlink targets, and replaces the deletion with a backup.
 
-- If #46 merges first, apply rebases on it and replaces its `pairs` check with the classifier. The README and daily-use lines from #46 are rewritten by this change's doc tasks. The SKILL.md and verifier lines from #46 stay.
-- If it does not, this change supersedes it and its PR body says it closes #42 as well.
-
-The merge order is an open question for the orchestrator.
+Decision: **#46 merges first.** This change builds on it:
+- Apply replaces #46's `pairs` check with the classifier.
+- This change's doc tasks rewrite the README and daily-use lines that #46 added.
+- The SKILL.md and verifier lines from #46 stay.
 
 ## Test harness
 
@@ -205,9 +205,12 @@ Decision: **build on PR #49 (`fix/test-harness`, commit 6c37aba)**. Do not add a
 - Its helpers (`fail`, `assert_eq`, `assert_contains`, `assert_not_contains`, `assert_status`) are all these tests need.
 - Two harnesses would conflict on the same paths. `feat/7-stacked-prs` is stacked on the same commit, so it adds nothing for install.
 
-How apply gets it:
-- If #49 is on main when apply starts, rebase `orca-16/work` on main.
-- Otherwise, rebase `orca-16/work` onto `fix/test-harness` and open the PR stacked on it. The proposal commit only touches `openspec/`, so either rebase is trivial.
+Decision: **stack on #49.** Its base must include #46, so the order is:
+1. #46 merges to main.
+2. `fix/test-harness` is rebased on that main. The orchestrator owns this, because apply never edits #49's branch.
+3. Apply rebases `orca-16/work` onto `fix/test-harness`. The PR targets `fix/test-harness`, and after #49 merges it is retargeted to main.
+
+The proposal commit only touches `openspec/`, so the rebase is trivial. If `fix/test-harness` does not contain #46 when apply starts, apply asks the orchestrator before writing code.
 
 Install-specific helpers live in `tests/install.test.sh` itself, not in `lib.sh`, so this change does not edit #49's files. `lib.sh` prepends `$ORCA_SRC/bin` to PATH. The install tests replace PATH entirely (below), so that does not matter.
 
@@ -227,9 +230,15 @@ Each test builds a sandbox with `d=$(mktemp -d)`:
 - To test copy mode on any OS, the sandbox's `ln` wrapper copies instead of linking (`cp -R`), the way Git Bash does. The mode probe then picks copy mode. The same test file therefore covers both modes on Linux, macOS and Git Bash.
 - The real HOME is never read or written. As a guard, every test asserts that its target paths start with `$d/`.
 
-## Open questions for the orchestrator
+## Settled decisions
 
-1. Merge order with PR #46 (#42): merge it first and rebase, or let this change supersede it?
-2. PR #49 must land first, or this PR stacks on `fix/test-harness`. Which?
-3. Should `herdr` stay required, given #27 (native Claude Code mode without herdr)? This design follows the issue and keeps it required.
-4. Exit 1 when uninstall leaves something in place. The issue does not say; this design chooses non-zero so scripts notice.
+- #46 merges first; this change builds on it.
+- This PR stacks on #49.
+- Uninstall exits 1 when it leaves anything in place. It lists every such path with its reason, one per line, e.g. `left: <path> (edited since install)`.
+- When there is no terminal, or stdin hits EOF, every prompt is declined. `--force` backs a target up and never deletes it.
+- Apply verifies each recommended tool's install command against that tool's own docs. A row that cannot be verified stays link-only.
+- The user does the Linux and WSL2 checks by hand.
+
+## Open question
+
+`herdr` stays required, as the issue says, but whether it should is unsettled because of #27 (native Claude Code mode without herdr). The required list is a single variable in install.sh, so #27 can move `herdr` to the recommended table with a one-line change and no other design change. Recommendation: keep it required here and decide in #27.
