@@ -91,6 +91,8 @@ The findings file lists every entry with its result, or `skipped` and the reason
 
 One pull request carries one openspec change. A change is never cut into several pull requests because it runs past a size estimate; a size budget decides at propose time how a ticket splits into changes, not how a change splits into pull requests. Small changes may share one pull request while their combined counted size, measured against the pull request's real base (the base branch, or the branch below it in a stack), stays under `prShareLimit` in `.orca/config.json`. The project's own size tool does the counting. This overrides any project skill that cuts one change into several pull requests by size.
 
+A ticket's branch carries the ticket id from its first push: `orca-lc` reads the ticket from the worktree path or the branch name through `ticketPattern`. Renaming a branch on GitHub closes every open pull request whose head is that branch; it does not carry them over. When a pull request is already open on a branch without the id, keep the name, or tell the user the rename closes the pull request and a new one replaces it before doing it.
+
 ## Posting a review
 
 A review reaches the PR only when the user approves posting it, as one GitHub review:
