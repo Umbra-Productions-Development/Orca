@@ -28,6 +28,8 @@ die() { echo "orca-lc: $*" >&2; exit 1; }
 usage() { echo "orca-lc: $1" >&2; echo "$USAGE" >&2; exit 2; }
 need() { [ -n "${2:-}" ] || usage "missing <$1>"; }
 root() { git rev-parse --show-toplevel 2>/dev/null; }
+# The main checkout, also from a linked worktree: the parent of the common git dir.
+main_root() { local c; c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1; dirname "$c"; }
 gitdir() { git rev-parse --git-dir 2>/dev/null; }
 cfgfile() { local r; r=$(root) || return 1; [ -f "$r/.orca/config.json" ] && echo "$r/.orca/config.json"; }
 cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r "$1 // empty" "$f" 2>/dev/null); echo "${v:-${2:-}}"; }
@@ -233,13 +235,15 @@ cmd_test_lock() { local f; f="$(gitdir)/orca-allow-test-edits"
   case "${1:-status}" in on) touch "$f"; echo "test edits allowed in this worktree";; off) rm -f "$f"; echo "test edits locked";; status) [ -f "$f" ] && echo unlocked || echo locked;; *) usage "test-lock on|off|status";; esac; }
 
 # ---- worktree lifecycle
-wt_dir() { echo "$(dirname "$(root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
+wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
 # The workspace a worktree is open in. Read from `workspace list`: `worktree list` reports a null
 # workspace_id even for worktrees that have one.
 wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspaces[] | select(.worktree.checkout_path==$d) | .workspace_id' | head -1; }
 # Ports a ticket's stack uses: one per name in .ports, from .portScheme. The defaults give
-# 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets.
-ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || return 0
+# 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets. A ticket
+# with no trailing number takes its slot from `cksum` of the uppercased id instead: same scheme, same
+# ports on every run, though two such tickets can share a slot.
+ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr 'a-z' 'A-Z' | cksum | cut -d' ' -f1)
   local base slots step i=0 p; base=$(cfg '.portScheme.base' 3000) slots=$(cfg '.portScheme.slots' 100) step=$(cfg '.portScheme.step' 10)
   for p in $(cfg '.ports[]'); do echo "$(echo "$p" | tr 'a-z-' 'A-Z_')_PORT=$((base + (10#$n % slots) * step + i))"; i=$((i+1)); done; }
 # The worktree's .env.local is the ports' truth once written: they may be edited by hand there.
@@ -256,17 +260,28 @@ wt_link() { local main="$1" dir="$2" p
     elif [ -e "$dir/$p" ]; then echo "note: $dir/$p is a real file, not a link to the main checkout"
     else mkdir -p "$(dirname "$dir/$p")"; ln -s "$main/$p" "$dir/$p"; fi
   done; }
+# Dies unless a stack command can run: its first word past VAR=value prefixes is on PATH or is an
+# executable path, a relative one taken from $2 (the worktree, or the main checkout before it exists).
+stack_check() { local c w; c=$(cfg ".$1"); [ -n "$c" ] || die "--stack needs $1 in .orca/config.json"
+  for w in $c; do case "$w" in *=*) ;; *) break;; esac; done
+  case "$w" in /*) [ -x "$w" ];; */*) [ -x "$2/$w" ];; *) command -v "$w" >/dev/null;; esac || die "$1 command '$w' is missing or not executable; nothing created"; }
 cmd_worktree() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     up)
       need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
       [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(echo "$t" | tr 'A-Z' 'a-z')/work"
-      local main; main=$(root); local dir; dir=$(wt_dir "$t")
+      local main; main=$(main_root) || die "not in a repo"; local dir; dir=$(wt_dir "$t")
+      # Refuse --stack before creating anything when its command cannot run.
+      [ $stack = 1 ] && { if [ -d "$dir" ]; then stack_check stackUp "$dir"; else stack_check stackUp "$main"; fi; }
       if [ ! -d "$dir" ]; then
         # Cut from the remote base: the main checkout's own branch may be stale or somebody else's.
         local base; base="$(cfg '.baseBranch' main)"; git -C "$main" fetch -q origin "$base" 2>/dev/null && base="origin/$base"
-        if inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
+        # Reuse the ticket's branch where it exists: the local one as it is, else track the remote one.
+        git -C "$main" fetch -q origin "$branch" 2>/dev/null
+        if git -C "$main" show-ref -q --verify "refs/heads/$branch"; then git -C "$main" worktree add "$dir" "$branch" || die "git worktree add failed"
+        elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then git -C "$main" worktree add --track -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
+        elif inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
         else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
       fi
       # Every worktree gets its own workspace, grouped under the repository's: open one for a worktree
@@ -275,15 +290,20 @@ cmd_worktree() {
         herdr worktree open --cwd "$main" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree open failed"
       fi
       inherdr && echo "workspace $(wt_ws "$dir")"
-      [ -e "$dir/.orca" ] || ln -s "$(shared)" "$dir/.orca"
+      branch=$(git -C "$dir" branch --show-current)
+      [ -e "$dir/.orca" ] || ln -s "$(cfg '.sharedDir' "$main/.orca")" "$dir/.orca"
       wt_link "$main" "$dir"
       for e in $(cfg '.envFiles[]'); do [ -e "$dir/$e" ] || { [ -f "$main/$e" ] && cp "$main/$e" "$dir/$e"; }; done
       local ports; ports=$(ports_for "$t")
       [ -n "$ports" ] && [ ! -e "$dir/.env.local" ] && echo "$ports" > "$dir/.env.local"
+      # Keep the generated .env.local out of `git status`. info/exclude is shared by every worktree.
+      local ex; ex=$(git -C "$dir" rev-parse --path-format=absolute --git-path info/exclude)
+      mkdir -p "$(dirname "$ex")"; grep -qxF .env.local "$ex" 2>/dev/null || echo .env.local >> "$ex"
       echo "worktree $dir on $branch${ports:+; ports $(echo $(stack_ports "$t"))}"
       if [ $stack = 1 ]; then
-        [ -n "$(cfg '.stackUp')" ] || die "--stack needs stackUp in .orca/config.json"
-        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed"
+        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed; worktree $dir on $branch is in place without a stack.
+  retry:     orca-lc worktree up $t --stack
+  tear down: orca-lc worktree down $t --force"
         # The stack's data can predate this branch's migrations.
         if [ -z "$(cfg '.migrateCommand')" ]; then echo "note: no migrateCommand; the stack's data may be behind this branch's migrations"
         else stack_run "$t" "$dir" migrateCommand && echo "migrated" || echo "WARNING: migrateCommand failed"; fi
@@ -300,8 +320,9 @@ cmd_worktree() {
       stack_run "$t" "$dir" stackDown
       rm -f "$dir/.orca"; for p in $(cfg '.linkPaths[]'); do [ -L "$dir/$p" ] && rm -f "$dir/$p"; done
       if inherdr; then local ws; ws=$(wt_ws "$dir"); [ -n "$ws" ] && herdr worktree remove --workspace "$ws" --force >/dev/null 2>&1; fi
-      [ -d "$dir" ] && git -C "$(root)" worktree remove --force "$dir"
-      git -C "$(root)" branch -D "$branch" >/dev/null 2>&1 && echo "local branch $branch deleted"
+      local main; main=$(main_root)
+      [ -d "$dir" ] && git -C "$main" worktree remove --force "$dir"
+      git -C "$main" branch -D "$branch" >/dev/null 2>&1 && echo "local branch $branch deleted"
       echo "torn down $t; remote branch untouched" ;;
     *) usage "worktree up|down";;
   esac
