@@ -3,6 +3,11 @@ ORCA_SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 export PATH="$ORCA_SRC/bin:$PATH" HERDR_ENV=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 unset ORCA_ROLE HERDR_PANE_ID HERDR_WORKSPACE_ID HERDR_TAB_ID CLAUDE_SESSION_ID
+# Every mktemp lands under one dir, removed on exit; HOME sits there too, so nothing reads or writes ~.
+TMPDIR=$(mktemp -d); export TMPDIR HOME="$TMPDIR/home"; mkdir "$HOME"; trap 'rm -rf "$TMPDIR"' EXIT
+# codegraph and codebase-memory-mcp are stubbed: worktree up would index each temp repo into the real store.
+mkdir "$TMPDIR/bin"; for t in codegraph codebase-memory-mcp; do printf '#!/bin/sh\nexit 0\n' > "$TMPDIR/bin/$t"; chmod +x "$TMPDIR/bin/$t"; done
+export PATH="$TMPDIR/bin:$PATH"
 
 fails=0
 fail() { echo "  FAIL: $*"; fails=$((fails+1)); }
