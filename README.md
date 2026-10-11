@@ -49,7 +49,7 @@ git clone https://github.com/Umbra-Productions-Development/Orca.git
 cd Orca && ./install.sh
 ```
 
-`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling.
+`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling. When the links already point at another checkout it changes nothing and says so; `./install.sh --force` moves the install to the checkout it runs from.
 
 ## Quickstart
 
@@ -86,7 +86,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `linkPaths` | Untracked paths each worktree links back to the main checkout |
 | `envCommand` | Command printing the worktree stack's env vars for the gate |
 | `ports` | Port names a ticket's stack needs; each becomes `<NAME>_PORT` in the worktree's `.env.local` |
-| `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10` |
+| `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10`. A ticket id with no trailing number uses `cksum` of the uppercased id in place of the number |
 | `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET`, `ORCA_WORKTREE` and the ports exported |
 | `migrateCommand` | Command run after `stackUp` |
 | `stackTool` | What `orca-lc stack` drives: `gh-stack` ([github/gh-stack](https://github.com/github/gh-stack)), `git` (plain git + `gh pr`), or `auto` (gh-stack when installed). Default `auto` |
