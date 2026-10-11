@@ -10,6 +10,7 @@ USAGE='usage: orca-lc <command> [args]
   evidence [base]                  write blast radius + affected tests for the diff
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
+  ticket                           ticket of this directory or its branch, empty when none
   notify <target> <text>           message a peer: session id/prefix, name, pane id, or ticket [--role r]
   inbox send <ticket> <text>|read  queue for a ticket with no live session / drain
   handoff write <t> <role>|read <t> [role]|list|consume <file>
@@ -22,12 +23,15 @@ USAGE='usage: orca-lc <command> [args]
   worktree up <ticket> [branch] [--stack] | down <ticket> [--force]
   role start <ticket> <role> < body   tab + named agent + handoff (body on stdin) + first prompt
   role owner <ticket> [--set <role>]  the role that owns the ticket now
+  stack add <change>|list|rebase|prs  stacked PRs: a branch per change in this worktree
   config <key>                     read a key from .orca/config.json'
 
 die() { echo "orca-lc: $*" >&2; exit 1; }
 usage() { echo "orca-lc: $1" >&2; echo "$USAGE" >&2; exit 2; }
 need() { [ -n "${2:-}" ] || usage "missing <$1>"; }
 root() { git rev-parse --show-toplevel 2>/dev/null; }
+# The main checkout, also from a linked worktree: the parent of the common git dir.
+main_root() { local c; c=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || return 1; dirname "$c"; }
 gitdir() { git rev-parse --git-dir 2>/dev/null; }
 cfgfile() { local r; r=$(root) || return 1; [ -f "$r/.orca/config.json" ] && echo "$r/.orca/config.json"; }
 cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r "$1 // empty" "$f" 2>/dev/null); echo "${v:-${2:-}}"; }
@@ -225,7 +229,8 @@ cmd_tidy() { local days; days=$(cfg '.handoffArchiveDays' 7); local d; d="$(shar
 
 # gh as the repository's own account: a token exported by the repo's direnv .envrc only reaches
 # shells that loaded it. Version-manager shims such as mise may print a banner on stdout.
-ghx() { if command -v direnv >/dev/null; then direnv exec "$(root)" gh "$@"; else gh "$@"; fi | grep -v '^mise'; }
+# The exit status is gh's: grep finding no line to print is not a failure.
+ghx() { if command -v direnv >/dev/null; then direnv exec "$(root)" gh "$@"; else gh "$@"; fi | { grep -v '^mise' || true; }; }
 cmd_review_queue() { local me; me=$(ghx api user -q .login 2>/dev/null)
   ghx pr list --state open --json number,title,author,isDraft,reviews,updatedAt --limit 50 2>/dev/null | jq -r --arg me "$me" '.[] | select(.isDraft|not) | select(.author.login != $me) | select([.reviews[]?.author.login] | index($me) | not) | "#\(.number)  \(.author.login)  \(.updatedAt[:10])  \(.title)"'; }
 
@@ -233,13 +238,15 @@ cmd_test_lock() { local f; f="$(gitdir)/orca-allow-test-edits"
   case "${1:-status}" in on) touch "$f"; echo "test edits allowed in this worktree";; off) rm -f "$f"; echo "test edits locked";; status) [ -f "$f" ] && echo unlocked || echo locked;; *) usage "test-lock on|off|status";; esac; }
 
 # ---- worktree lifecycle
-wt_dir() { echo "$(dirname "$(root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
+wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
 # The workspace a worktree is open in. Read from `workspace list`: `worktree list` reports a null
 # workspace_id even for worktrees that have one.
 wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspaces[] | select(.worktree.checkout_path==$d) | .workspace_id' | head -1; }
 # Ports a ticket's stack uses: one per name in .ports, from .portScheme. The defaults give
-# 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets.
-ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || return 0
+# 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets. A ticket
+# with no trailing number takes its slot from `cksum` of the uppercased id instead: same scheme, same
+# ports on every run, though two such tickets can share a slot.
+ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr 'a-z' 'A-Z' | cksum | cut -d' ' -f1)
   local base slots step i=0 p; base=$(cfg '.portScheme.base' 3000) slots=$(cfg '.portScheme.slots' 100) step=$(cfg '.portScheme.step' 10)
   for p in $(cfg '.ports[]'); do echo "$(echo "$p" | tr 'a-z-' 'A-Z_')_PORT=$((base + (10#$n % slots) * step + i))"; i=$((i+1)); done; }
 # The worktree's .env.local is the ports' truth once written: they may be edited by hand there.
@@ -256,17 +263,28 @@ wt_link() { local main="$1" dir="$2" p
     elif [ -e "$dir/$p" ]; then echo "note: $dir/$p is a real file, not a link to the main checkout"
     else mkdir -p "$(dirname "$dir/$p")"; ln -s "$main/$p" "$dir/$p"; fi
   done; }
+# Dies unless a stack command can run: its first word past VAR=value prefixes is on PATH or is an
+# executable path, a relative one taken from $2 (the worktree, or the main checkout before it exists).
+stack_check() { local c w; c=$(cfg ".$1"); [ -n "$c" ] || die "--stack needs $1 in .orca/config.json"
+  for w in $c; do case "$w" in *=*) ;; *) break;; esac; done
+  case "$w" in /*) [ -x "$w" ];; */*) [ -x "$2/$w" ];; *) command -v "$w" >/dev/null;; esac || die "$1 command '$w' is missing or not executable; nothing created"; }
 cmd_worktree() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     up)
       need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
       [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(echo "$t" | tr 'A-Z' 'a-z')/work"
-      local main; main=$(root); local dir; dir=$(wt_dir "$t")
+      local main; main=$(main_root) || die "not in a repo"; local dir; dir=$(wt_dir "$t")
+      # Refuse --stack before creating anything when its command cannot run.
+      [ $stack = 1 ] && { if [ -d "$dir" ]; then stack_check stackUp "$dir"; else stack_check stackUp "$main"; fi; }
       if [ ! -d "$dir" ]; then
         # Cut from the remote base: the main checkout's own branch may be stale or somebody else's.
         local base; base="$(cfg '.baseBranch' main)"; git -C "$main" fetch -q origin "$base" 2>/dev/null && base="origin/$base"
-        if inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
+        # Reuse the ticket's branch where it exists: the local one as it is, else track the remote one.
+        git -C "$main" fetch -q origin "$branch" 2>/dev/null
+        if git -C "$main" show-ref -q --verify "refs/heads/$branch"; then git -C "$main" worktree add "$dir" "$branch" || die "git worktree add failed"
+        elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then git -C "$main" worktree add --track -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
+        elif inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
         else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
       fi
       # Every worktree gets its own workspace, grouped under the repository's: open one for a worktree
@@ -275,15 +293,20 @@ cmd_worktree() {
         herdr worktree open --cwd "$main" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree open failed"
       fi
       inherdr && echo "workspace $(wt_ws "$dir")"
-      [ -e "$dir/.orca" ] || ln -s "$(shared)" "$dir/.orca"
+      branch=$(git -C "$dir" branch --show-current)
+      [ -e "$dir/.orca" ] || ln -s "$(cfg '.sharedDir' "$main/.orca")" "$dir/.orca"
       wt_link "$main" "$dir"
       for e in $(cfg '.envFiles[]'); do [ -e "$dir/$e" ] || { [ -f "$main/$e" ] && cp "$main/$e" "$dir/$e"; }; done
       local ports; ports=$(ports_for "$t")
       [ -n "$ports" ] && [ ! -e "$dir/.env.local" ] && echo "$ports" > "$dir/.env.local"
+      # Keep the generated .env.local out of `git status`. info/exclude is shared by every worktree.
+      local ex; ex=$(git -C "$dir" rev-parse --path-format=absolute --git-path info/exclude)
+      mkdir -p "$(dirname "$ex")"; grep -qxF .env.local "$ex" 2>/dev/null || echo .env.local >> "$ex"
       echo "worktree $dir on $branch${ports:+; ports $(echo $(stack_ports "$t"))}"
       if [ $stack = 1 ]; then
-        [ -n "$(cfg '.stackUp')" ] || die "--stack needs stackUp in .orca/config.json"
-        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed"
+        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed; worktree $dir on $branch is in place without a stack.
+  retry:     orca-lc worktree up $t --stack
+  tear down: orca-lc worktree down $t --force"
         # The stack's data can predate this branch's migrations.
         if [ -z "$(cfg '.migrateCommand')" ]; then echo "note: no migrateCommand; the stack's data may be behind this branch's migrations"
         else stack_run "$t" "$dir" migrateCommand && echo "migrated" || echo "WARNING: migrateCommand failed"; fi
@@ -300,10 +323,126 @@ cmd_worktree() {
       stack_run "$t" "$dir" stackDown
       rm -f "$dir/.orca"; for p in $(cfg '.linkPaths[]'); do [ -L "$dir/$p" ] && rm -f "$dir/$p"; done
       if inherdr; then local ws; ws=$(wt_ws "$dir"); [ -n "$ws" ] && herdr worktree remove --workspace "$ws" --force >/dev/null 2>&1; fi
-      [ -d "$dir" ] && git -C "$(root)" worktree remove --force "$dir"
-      git -C "$(root)" branch -D "$branch" >/dev/null 2>&1 && echo "local branch $branch deleted"
+      local main; main=$(main_root)
+      [ -d "$dir" ] && git -C "$main" worktree remove --force "$dir"
+      git -C "$main" branch -D "$branch" >/dev/null 2>&1 && echo "local branch $branch deleted"
       echo "torn down $t; remote branch untouched" ;;
     *) usage "worktree up|down";;
+  esac
+}
+
+# ---- stacked PRs: one branch per change, each cut from the one below, all in the current worktree.
+# gh stack (github/gh-stack) does the work when installed. Without it, git config records each
+# branch's parent (branch.<b>.orcaParent) and the parent's tip when the branch was cut or last
+# rebased (branch.<b>.orcaParentTip): rebase --onto from that tip replays only the branch's own
+# commits, so a squash-merged parent drops out of the stack.
+stack_tool() { local t; t=$(cfg '.stackTool' auto); [ "$t" = auto ] || { echo "$t"; return; }
+  if ghx extension list 2>/dev/null | grep -q 'gh-stack'; then echo gh-stack; else echo git; fi; }
+stack_parent() { git config "branch.$1.orcaParent"; }
+stack_child() { git config --get-regexp '^branch\..*\.orcaparent$' | awk -v p="$1" '$2==p { sub(/^branch\./, "", $1); sub(/\.orcaparent$/, "", $1); print $1 }'; }
+# The stack the current branch is in, bottom first: down to the branch on the base, then up.
+stack_branches() { local b p; b=$(git branch --show-current); [ -n "$(stack_parent "$b")" ] || return 0
+  while p=$(stack_parent "$b"); [ -n "$(stack_parent "$p")" ]; do b="$p"; done
+  while [ -n "$b" ]; do echo "$b"; b=$(stack_child "$b" | head -1); done; }
+pr_state() { ghx pr list --head "$1" --state all --json state -q '.[0].state // ""' 2>/dev/null; }
+stack_forget() { git config --unset "branch.$1.orcaParent"; git config --unset "branch.$1.orcaParentTip"; }
+cmd_stack() {
+  local sub="${1:-}"; shift || true
+  local base cur tool; base=$(cfg '.baseBranch' main); cur=$(git branch --show-current); tool=$(stack_tool)
+  case "$sub" in
+    add)
+      need change "${1:-}"; [ -n "$cur" ] || die "not on a branch"
+      [ "$cur" != "$base" ] || die "a stack starts on a ticket branch, not $base (orca-lc worktree up <ticket>)"
+      # Named like the branch below: abc-12/work -> abc-12/<change>.
+      local b; case "$cur" in */*) b="${cur%/*}/$1";; *) b=$(ticket); b="${b:+$b/}$1";; esac
+      git show-ref -q --verify "refs/heads/$b" && die "branch $b exists"
+      git check-ref-format --branch "$b" >/dev/null 2>&1 || die "$b is not a valid branch name"
+      if [ "$tool" = gh-stack ]; then
+        # gh-stack exits 2 for "not in a stack / stack not found" (its README's exit code table); any
+        # other failure (auth, network) must not start a second stack.
+        local vs=0; ghx stack view --json >/dev/null 2>&1 || vs=$?
+        case $vs in
+          0) ghx stack add "$b" >/dev/null || die "gh stack add $b failed" ;;
+          # One init adopts $cur and creates $b: no stack left behind with $b missing.
+          2) ghx stack init --base "$base" "$cur" "$b" >/dev/null || die "gh stack init failed"
+             git checkout -q "$b" || die "git checkout $b failed" ;;
+          *) die "gh stack view failed (exit $vs): can't tell whether $cur is already in a stack" ;;
+        esac
+      else
+        # A second child would fork the stack; stack_branches, rebase and prs follow one child only.
+        local up; up=$(stack_child "$cur" | head -1)
+        [ -z "$up" ] || die "$cur already has $up above it: add from the top of the stack"
+        # Branch first: a name git refuses (abc-12/x next to abc-12) leaves no stack config behind.
+        git checkout -q -b "$b" || die "git checkout -b $b failed"
+        if [ -z "$(stack_parent "$cur")" ]; then
+          git config "branch.$cur.orcaParent" "$base"
+          git config "branch.$cur.orcaParentTip" "$(git merge-base "$cur" "origin/$base" 2>/dev/null || git merge-base "$cur" "$base")"
+        fi
+        git config "branch.$b.orcaParent" "$cur"; git config "branch.$b.orcaParentTip" "$(git rev-parse "$cur")"
+      fi
+      echo "stack: $b on $cur";;
+    list)
+      [ "$tool" = gh-stack ] && { ghx stack view --short; return; }
+      local bs b; bs=$(stack_branches); [ -n "$bs" ] || { echo "orca-lc: $cur is not in a stack (orca-lc stack add <change>)"; return 0; }
+      for b in $bs; do
+        local pr; pr=$(ghx pr list --head "$b" --state all --json number,state,baseRefName -q '.[0] | select(.) | "#\(.number) \(.state) on \(.baseRefName)"' 2>/dev/null)
+        echo "$([ "$b" = "$cur" ] && echo '*' || echo ' ') $b <- $(stack_parent "$b")${pr:+  $pr}"
+      done;;
+    rebase)
+      git fetch -q origin || die "git fetch failed"
+      [ "$tool" = gh-stack ] && { ghx stack rebase; return; }
+      [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] && die "a rebase is in progress: finish it (git rebase --continue) and rerun"
+      [ -z "$(git status --porcelain --untracked-files=no)" ] || die "uncommitted changes: commit them before rebasing the stack"
+      local bs b p op tip mb onto; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
+      for b in $bs; do
+        # A merged branch leaves the stack; the branch above moves onto what it merged into.
+        [ "$(pr_state "$b")" = MERGED ] && { echo "$b merged; local branch kept"; continue; }
+        p=$(stack_parent "$b"); op="$p"; [ "$op" = "$base" ] && op="origin/$base"
+        while [ "$p" != "$base" ] && [ "$(pr_state "$p")" = MERGED ]; do
+          local pp; pp=$(stack_parent "$p"); git config "branch.$b.orcaParent" "$pp"; stack_forget "$p"; p="$pp"
+        done
+        tip=$(git config "branch.$b.orcaParentTip"); onto="$p"; [ "$p" = "$base" ] && onto="origin/$base"
+        # A hand-rebase (or a lost key) leaves the tip stale: off the branch, or behind where the branch
+        # now forks from its old parent. Take whichever of the two is further along.
+        mb=$(git merge-base "$op" "$b" 2>/dev/null)
+        if [ -z "$tip" ] || ! git merge-base --is-ancestor "$tip" "$b" 2>/dev/null || { [ -n "$mb" ] && git merge-base --is-ancestor "$tip" "$mb"; }; then tip="$mb"; fi
+        # Already on top also covers a branch whose conflicted rebase was finished by hand.
+        if ! git merge-base --is-ancestor "$onto" "$b"; then
+          git rebase -q --onto "$onto" "${tip:-$onto}" "$b" || die "rebasing $b onto $p stopped on a conflict: resolve it, git rebase --continue, then rerun orca-lc stack rebase"
+        fi
+        git config "branch.$b.orcaParentTip" "$(git rev-parse "$onto")"; echo "$b on $p"
+      done
+      # Back where we started, or on the top of the stack when that branch merged. A merged branch
+      # no child moved off (the top) leaves the stack here, or prs would refuse it forever.
+      local top=""; for b in $bs; do
+        if [ "$(pr_state "$b")" = MERGED ]; then [ -z "$(stack_parent "$b")" ] || stack_forget "$b"; else top="$b"; fi
+      done
+      [ "$(pr_state "$cur")" = MERGED ] && cur="${top:-$base}"
+      git checkout -q "$cur";;
+    prs)
+      # The top branch carries every change below it: its gate marker stands for the stack.
+      if [ "$tool" = gh-stack ]; then
+        ghx stack top >/dev/null || die "gh stack top failed"
+        local top; top=$(git branch --show-current)
+        [ "$top" = "$cur" ] || die "the gate on $cur doesn't cover the branches above it: now on $top, the top of the stack; run orca-lc gate, then rerun"
+      fi
+      cmd_gate_fresh || die "gate marker missing or stale for this tree: run orca-lc gate before opening the stack's PRs"
+      [ "$tool" = gh-stack ] && { ghx stack submit --auto; return; }
+      local bs b p; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
+      [ "$cur" = "$(tail -1 <<<"$bs")" ] || die "the gate on $cur doesn't cover the branches above it: check out $(tail -1 <<<"$bs"), run orca-lc gate, then rerun"
+      local gv; gv=$(git version | awk '{print $3}')
+      [ "$(printf '2.30\n%s\n' "$gv" | sort -V | head -1)" = 2.30 ] || die "git $gv is too old: stack prs needs git 2.30+ for --force-if-includes"
+      for b in $bs; do
+        [ "$(pr_state "$b")" = MERGED ] && die "$b is merged: run orca-lc stack rebase first"
+        p=$(stack_parent "$b")
+        # The lease alone passes after a fetch; --force-if-includes also needs the fetched tip in $b's history.
+        git push -q --force-with-lease --force-if-includes -u origin "$b" || die "push of $b failed: someone else pushed to it? fetch and integrate their commits, then rerun"
+        local pr; pr=$(ghx pr list --head "$b" --state open --json number,baseRefName -q '.[0] | select(.) | "\(.number) \(.baseRefName)"')
+        if [ -z "$pr" ]; then ghx pr create --draft --base "$p" --head "$b" --fill >/dev/null || die "gh pr create for $b failed"; echo "$b: draft PR opened on $p"
+        elif [ "${pr#* }" != "$p" ]; then ghx pr edit "${pr%% *}" --base "$p" >/dev/null || die "gh pr edit #${pr%% *} failed"; echo "$b: #${pr%% *} base ${pr#* } -> $p"
+        else echo "$b: #${pr%% *} on $p"; fi
+      done;;
+    *) usage "stack add|list|rebase|prs";;
   esac
 }
 
@@ -361,5 +500,6 @@ case "$cmd" in
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
+  stack) cmd_stack "$@";; ticket) ticket;;
   *) usage "unknown command '$cmd'";;
 esac
