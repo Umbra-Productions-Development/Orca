@@ -100,6 +100,8 @@ Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an 
 
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) for goals, rules and how changes land.
 
+Run the tests with `bash tests/run.sh`, or name files to run only those. The suite needs only bash, git and jq; each file runs in throwaway repos under a temp dir with its own `HOME`.
+
 Turn on the leak check once per clone: `git config core.hooksPath .githooks`. The pre-push hook refuses commits carrying any term from `~/.config/orca/denylist` or `.orca/denylist`, both untracked. Syntax follows `.gitignore`: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, last match wins; matching ignores case and hits whole words only.
 
 ## License
