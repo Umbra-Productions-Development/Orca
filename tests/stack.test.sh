@@ -100,10 +100,16 @@ git checkout -q -b abc-2/one; commit one
 # gh stack view failing for another reason (not exit 2) must not start a stack.
 touch "$GH_STUB/view-fails"; out=$(orca-lc stack add two 2>&1); assert_status $? 1 "stack add when view fails: $out"
 assert_not_contains "$(cat "$GH_STUB/calls")" "stack init"; rm "$GH_STUB/view-fails"
-orca-lc stack add two >/dev/null || fail "native stack add failed"
-orca-lc stack add three >/dev/null; orca-lc stack list >/dev/null; orca-lc gate >/dev/null; orca-lc stack prs >/dev/null; orca-lc stack rebase >/dev/null
+orca-lc stack add two >/dev/null || fail "native stack add failed"; assert_eq "$(git branch --show-current)" abc-2/two
+orca-lc stack add three >/dev/null; orca-lc stack list >/dev/null
+# Off the top, prs goes to the top through gh stack and stops before submitting what the gate didn't cover.
+echo abc-2/three > "$GH_STUB/top"; git checkout -q abc-2/two; orca-lc gate >/dev/null
+out=$(orca-lc stack prs 2>&1); assert_status $? 1 "native prs off the top: $out"; assert_contains "$out" "abc-2/three"
+assert_not_contains "$(cat "$GH_STUB/calls")" "stack submit"; assert_eq "$(git branch --show-current)" abc-2/three
+orca-lc gate >/dev/null; orca-lc stack prs >/dev/null; orca-lc stack rebase >/dev/null
 c=$(grep '^stack' "$GH_STUB/calls")
-assert_contains "$c" "stack init --base main abc-2/one"; assert_eq "$(grep -c '^stack init' <<<"$c")" 1 "init once: $c"
-assert_contains "$c" "stack add abc-2/two"; assert_contains "$c" "stack add abc-2/three"
+# One init that creates two along with it: no window where init succeeded and add failed.
+assert_contains "$c" "stack init --base main abc-2/one abc-2/two"; assert_eq "$(grep -c '^stack init' <<<"$c")" 1 "init once: $c"
+assert_not_contains "$c" "stack add abc-2/two"; assert_contains "$c" "stack add abc-2/three"
 assert_contains "$c" "stack view --short"; assert_contains "$c" "stack submit --auto"; assert_contains "$c" "stack rebase"
 assert_not_contains "$(cat "$GH_STUB/calls")" "pr create"

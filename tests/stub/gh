@@ -15,7 +15,11 @@ case "$1 ${2:-}" in
   "pr edit") save --argjson n "$3" --arg b "$(arg --base "$@")" 'map(if .number==$n then .baseRefName=$b else . end)';;
   # Like gh-stack: exit 2 when not in a stack. $GH_STUB/view-fails forces another failure (auth, network).
   "stack view") [ -f "$s/view-fails" ] && exit 1; [ "${3:-}" = --short ] || [ -f "$s/stack" ] || exit 2;;
-  "stack init") touch "$s/stack";;
+  # Like gh-stack: init adopts the branches named and creates the missing ones; add creates and checks out.
+  "stack init") touch "$s/stack"; shift 2
+    while [ $# -gt 0 ]; do case "$1" in --base) shift 2;; *) git show-ref -q --verify "refs/heads/$1" || git branch -q "$1"; shift;; esac; done;;
+  "stack add") git checkout -q -b "$3";;
+  "stack top") [ -f "$s/top" ] && git checkout -q "$(cat "$s/top")"; :;;
   stack\ *) ;;
   *) echo "gh stub: unhandled: $*" >&2; exit 1;;
 esac

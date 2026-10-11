@@ -336,14 +336,16 @@ cmd_stack() {
       git show-ref -q --verify "refs/heads/$b" && die "branch $b exists"
       git check-ref-format --branch "$b" >/dev/null 2>&1 || die "$b is not a valid branch name"
       if [ "$tool" = gh-stack ]; then
-        # gh-stack exits 2 for "not in a stack"; any other failure (auth, network) must not start a second stack.
+        # gh-stack exits 2 for "not in a stack / stack not found" (its README's exit code table); any
+        # other failure (auth, network) must not start a second stack.
         local vs=0; ghx stack view --json >/dev/null 2>&1 || vs=$?
         case $vs in
-          0) ;;
-          2) ghx stack init --base "$base" "$cur" >/dev/null || die "gh stack init failed" ;;
+          0) ghx stack add "$b" >/dev/null || die "gh stack add $b failed" ;;
+          # One init adopts $cur and creates $b: no stack left behind with $b missing.
+          2) ghx stack init --base "$base" "$cur" "$b" >/dev/null || die "gh stack init failed"
+             git checkout -q "$b" || die "git checkout $b failed" ;;
           *) die "gh stack view failed (exit $vs): can't tell whether $cur is already in a stack" ;;
         esac
-        ghx stack add "$b" >/dev/null || die "gh stack add $b failed"
       else
         # A second child would fork the stack; stack_branches, rebase and prs follow one child only.
         local up; up=$(stack_child "$cur" | head -1)
@@ -396,7 +398,12 @@ cmd_stack() {
       [ "$(pr_state "$cur")" = MERGED ] && cur="${top:-$base}"
       git checkout -q "$cur";;
     prs)
-      # The branch checked out carries every change below it: its gate marker stands for the stack.
+      # The top branch carries every change below it: its gate marker stands for the stack.
+      if [ "$tool" = gh-stack ]; then
+        ghx stack top >/dev/null || die "gh stack top failed"
+        local top; top=$(git branch --show-current)
+        [ "$top" = "$cur" ] || die "the gate on $cur doesn't cover the branches above it: now on $top, the top of the stack; run orca-lc gate, then rerun"
+      fi
       cmd_gate_fresh || die "gate marker missing or stale for this tree: run orca-lc gate before opening the stack's PRs"
       [ "$tool" = gh-stack ] && { ghx stack submit --auto; return; }
       local bs b p; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
