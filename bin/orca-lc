@@ -394,6 +394,7 @@ cmd_stack() {
       cmd_gate_fresh || die "gate marker missing or stale for this tree: run orca-lc gate before opening the stack's PRs"
       [ "$tool" = gh-stack ] && { ghx stack submit --auto; return; }
       local bs b p; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
+      [ "$cur" = "$(tail -1 <<<"$bs")" ] || die "the gate on $cur doesn't cover the branches above it: check out $(tail -1 <<<"$bs"), run orca-lc gate, then rerun"
       for b in $bs; do
         [ "$(pr_state "$b")" = MERGED ] && die "$b is merged: run orca-lc stack rebase first"
         p=$(stack_parent "$b")

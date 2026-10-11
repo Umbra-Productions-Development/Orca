@@ -21,6 +21,10 @@ l=$(orca-lc stack list); assert_contains "$l" "  abc-1/one <- main"; assert_cont
 assert_eq "$(grep -c . <<<"$l")" 3 "list: $l"
 
 out=$(orca-lc stack prs 2>&1); assert_status $? 1 "prs without a gate: $out"; assert_contains "$out" "gate"
+# A gate on a lower branch says nothing about the branches above it, which prs would push too.
+git checkout -q abc-1/two; orca-lc gate >/dev/null
+out=$(orca-lc stack prs 2>&1); assert_status $? 1 "prs off the top: $out"; assert_contains "$out" "abc-1/three"
+assert_eq "$(git ls-remote --heads origin 'abc-1/*' | wc -l)" 0 "nothing pushed off the top"; git checkout -q abc-1/three
 orca-lc gate >/dev/null; orca-lc stack prs >/dev/null || fail "stack prs failed"
 assert_eq "$(base_of abc-1/one)/$(base_of abc-1/two)/$(base_of abc-1/three)" "main/abc-1/one/abc-1/two"
 assert_eq "$(git ls-remote --heads origin 'abc-1/*' | wc -l)" 3
