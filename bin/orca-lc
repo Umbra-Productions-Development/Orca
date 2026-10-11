@@ -358,15 +358,17 @@ cmd_stack() {
       [ "$tool" = gh-stack ] && { ghx stack rebase; return; }
       [ -d "$(git rev-parse --git-path rebase-merge)" ] || [ -d "$(git rev-parse --git-path rebase-apply)" ] && die "a rebase is in progress: finish it (git rebase --continue) and rerun"
       [ -z "$(git status --porcelain --untracked-files=no)" ] || die "uncommitted changes: commit them before rebasing the stack"
-      local bs b p tip onto; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
+      local bs b p op tip onto; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
       for b in $bs; do
         # A merged branch leaves the stack; the branch above moves onto what it merged into.
         [ "$(pr_state "$b")" = MERGED ] && { echo "$b merged; local branch kept"; continue; }
-        p=$(stack_parent "$b")
+        p=$(stack_parent "$b"); op="$p"; [ "$op" = "$base" ] && op="origin/$base"
         while [ "$p" != "$base" ] && [ "$(pr_state "$p")" = MERGED ]; do
           local pp; pp=$(stack_parent "$p"); git config "branch.$b.orcaParent" "$pp"; stack_forget "$p"; p="$pp"
         done
         tip=$(git config "branch.$b.orcaParentTip"); onto="$p"; [ "$p" = "$base" ] && onto="origin/$base"
+        # A hand-rebase (or a lost key) leaves the tip off the branch: use where it forks from its old parent.
+        if [ -z "$tip" ] || ! git merge-base --is-ancestor "$tip" "$b" 2>/dev/null; then tip=$(git merge-base "$op" "$b" 2>/dev/null); fi
         # Already on top also covers a branch whose conflicted rebase was finished by hand.
         if ! git merge-base --is-ancestor "$onto" "$b"; then
           git rebase -q --onto "$onto" "${tip:-$onto}" "$b" || die "rebasing $b onto $p stopped on a conflict: resolve it, git rebase --continue, then rerun orca-lc stack rebase"

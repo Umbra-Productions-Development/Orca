@@ -41,6 +41,19 @@ assert_eq "$(base_of abc-1/two)/$(base_of abc-1/three)" "main/abc-1/two" "no man
 assert_eq "$(jq length "$GH_STUB/prs.json")" 3 "no duplicate PRs"
 assert_eq "$(git rev-parse origin/abc-1/three)" "$(git rev-parse abc-1/three)" "rebased branches pushed"
 
+# ---- a hand-rebase leaves orcaParentTip stale: the upstream falls back to the old parent branch
+r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1
+git checkout -q -b abc-3/one; commit one; echo fixup >> one; git commit -qam "one fixup"
+orca-lc stack add two >/dev/null; commit two
+# Review rewrites one's history (its first commit amended), then two is moved by hand.
+git checkout -q abc-3/one; old=$(git rev-parse HEAD); git reset -q --hard HEAD~2
+echo amended > one; git add one; git commit -qm one; echo fixup >> one; git commit -qam "one fixup"
+git rebase -q --onto abc-3/one "$old" abc-3/two
+orca-lc gate >/dev/null; orca-lc stack prs >/dev/null || fail "stack prs after hand-rebase failed"
+squash_merge abc-3/one
+out=$(orca-lc stack rebase 2>&1) || fail "stack rebase with a stale tip failed: $out"
+assert_eq "$(git log --format=%s origin/main..abc-3/two)" two "two holds only its own commit after a hand-rebase"
+
 # ---- gh stack installed: orca-lc delegates
 GH_STUB=$(mktemp -d); echo "gh stack  github/gh-stack  v1.0.0" > "$GH_STUB/extensions"
 r=$(new_repo '{"project":"p","gate":"true"}'); cd "$r" || exit 1
