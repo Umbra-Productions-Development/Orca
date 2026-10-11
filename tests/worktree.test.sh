@@ -1,5 +1,7 @@
 # orca-lc worktree up/down (git path; lib.sh sets HERDR_ENV=0)
 cfg='{"project":"p","gate":"true","ports":["web","db"]}'
+# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 
 # Ports: a trailing number gives its slot; an id without one hashes to a fixed slot (cksum of the uppercased id)
 r=$(new_repo "$cfg"); d=$(dirname "$r")
@@ -35,7 +37,7 @@ out=$(cd "$r" && orca-lc worktree up S-6 --stack 2>&1); assert_status $? 1; asse
 # --stack whose command fails after creation: says what exists, how to retry or tear down, exits non-zero
 r=$(new_repo '{"project":"p","gate":"true","stackUp":"false"}'); d=$(dirname "$r")
 out=$(cd "$r" && orca-lc worktree up S-7 --stack 2>&1); assert_status $? 1
-assert_contains "$out" "worktree $d/S-7 on s-7/work"
+assert_contains "$out" "worktree $(native "$d")/S-7 on s-7/work"
 assert_contains "$out" "orca-lc worktree up S-7 --stack"
 assert_contains "$out" "orca-lc worktree down S-7 --force"
 [ -d "$d/S-7" ] || fail "worktree missing after stackUp failure"
@@ -58,6 +60,9 @@ r=$(new_repo '{"project":"p","gate":"true","linkPaths":[".secret"]}'); d=$(dirna
 echo s > "$r/.secret"; mkdir -p "$d/nest"; git -C "$r" worktree add -q -b lnk "$d/nest/L"
 out=$(cd "$d/nest/L" && orca-lc worktree up L-1 2>&1); assert_status $? 0
 [ -d "$d/L-1" ] || fail "worktree not next to the main checkout: $out"; [ ! -e "$d/nest/L-1" ] || fail "worktree next to the linked one"
-assert_eq "$(readlink "$d/L-1/.secret")" "$r/.secret"
+# Git Bash without native symlinks makes ln -s copy: nothing to readlink there, so the link assert is skipped.
+if ln -s "$r/.secret" "$d/probe" 2>/dev/null && [ -L "$d/probe" ]; then
+  assert_eq "$(native "$(readlink "$d/L-1/.secret")")" "$(native "$r/.secret")"
+else echo "  SKIP: ln -s copies here (no native symlinks); linkPaths link assert skipped"; fi
 out=$(cd "$d/nest/L" && orca-lc worktree down L-1 --force 2>&1); assert_status $? 0
 [ ! -e "$d/L-1" ] || fail "down left $d/L-1: $out"
