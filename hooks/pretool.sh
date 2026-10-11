@@ -16,7 +16,7 @@ case "$tool" in
     if grep -qE '(^|[;&|]\s*)git\s+push\b' <<<"$cmd"; then
       orca-lc gate-fresh || block "git push blocked: gate marker missing or stale for this tree. Run 'orca-lc gate' and push only after it passes"
     fi
-    grep -qE '(^|[;&|]\s*)git\s+merge\b' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
+    grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     if grep -qE '(^|[;&|]\s*)git\s+commit\b' <<<"$cmd"; then
       me=$(orca-lc name 2>/dev/null); r=$(jq -r '.role // ""' <<<"$me")
       case "$r" in ""|session|orchestrator) ;; *) advise "Once this commit lands, report it: orca-lc notify $(jq -r .ticket <<<"$me") --role orchestrator \"<sha> <subject>\"";; esac
