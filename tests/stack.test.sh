@@ -40,6 +40,12 @@ orca-lc gate >/dev/null; orca-lc stack prs >/dev/null || fail "stack prs after r
 assert_eq "$(base_of abc-1/two)/$(base_of abc-1/three)" "main/abc-1/two" "no manual base edits"
 assert_eq "$(jq length "$GH_STUB/prs.json")" 3 "no duplicate PRs"
 assert_eq "$(git rev-parse origin/abc-1/three)" "$(git rev-parse abc-1/three)" "rebased branches pushed"
+# Someone else pushes to three and our fetch picks it up: the lease alone would now overwrite it.
+c=$(mktemp -d); git clone -q -b abc-1/three "$(git remote get-url origin)" "$c"
+echo theirs > "$c/theirs"; git -C "$c" add theirs;git -C "$c" commit -qm theirs; git -C "$c" push -q origin abc-1/three
+git fetch -q origin; theirs=$(git rev-parse origin/abc-1/three)
+out=$(orca-lc stack prs 2>&1); assert_status $? 1 "prs over someone else's push: $out"
+assert_eq "$(git ls-remote origin refs/heads/abc-1/three | cut -f1)" "$theirs" "their push kept"
 
 # ---- a hand-rebase leaves orcaParentTip stale: the upstream falls back to the old parent branch
 r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1

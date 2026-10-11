@@ -387,7 +387,8 @@ cmd_stack() {
       for b in $bs; do
         [ "$(pr_state "$b")" = MERGED ] && die "$b is merged: run orca-lc stack rebase first"
         p=$(stack_parent "$b")
-        git push -q --force-with-lease -u origin "$b" || die "push of $b failed"
+        # The lease alone passes after a fetch; --force-if-includes also needs the fetched tip in $b's history.
+        git push -q --force-with-lease --force-if-includes -u origin "$b" || die "push of $b failed: someone else pushed to it? fetch and integrate their commits, then rerun"
         local pr; pr=$(ghx pr list --head "$b" --state open --json number,baseRefName -q '.[0] | select(.) | "\(.number) \(.baseRefName)"')
         if [ -z "$pr" ]; then ghx pr create --draft --base "$p" --head "$b" --fill >/dev/null || die "gh pr create for $b failed"; echo "$b: draft PR opened on $p"
         elif [ "${pr#* }" != "$p" ]; then ghx pr edit "${pr%% *}" --base "$p" >/dev/null || die "gh pr edit #${pr%% *} failed"; echo "$b: #${pr%% *} base ${pr#* } -> $p"
