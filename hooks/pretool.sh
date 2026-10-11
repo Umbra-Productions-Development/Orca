@@ -76,7 +76,7 @@ case "$tool" in
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
     done < <(git_targets push "$cmd")
-    [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge\b' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
+    [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     t=$(git_targets commit "$cmd" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.

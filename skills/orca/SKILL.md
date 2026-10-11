@@ -7,6 +7,8 @@ description: Working rules for a repository that carries .orca/config.json — g
 
 `orca-lc` is a shell command; `orca-lc help` lists subcommands. `orca-lc context` prints the current state; the SessionStart hook already ran it.
 
+Never run `install.sh` outside the checkout the install comes from, including test clones and worktrees: it relinks `orca-lc`, the hooks, the skills and the agents to wherever it runs. It refuses when the links belong to another checkout; `--force` is for the user switching the install on purpose.
+
 ## Gate
 
 `orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
@@ -90,6 +92,8 @@ The findings file lists every entry with its result, or `skipped` and the reason
 ## Pull requests
 
 One pull request carries one openspec change. A change is never cut into several pull requests because it runs past a size estimate; a size budget decides at propose time how a ticket splits into changes, not how a change splits into pull requests. Small changes may share one pull request while their combined counted size, measured against the pull request's real base (the base branch, or the branch below it in a stack), stays under `prShareLimit` in `.orca/config.json`. The project's own size tool does the counting. This overrides any project skill that cuts one change into several pull requests by size.
+
+A ticket's branch carries the ticket id from its first push: `orca-lc` reads the ticket from the worktree path or the branch name through `ticketPattern`. Renaming a branch on GitHub closes every open pull request whose head is that branch; it does not carry them over. When a pull request is already open on a branch without the id, keep the name, or tell the user the rename closes the pull request and a new one replaces it before doing it.
 
 ## Posting a review
 
