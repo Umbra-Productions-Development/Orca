@@ -408,6 +408,8 @@ cmd_stack() {
       [ "$tool" = gh-stack ] && { ghx stack submit --auto; return; }
       local bs b p; bs=$(stack_branches); [ -n "$bs" ] || die "$cur is not in a stack"
       [ "$cur" = "$(tail -1 <<<"$bs")" ] || die "the gate on $cur doesn't cover the branches above it: check out $(tail -1 <<<"$bs"), run orca-lc gate, then rerun"
+      local gv; gv=$(git version | awk '{print $3}')
+      [ "$(printf '2.30\n%s\n' "$gv" | sort -V | head -1)" = 2.30 ] || die "git $gv is too old: stack prs needs git 2.30+ for --force-if-includes"
       for b in $bs; do
         [ "$(pr_state "$b")" = MERGED ] && die "$b is merged: run orca-lc stack rebase first"
         p=$(stack_parent "$b")
