@@ -60,6 +60,19 @@ squash_merge abc-3/one
 out=$(orca-lc stack rebase 2>&1) || fail "stack rebase with a stale tip failed: $out"
 assert_eq "$(git log --format=%s origin/main..abc-3/two)" two "two holds only its own commit after a hand-rebase"
 
+# ---- one gains a commit and two is rebased onto it by hand: the old tip is still an ancestor, but stale
+r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1
+git checkout -q -b abc-4/one; printf 'l1\nA\nl3\n' > f; git add f; git commit -qm A
+orca-lc stack add two >/dev/null; commit two
+git checkout -q abc-4/one; printf 'l1\nB\nl3\n' > f; git commit -qam B
+git checkout -q abc-4/two; git rebase -q abc-4/one
+# Review fixes B's line before the squash: replaying B from the old tip would conflict with it.
+git checkout -q abc-4/one; printf 'l1\nB-fixed\nl3\n' > f; git commit -qam "B fixup"; git checkout -q abc-4/two
+orca-lc gate >/dev/null; orca-lc stack prs >/dev/null || fail "stack prs before a stale-ancestor rebase failed"
+squash_merge abc-4/one
+out=$(orca-lc stack rebase 2>&1) || { fail "stack rebase with a stale ancestor tip failed: $out"; git rebase --abort 2>/dev/null; }
+assert_eq "$(git log --format=%s origin/main..abc-4/two)" two "two holds only its own commit after the parent grew"
+
 # ---- abc-12/x can't sit next to a branch named abc-12: add fails before writing any stack config
 r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1
 git checkout -q -b abc-12; commit one
