@@ -170,14 +170,14 @@ Orca's four hook entries are unchanged from today:
 **Uninstall:**
 1. If the hash of settings.json equals `settings-post` and a `settings-orig` or `settings-created` record exists, nobody touched it since Orca last wrote it.
    - Restore `settings.json.orig` byte for byte, with the same atomic, mode-keeping write as install, through a symlink as install does.
-   - If the record is `settings-created`, delete the file instead. If settings.json is a symlink now, take path 2 instead: Orca never deletes a link's target, nor the link itself. A user who moved Orca's file into a dotfiles repo and linked it back chose to keep it there. Deleting the target would remove a file in the user's repo and leave a dangling link that stops the next install; removing the link would break their dotfiles setup. Path 2 removes only Orca's hooks and keeps both.
+   - If the record is `settings-created`, delete the file instead. If settings.json is a symlink now, take path 2 instead: Orca never deletes a link's target, nor the link itself. A user who moved Orca's file into a dotfiles repo and linked it back chose to keep it there. Deleting the target would remove a file in the user's repo and leave a dangling link that stops the next install; removing the link would break their dotfiles setup. Path 2 removes only Orca's hooks and keeps both, and prints the symlink line below.
 2. Otherwise, remove Orca's entries with jq:
    - Remove every hook whose command is one of Orca's four commands. These commands are Orca's by construction, so legacy installs without `hook` records clean up too.
    - Drop a matcher group that ends up with no hooks.
    - Drop an event array that ends up empty, but only if a `hook` record shows Orca created it.
    - Drop `.hooks` if it ends up empty and Orca created it.
    - Write with the same atomic, mode-keeping, link-following write as install.
-   - Print `settings.json was edited after install; removed Orca's hooks only (formatting may differ)`.
+   - Print `settings.json was edited after install; removed Orca's hooks only (formatting may differ)`. When path 2 was taken only because settings.json is now a symlink (step 1's hash and record checks held), print `settings.json is a symlink; removed Orca's hooks only, kept the link and its target` instead: the file was moved, not edited.
    - Every other hook, including another tool's SessionStart hook on the same event, is kept.
 
 The byte-identical acceptance test is the first path. The second path keeps other hooks, but it only promises "same JSON", not "same bytes".
@@ -301,3 +301,8 @@ Third review, against 9febef4.
 - **S9** (the offer did not say what the plugin installs): Recommended tools, `grilling`; apply confirms the plugin's skill list at 2.7 and the `enables` text names it when it is more than `grilling`. Task 2.7.
 
 S5 to S9 are all taken; none conflicts with the design.
+
+Delta check, against 6829070.
+
+- **S10** ("them" lost its antecedent in the proposal): proposal, settings.json bullet now says "restores the original bytes".
+- **S11** (path 2 said "edited" for a file that was only moved behind a symlink): Uninstall path 2 prints `settings.json is a symlink; removed Orca's hooks only, kept the link and its target` in that case. Task 1.22, created-then-linked variant.
