@@ -60,6 +60,13 @@ squash_merge abc-3/one
 out=$(orca-lc stack rebase 2>&1) || fail "stack rebase with a stale tip failed: $out"
 assert_eq "$(git log --format=%s origin/main..abc-3/two)" two "two holds only its own commit after a hand-rebase"
 
+# ---- abc-12/x can't sit next to a branch named abc-12: add fails before writing any stack config
+r=$(new_repo '{"project":"p","gate":"true","stackTool":"git"}'); cd "$r" || exit 1
+git checkout -q -b abc-12; commit one
+out=$(orca-lc stack add x 2>&1); assert_status $? 1 "stack add over a ref clash: $out"
+assert_eq "$(git config --get-regexp '^branch\..*\.orcaparent')" "" "no stack config left behind"
+assert_eq "$(git branch --show-current)" abc-12
+
 # ---- gh stack installed: orca-lc delegates
 GH_STUB=$(mktemp -d); echo "gh stack  github/gh-stack  v1.0.0" > "$GH_STUB/extensions"
 r=$(new_repo '{"project":"p","gate":"true"}'); cd "$r" || exit 1

@@ -334,15 +334,17 @@ cmd_stack() {
       # Named like the branch below: abc-12/work -> abc-12/<change>.
       local b; case "$cur" in */*) b="${cur%/*}/$1";; *) b=$(ticket); b="${b:+$b/}$1";; esac
       git show-ref -q --verify "refs/heads/$b" && die "branch $b exists"
+      git check-ref-format --branch "$b" >/dev/null 2>&1 || die "$b is not a valid branch name"
       if [ "$tool" = gh-stack ]; then
         ghx stack view --json >/dev/null 2>&1 || ghx stack init --base "$base" "$cur" >/dev/null || die "gh stack init failed"
         ghx stack add "$b" >/dev/null || die "gh stack add $b failed"
       else
+        # Branch first: a name git refuses (abc-12/x next to abc-12) leaves no stack config behind.
+        git checkout -q -b "$b" || die "git checkout -b $b failed"
         if [ -z "$(stack_parent "$cur")" ]; then
           git config "branch.$cur.orcaParent" "$base"
           git config "branch.$cur.orcaParentTip" "$(git merge-base "$cur" "origin/$base" 2>/dev/null || git merge-base "$cur" "$base")"
         fi
-        git checkout -q -b "$b" || die "git checkout -b $b failed"
         git config "branch.$b.orcaParent" "$cur"; git config "branch.$b.orcaParentTip" "$(git rev-parse "$cur")"
       fi
       echo "stack: $b on $cur";;
