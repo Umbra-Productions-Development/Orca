@@ -25,6 +25,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
+- **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
 `orca-lc help` lists every command.
@@ -88,6 +89,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10`. A ticket id with no trailing number uses `cksum` of the uppercased id in place of the number |
 | `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET`, `ORCA_WORKTREE` and the ports exported |
 | `migrateCommand` | Command run after `stackUp` |
+| `stackTool` | What `orca-lc stack` drives: `gh-stack` ([github/gh-stack](https://github.com/github/gh-stack)), `git` (plain git + `gh pr`), or `auto` (gh-stack when installed). Default `auto` |
 | `prShareLimit` | Size under which small changes may share one PR |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
