@@ -12,4 +12,6 @@ Report, in this order:
 4. Test files changed by the diff, and affected test files from the evidence that the diff did not touch.
 5. Any symbol in the evidence blast radius that no test in the diff or the affected list exercises.
 
+Never run `install.sh`, in the repository or in any clone: it relinks the global orca install to wherever it runs. To check an executable bit, read the mode with `git ls-files -s`.
+
 Do not fix anything. Do not suggest fixes. Report only.
