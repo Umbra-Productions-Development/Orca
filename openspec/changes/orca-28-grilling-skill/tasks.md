@@ -11,9 +11,9 @@
 - [x] 2.3 Update the header comment of `install.sh`
 
 ## 3. Test
-- [ ] 3.1 Add `tests/install-keep.sh` from the draft (test-lock on; the commit body says why)
-- [ ] 3.2 Add cases: a third-party agent `.md` is kept; a copy directory with a subdirectory is recognised as Orca's
-- [ ] 3.3 Run it on Linux or WSL2, where link cases run; show output in the commit or PR
+- [x] 3.1 Add `tests/install-keep.sh` from the draft (test-lock on; the commit body says why)
+- [x] 3.2 Add cases: a third-party agent `.md` is kept; a copy directory with a subdirectory is recognised as Orca's
+- [x] 3.3 Run it on Linux or WSL2, where link cases run; show output in the commit or PR
 
 ## 4. Docs
 - [ ] 4.1 README: three skills; the keep rule in the Install section
