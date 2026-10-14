@@ -1,9 +1,9 @@
 # Tasks: Orca's own grilling skill
 
 ## 1. Skill
-- [ ] 1.1 Add `skills/grilling/SKILL.md` from draft 0017ea9, with step 6 deferring the write location to the caller (design: The grilling skill)
-- [ ] 1.2 Extend the `### propose` Owns line in `skills/orca/SKILL.md`, keeping it on one line (design: The propose line)
-- [ ] 1.3 Check that `orca-lc handoff write <ticket> propose` still copies the full Owns and Never lines
+- [x] 1.1 Add `skills/grilling/SKILL.md` from draft 0017ea9, with step 6 deferring the write location to the caller (design: The grilling skill)
+- [x] 1.2 Extend the `### propose` Owns line in `skills/orca/SKILL.md`, keeping it on one line (design: The propose line)
+- [x] 1.3 Check that `orca-lc handoff write <ticket> propose` still copies the full Owns and Never lines
 
 ## 2. Install keep rule
 - [ ] 2.1 Add `shipped` and `ours` to `install.sh`, matching only the same repo-relative path, with a recursive directory walk
