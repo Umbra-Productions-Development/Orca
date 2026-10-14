@@ -20,5 +20,5 @@
 - [x] 4.2 `docs/daily-use.md`: the propose step names the `grilling` skill and where decisions go
 
 ## 5. Close
-- [ ] 5.1 `orca-lc gate` passes
-- [ ] 5.2 Report to the orchestrator: follow-ups for wiring the test into `tests/run.sh` after #49, and for installing the OpenSpec CLI
+- [x] 5.1 `orca-lc gate` passes
+- [x] 5.2 Report to the orchestrator: follow-ups for wiring the test into `tests/run.sh` after #49, and for installing the OpenSpec CLI
