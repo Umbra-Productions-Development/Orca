@@ -16,8 +16,8 @@
 - [x] 3.3 Run it on Linux or WSL2, where link cases run; show output in the commit or PR
 
 ## 4. Docs
-- [ ] 4.1 README: three skills; the keep rule in the Install section
-- [ ] 4.2 `docs/daily-use.md`: the propose step names the `grilling` skill and where decisions go
+- [x] 4.1 README: three skills; the keep rule in the Install section
+- [x] 4.2 `docs/daily-use.md`: the propose step names the `grilling` skill and where decisions go
 
 ## 5. Close
 - [ ] 5.1 `orca-lc gate` passes
