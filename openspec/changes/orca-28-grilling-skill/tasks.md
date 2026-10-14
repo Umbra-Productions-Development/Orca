@@ -6,9 +6,9 @@
 - [x] 1.3 Check that `orca-lc handoff write <ticket> propose` still copies the full Owns and Never lines
 
 ## 2. Install keep rule
-- [ ] 2.1 Add `shipped` and `ours` to `install.sh`, matching only the same repo-relative path, with a recursive directory walk
-- [ ] 2.2 Classify all pairs first, run the other-checkout check and `link()` only over the targets that are ours, and report kept targets after linking
-- [ ] 2.3 Update the header comment of `install.sh`
+- [x] 2.1 Add `shipped` and `ours` to `install.sh`, matching only the same repo-relative path, with a recursive directory walk
+- [x] 2.2 Classify all pairs first, run the other-checkout check and `link()` only over the targets that are ours, and report kept targets after linking
+- [x] 2.3 Update the header comment of `install.sh`
 
 ## 3. Test
 - [ ] 3.1 Add `tests/install-keep.sh` from the draft (test-lock on; the commit body says why)
