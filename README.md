@@ -88,7 +88,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10` |
 | `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET`, `ORCA_WORKTREE` and the ports exported |
 | `migrateCommand` | Command run after `stackUp` |
-| `prShareLimit` | Size under which small changes may share one PR |
+| `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
 
