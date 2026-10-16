@@ -1,6 +1,6 @@
 ## Why
 
-A project can waive size counting for a project: pull requests are grouped by decision, not by line count. Orca has no stated way to express that. The skill and README describe `prShareLimit` as the size under which small changes may share a pull request, but say nothing about a config that leaves it out. No code in `bin/` or `hooks/` reads `prShareLimit` or assumes a default for it, so leaving the key out already means no counting; only the docs fail to say so.
+A project can waive size counting: pull requests are grouped by decision, not by line count. Orca has no stated way to express that. The skill and README describe `prShareLimit` as the size under which small changes may share a pull request, but say nothing about a config that leaves it out. No code in `bin/` or `hooks/` reads `prShareLimit` or assumes a default for it, so leaving the key out already means no counting; only the docs fail to say so.
 
 ## What Changes
 
