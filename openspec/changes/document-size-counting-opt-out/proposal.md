@@ -4,7 +4,7 @@ A project can waive size counting for a ticket: pull requests are grouped by dec
 
 ## What Changes
 
-- `skills/orca/SKILL.md`, section "Pull requests": add one sentence after the `prShareLimit` sentence. With `prShareLimit` absent, nothing is counted: each change is its own pull request unless the proposal groups changes into one by decision.
+- `skills/orca/SKILL.md`, section "Pull requests": add one sentence after the `prShareLimit` sentence. With `prShareLimit` absent, nothing is counted: no size budget splits the ticket into changes, and each change is its own pull request unless the proposal groups changes into one by decision.
 - `README.md`, `prShareLimit` row: append "Absent: no size counting; changes share a PR only when the proposal groups them".
 - No new config key. No code change.
 
@@ -12,3 +12,4 @@ A project can waive size counting for a ticket: pull requests are grouped by dec
 
 - Docs only: `skills/orca/SKILL.md`, `README.md`.
 - Projects that set `prShareLimit` see no change.
+- A project-level opt-out covers a single ticket: `.orca/config.json` is untracked and per worktree, so one ticket opts out by omitting `prShareLimit` in its own worktree's config.
