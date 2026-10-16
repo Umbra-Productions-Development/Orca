@@ -12,4 +12,4 @@ A project can waive size counting for a ticket: pull requests are grouped by dec
 
 - Docs only: `skills/orca/SKILL.md`, `README.md`.
 - Projects that set `prShareLimit` see no change.
-- A project-level opt-out covers a single ticket: `.orca/config.json` is untracked and per worktree, so one ticket opts out by omitting `prShareLimit` in its own worktree's config.
+- The opt-out is per project; a per-ticket opt-out is out of scope.
