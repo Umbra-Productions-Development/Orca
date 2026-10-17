@@ -59,7 +59,7 @@ Owns: the user's entry point; the stack, seeded database, and migrations before 
 Never: explores, writes specs or code, or reviews. A handoff it writes names the work and who to report to, never "check their work".
 
 ### propose
-Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them.
+Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them. Grilling runs through the `grilling` skill, Orca's or a third-party one of the same name, after exploration and before the proposal. Whichever skill runs, the settled decisions go into the change's `design.md` under `## Decisions`, one line each with who decided, and decisions outside the ticket go to the orchestrator as follow-ups.
 Never: writes code or reviews its own proposal.
 
 ### apply

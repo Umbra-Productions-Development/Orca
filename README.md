@@ -2,7 +2,7 @@
 
 Orchestrated agent lifecycle for [Claude Code](https://claude.com/claude-code). CLI: `orca-lc`.
 
-Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, two agents and two skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
+Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, two agents and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
 
 It knows nothing about any particular project. Everything project-specific lives in one untracked file per repository: `.orca/config.json`.
 
@@ -48,7 +48,7 @@ git clone https://github.com/Umbra-Productions-Development/Orca.git
 cd Orca && ./install.sh
 ```
 
-`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling. When the links already point at another checkout it changes nothing and says so; `./install.sh --force` moves the install to the checkout it runs from.
+`install.sh` links `orca-lc` into `~/.local/bin`, links the hooks, skills and agents into `~/.claude`, and registers the hooks in `~/.claude/settings.json`. It is idempotent; run it again after pulling. When the links already point at another checkout it changes nothing and says so; `./install.sh --force` moves the install to the checkout it runs from. It never replaces what Orca did not install: a skill, agent, `orca-lc` or hooks directory at an install path that is not a link into an Orca checkout or a copy of something Orca shipped (a third-party `grilling` skill, say, or an `orca-lc` copy edited by hand) is kept, even with `--force`, and reported; move it aside and rerun to use Orca's.
 
 ## Quickstart
 
