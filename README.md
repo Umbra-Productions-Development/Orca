@@ -2,7 +2,7 @@
 
 Orchestrated agent lifecycle for [Claude Code](https://claude.com/claude-code). CLI: `orca-lc`.
 
-Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, two agents and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
+Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, one agent and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
 
 It knows nothing about any particular project. Everything project-specific lives in one untracked file per repository: `.orca/config.json`.
 
