@@ -44,10 +44,32 @@ check "three same-day handoffs all in the archive" '[ "$(ls "$h/abc-3/archive" |
 as s1 handoff write ABC-4 apply >/dev/null
 check "another session's write is refused" '! as s2 handoff write ABC-4 apply 2>/dev/null'
 check "the writing session may write again" 'as s1 handoff write abc-4 apply >/dev/null'
+check "a rewrite leaves one live handoff" '[ "$(ls "$h/abc-4"/apply-*.md | wc -l)" = 1 ]'
 check "another role is not blocked" 'as s2 handoff write ABC-4 review >/dev/null'
 check "--as writes anyway and records the name" 'grep -q "^as: orch$" "$(as s2 handoff write ABC-4 apply --as orch)"'
-as s3 handoff read ABC-4 apply >/dev/null; as s3 handoff read ABC-4 apply >/dev/null; as s3 handoff read ABC-4 apply >/dev/null
+check "--as leaves one live handoff" '[ "$(ls "$h/abc-4"/apply-*.md | wc -l)" = 1 ]'
+as s3 handoff read ABC-4 apply >/dev/null
 check "once consumed, another session may write" 'as s2 handoff write ABC-4 apply >/dev/null'
+
+# Takeover clears the block: s1 writes, s2 takes over with --as, one read frees the role for s3
+as s1 handoff write ABC-6 apply >/dev/null; as s2 handoff write ABC-6 apply --as orch >/dev/null; as s3 handoff read ABC-6 apply >/dev/null
+check "after --as and one read, another session may write" 'as s3 handoff write ABC-6 apply >/dev/null'
+
+# A session with no id is told to pass --as
+HERDR_PANE_ID=pane-none "$lc" handoff write ABC-7 apply >/dev/null
+e=$(HERDR_PANE_ID=pane-none "$lc" handoff write ABC-7 apply 2>&1 >/dev/null)
+check "no session id: refused with a pointer to --as" '[[ $e == *"no session id here, pass --as"* ]]'
+
+# Without a working flock nothing is written
+nf=$(mktemp -d); printf '#!/bin/sh\nexit 127\n' >"$nf/flock"; chmod +x "$nf/flock"
+check "a failed flock refuses the write" '! PATH="$nf:$PATH" as s1 handoff write ABC-8 apply 2>/dev/null && [ -z "$(ls "$h/abc-8"/*.md 2>/dev/null)" ]'
+rm -rf "$nf"
+
+# A case-variant name that is the same folder (a case-insensitive filesystem) is not folded into itself
+f=$(as s1 handoff write ABC-9 apply); ln -s abc-9 "$h/ABC-9"
+as s1 handoff list >/dev/null; as s1 handoff list >/dev/null
+check "same-folder case variant is left alone" '[ -f "$f" ] && [ "$(ls "$h/abc-9"/*.md | wc -l)" = 1 ] && [ -L "$h/ABC-9" ]'
+rm "$h/ABC-9"
 
 as s3 handoff write ABC-5 apply >/dev/null 2>&1 & as s4 handoff write ABC-5 apply >/dev/null 2>&1 & wait
 check "of two concurrent writes exactly one lands" '[ "$(ls "$h/abc-5"/*.md | wc -l)" = 1 ]'
