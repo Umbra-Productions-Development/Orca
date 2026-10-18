@@ -59,7 +59,7 @@ Owns: the user's entry point; the stack, seeded database, and migrations before 
 Never: explores, writes specs or code, or reviews. A handoff it writes names the work and who to report to, never "check their work".
 
 ### propose
-Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them.
+Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them. Grilling runs through the `grilling` skill, Orca's or a third-party one of the same name, after exploration and before the proposal. Whichever skill runs, the settled decisions go into the change's `design.md` under `## Decisions`, one line each with who decided, and decisions outside the ticket go to the orchestrator as follow-ups.
 Never: writes code or reviews its own proposal.
 
 ### apply
@@ -91,7 +91,7 @@ The findings file lists every entry with its result, or `skipped` and the reason
 
 ## Pull requests
 
-One pull request carries one openspec change. A change is never cut into several pull requests because it runs past a size estimate; a size budget decides at propose time how a ticket splits into changes, not how a change splits into pull requests. Small changes may share one pull request while their combined counted size, measured against the pull request's real base (the base branch, or the branch below it in a stack), stays under `prShareLimit` in `.orca/config.json`. The project's own size tool does the counting. This overrides any project skill that cuts one change into several pull requests by size.
+One pull request carries one openspec change. A change is never cut into several pull requests because it runs past a size estimate; a size budget decides at propose time how a ticket splits into changes, not how a change splits into pull requests. Small changes may share one pull request while their combined counted size, measured against the pull request's real base (the base branch, or the branch below it in a stack), stays under `prShareLimit` in `.orca/config.json`. With `prShareLimit` absent, nothing is counted: no size budget splits the ticket into changes, and each change is its own pull request unless the proposal groups changes into one by decision. The project's own size tool does the counting. This overrides any project skill that cuts one change into several pull requests by size.
 
 A ticket's branch carries the ticket id from its first push: `orca-lc` reads the ticket from the worktree path or the branch name through `ticketPattern`. Renaming a branch on GitHub closes every open pull request whose head is that branch; it does not carry them over. When a pull request is already open on a branch without the id, keep the name, or tell the user the rename closes the pull request and a new one replaces it before doing it.
 
