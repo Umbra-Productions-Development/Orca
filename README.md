@@ -34,7 +34,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 ## Requirements
 
-Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.github.com), herdr.
+Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.github.com), herdr, util-linux `flock`.
 
 Optional:
 - codegraph and codebase-memory-mcp, for `orca-lc evidence` and `orca-lc test-affected`
