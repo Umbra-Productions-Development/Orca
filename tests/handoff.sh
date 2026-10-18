@@ -74,4 +74,13 @@ rm "$h/ABC-9"
 as s3 handoff write ABC-5 apply >/dev/null 2>&1 & as s4 handoff write ABC-5 apply >/dev/null 2>&1 & wait
 check "of two concurrent writes exactly one lands" '[ "$(ls "$h/abc-5"/*.md | wc -l)" = 1 ]'
 
+# Without flock on PATH the mkdir lock still serialises writes, and is removed afterwards
+nf=$(mktemp -d); IFS=: read -ra dirs <<<"$PATH"
+for dd in "${dirs[@]}"; do for x in "$dd"/*; do n=$(basename "$x"); [ "$n" = flock ] || [ -e "$nf/$n" ] || ln -s "$x" "$nf/$n" 2>/dev/null; done; done
+check "fallback PATH has no flock" '! PATH="$nf" command -v flock >/dev/null'
+PATH="$nf" as s3 handoff write ABC-10 apply >/dev/null 2>&1 & PATH="$nf" as s4 handoff write ABC-10 apply >/dev/null 2>&1 & wait
+check "mkdir lock: of two concurrent writes exactly one lands" '[ "$(ls "$h/abc-10"/*.md | wc -l)" = 1 ]'
+check "mkdir lock is released" '[ ! -e "$h/abc-10/.lock.d" ]'
+rm -rf "$nf"
+
 exit $fail

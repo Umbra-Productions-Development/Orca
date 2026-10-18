@@ -49,6 +49,11 @@ tdir() { local k o f; k=$(tkey "$2")
     (cd "$o" && find . -type f) | while read -r f; do mv_free "$o/$f" "$1/$k/$(dirname "$f")" >/dev/null; done
     find "$o" -depth -type d -empty -delete; done
   echo "$1/$k"; }
+# Holds an exclusive lock on path until the script exits: flock where installed, else a mkdir lock
+# (macOS and Git Bash ship no flock), retried for 10s.
+lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock 9 || die "could not lock $1"; return; fi
+  local i=0; until mkdir "$1.d" 2>/dev/null; do i=$((i+1)); [ "$i" -lt 100 ] || die "lock held: $1.d (remove it if no orca-lc is running)"; sleep 0.1; done
+  trap 'rmdir "'"$1.d"'" 2>/dev/null' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
 tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
@@ -203,7 +208,7 @@ cmd_handoff() {
            if [ "${4:-}" = --as ]; then need name "${5:-}"; as="$5"; elif [ -n "${4:-}" ]; then usage "handoff write <ticket> <role> [--as <name>]"; fi
            td=$(tdir "$d" "$t"); mkdir -p "$td"; id=$(me id)
            # One live handoff per ticket and role: a second session would split the work. The lock makes check, replace and write one step.
-           exec 9>"$td/.lock"; flock 9 || die "flock required (util-linux)"
+           lock "$td/.lock"
            for o in "$td"/*.md; do [ -f "$o" ] || continue
              [ "$(sed -n 's/^role: //p' "$o" | head -1)" = "$r" ] && ! grep -q '^consumed-by: .' "$o" || continue
              ob=$(sed -n 's/^by: //p' "$o" | head -1)
