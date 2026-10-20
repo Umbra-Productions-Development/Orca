@@ -4,7 +4,7 @@ set -uo pipefail
 
 USAGE='usage: orca-lc <command> [args]
   context                          state for this session (SessionStart runs it)
-  gate [--inline]                  run the project gate, write the marker
+  gate [--inline] [--force]        run the project gate, write the marker (skipped when the marker is fresh)
   gate-fresh                       exit 0 when the marker matches the tree
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
@@ -34,7 +34,7 @@ cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r 
 shared() { cfg '.sharedDir' "$(root)/.orca"; }
 ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1 | tr 'A-Z' 'a-z'; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
-tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
+tree_sig() { ( cd "$(git rev-parse --show-toplevel)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard; git ls-files --others --exclude-standard -z | xargs -0r git hash-object --; } | sha1sum | cut -c1-12)" ); }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
 idfile() { echo "$(gitdir)/orca-session-${HERDR_PANE_ID:-nopane}.json"; }
 
@@ -79,18 +79,21 @@ load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
 cmd_gate() {
   local r; r=$(root) || die "not in a repo"
   local g; g=$(cfg '.gate'); [ -n "$g" ] || die "no gate in .orca/config.json"
-  if [ "${1:-}" != "--inline" ] && inherdr; then
+  local inline="" force="" a; for a in "$@"; do case "$a" in --inline) inline=1;; --force) force=1;; esac; done
+  cd "$r" || exit 1
+  if [ -z "$force" ] && cmd_gate_fresh; then echo "orca-lc: gate fresh for this tree, skipped (--force reruns it)"; echo "ORCA_GATE_PASS"; return 0; fi
+  if [ -z "$inline" ] && inherdr; then
     local old; old="$(gitdir)/orca-gate-pane"; [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
     local pane; pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
     if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"; else
-      herdr pane run "$pane" "orca-lc gate --inline" >/dev/null
+      herdr pane run "$pane" "orca-lc gate --inline --force" >/dev/null
       herdr pane wait-output "$pane" --regex 'ORCA_GATE_(PASS|FAIL)$' --timeout 1200000 >/dev/null
       herdr pane read "$pane" --source recent-unwrapped --lines 200 | tail -60
       if cmd_gate_fresh; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
       echo "$pane" > "$old"; echo "orca-lc: gate FAIL, pane $pane left open (closed automatically on the next run)"; return 1
     fi
   fi
-  cd "$r" || exit 1; rm -f "$(marker)"; load_env
+  rm -f "$(marker)"; load_env
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
   if bash -c "$g"; then tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0; fi
   echo "ORCA_GATE_FAIL"; return 1

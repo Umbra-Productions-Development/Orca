@@ -11,11 +11,22 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 ## Gate
 
-`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
+`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. When the marker is already fresh, the gate skips and says so; `--force` reruns it. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
 Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook names anything still undone.
+
+## Waiting
+
+A background command, a subagent, or a peer's `orca-lc notify` wakes the session when it lands, but only between tool calls. A `sleep` running at that moment holds the result until the sleep ends.
+
+- Your own background command or subagent: end the turn. Its completion wakes you, inside a subagent too.
+- A peer: end the turn; its `orca-lc notify` wakes you. To block until it changes state: `herdr agent wait <peer> --until idle --timeout <ms>`.
+- CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
+- `orca-lc gate`: run it in the foreground with `timeout: 600000`. It blocks until the gate ends, which commonly takes longer than the default 120 s.
+
+A hook blocks `sleep` in the first three cases. Every other `sleep` passes.
 
 ## Test files
 

@@ -21,6 +21,20 @@ case "$tool" in
       me=$(orca-lc name 2>/dev/null); r=$(jq -r '.role // ""' <<<"$me")
       case "$r" in ""|session|orchestrator) ;; *) advise "Once this commit lands, report it: orca-lc notify $(jq -r .ticket <<<"$me") --role orchestrator \"<sha> <subject>\"";; esac
     fi
+    # A sleep whose answer is already on its way: the runtime wakes the session when the turn ends. Every other sleep passes.
+    if [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" != true ] && grep -qE '(^|[^[:alnum:]_-])sleep\s+[0-9]' <<<"$cmd"; then
+      wake="End the turn instead: its completion wakes this session, inside a subagent too"
+      grep -qE '/tasks/[^[:space:]]+\.output' <<<"$cmd" && block "sleep before reading a background task's output. $wake"
+      tp=$(jq -r '.transcript_path // empty' <<<"$in")
+      if [ -f "$tp" ]; then
+        for f in $(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$cmd" | sort -u); do
+          grep -F -- "$f" "$tp" | jq -e --arg f "$f" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1 \
+            && block "sleep before reading $f, which a background command of this session writes. $wake"
+        done
+      fi
+      grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox))\b' <<<"$cmd" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
+      grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$cmd" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
+    fi
     grep -qE '(^|[;&|]\s*)git\s+rebase\b' <<<"$cmd" && advise "After the rebase, run the gate's type check even when git reports no conflict: two edits to different lines of one logic rebase clean and still break the build."
     # discovery-shaped commands over source: the graph answers cheaper. Off until sourceGlob is set.
     src=$(jq -r '.sourceGlob // empty' "$root/.orca/config.json")
