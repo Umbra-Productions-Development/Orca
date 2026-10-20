@@ -494,8 +494,12 @@ cmd_context() {
 }
 
 cmd="${1:-}"; shift || true
-# `<cmd> [sub] -h|--help` prints that command's USAGE lines and runs nothing (an unknown cmd falls through)
-for a in "${1:-}" "${2:-}"; do case "$a" in -h|--help) [[ $cmd =~ ^[a-z-]+$ ]] && grep -E "^  $cmd( |\$)" <<<"$USAGE" && exit 0;; esac; done
+# `<cmd> [args] -h|--help`: at the first -h|--help, print <cmd>'s USAGE lines (narrowed to `<cmd> <sub>` when the first
+# arg names one), run nothing and ignore what follows. A known cmd exits 0 even with no usage line; an unknown one falls through.
+help_of() { { [[ $1 =~ ^[a-z][a-z-]*$ ]] && grep -E "^  $cmd $1( |\$)" <<<"$USAGE"; } || grep -E "^  $cmd( |\$)" <<<"$USAGE"; return 0; }
+if [[ $cmd =~ ^[a-z][a-z-]*$ ]] && { grep -qE "^  $cmd( |\$)" <<<"$USAGE" || declare -F "cmd_${cmd//-/_}" >/dev/null; }; then
+  for ((i = 1; i <= $#; i++)); do case "${!i}" in -h|--help) sub=""; ((i > 1)) && sub=$1; help_of "$sub"; exit 0;; esac; done
+fi
 case "$cmd" in
   -h|--help|help|"") echo "$USAGE";;
   context) cmd_context;; gate) cmd_gate "$@";; gate-fresh) cmd_gate_fresh;; test-affected) cmd_test_affected;; evidence) cmd_evidence "$@";;

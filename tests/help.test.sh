@@ -10,8 +10,21 @@ check() { local out st; out=$(cd "$r" && orca-lc "$@" 2>&1); st=$?
   assert_not_contains "$out" "usage: orca-lc <command>" "orca-lc $*: printed full usage"; }
 for c in $cmds; do check "$c" --help; check "$c" -h; done
 for s in "worktree up" "worktree down" "handoff write" "handoff consume" "inbox send" "discover set" "role start" "test-lock on" "name --set" "gate --inline"; do check $s --help; done
+# --help after positional values: the usage of the (sub)command named before it, nothing after it runs
+narrow() { local want="$1" out st; shift; out=$(cd "$r" && orca-lc "$@" 2>&1); st=$?
+  assert_status $st 0 "orca-lc $* exit $st: $out"; assert_contains "$out" "  $want " "orca-lc $*: no '$want' usage: $out"; }
+narrow "handoff write" handoff write T-1 review --help
+narrow "worktree up" worktree up T-1 br --help
+narrow "inbox send" inbox send t --help
+narrow "inbox send" inbox send t hello --help world
+narrow "role start" role start T-1 apply --help
+narrow "discover set" discover set some-slug hook --help
+narrow notify notify x --help
+narrow notify notify x "some text" -h
+narrow gate gate --inline --help
 assert_eq "$(snap)" "$before" "--help left files behind: $(diff <(echo "$before") <(snap))"
 [ -e "$r/gate-ran" ] && fail "gate --help ran the gate"
+[ -n "$(find "$d" -name '*.md' -path '*/.orca/*')" ] && fail "--help wrote a handoff or inbox file"
 # unknown commands still fail
 (cd "$r" && orca-lc nope --help >/dev/null 2>&1); assert_status $? 2
 (cd "$r" && orca-lc '.*' --help >/dev/null 2>&1); assert_status $? 2 "a regex as command name matched usage lines"
