@@ -54,10 +54,17 @@ tdir() { local k o f; k=$(tkey "$2")
     find "$o" -depth -type d -empty -delete; done
   echo "$1/$k"; }
 # Holds an exclusive lock on path until the script exits: flock where installed, else a mkdir lock
-# (macOS and Git Bash ship no flock), retried for 10s.
-lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock 9 || die "could not lock $1"; return; fi
-  local i=0; until mkdir "$1.d" 2>/dev/null; do i=$((i+1)); [ "$i" -lt 100 ] || die "lock held: $1.d (remove it if no orca-lc is running)"; sleep 0.1; done
-  trap 'rmdir "'"$1.d"'" 2>/dev/null' EXIT; }
+# (macOS and Git Bash ship no flock). Either gives up after 10s. The two do not exclude each other,
+# so one sharedDir is used from one kind of host. The mkdir lock records its pid; a dir whose pid is
+# dead (a holder killed before its trap ran) is reclaimed, under a second mkdir so two waiters
+# cannot both reclaim it.
+lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock -w 10 9 || die "could not lock $1 in 10s"; return; fi
+  local d="$1.d" i=0 p
+  until mkdir "$d" 2>/dev/null; do
+    p=$(cat "$d/pid" 2>/dev/null) && [ -n "$p" ] && ! kill -0 "$p" 2>/dev/null && mkdir "$d.reclaim" 2>/dev/null && {
+      [ "$(cat "$d/pid" 2>/dev/null)" = "$p" ] && rm -rf "$d"; rmdir "$d.reclaim"; continue; }
+    i=$((i+1)); [ "$i" -lt 100 ] || die "lock held: $d (remove it if no orca-lc is running)"; sleep 0.1; done
+  echo $$ >"$d/pid"; trap 'rm -rf "'"$d"'"' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
 tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
@@ -498,7 +505,9 @@ cmd_role() {
       local r a; r=$(cat "$f"); inherdr && a=$(resolve_target "$1" "$r" 2>/dev/null | jq -r .name)
       echo "$r${a:+ $a}";;
     start)
-      need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role start needs herdr"
+      need ticket "${1:-}"; need role "${2:-}"
+      [ -z "${3:-}" ] || [ "$3" = --as ] || usage "role start <ticket> <role> [--as <name>]"
+      inherdr || die "role start needs herdr"
       [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       local t r as="" dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")

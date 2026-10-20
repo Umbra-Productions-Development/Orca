@@ -39,7 +39,7 @@ Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.git
 Optional:
 - codegraph and codebase-memory-mcp, for `orca-lc evidence` and `orca-lc test-affected`
 - [direnv](https://direnv.net), for a per-repository GitHub account
-- util-linux `flock`, to lock handoff writes; without it `orca-lc` falls back to a mkdir lock
+- util-linux `flock`, to lock handoff writes; without it `orca-lc` falls back to a mkdir lock. The two locks do not exclude each other, so use one `sharedDir` from one kind of host (not WSL2 and Git Bash on the same checkout)
 
 A per-worktree stack (`orca-lc worktree up <ticket> --stack`) runs whatever `stackUp` names, so it needs only what that command needs.
 
