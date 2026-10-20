@@ -46,6 +46,9 @@ A ticket's herdr workspace holds one tab per session:
 
 A role is defined by its domain; the Owns lines below are examples, not the whole of it. Work outside propose, apply, and review belongs to the orchestrator, which may start extra sessions for it with `orca-lc role start <ticket> <name>`, writing their scope into the handoff.
 
+- One live session per role. `orca-lc role start` reuses the role's session when it is idle: it sends `/clear`, then the new handoff, so each job starts from a fresh context without a second process. It refuses while that session is working. Names such as `review2`, `reviewer` or `code-review` fold into their role (`review`, and the same for `propose` and `apply`).
+- An extra session (any other name) replaces the one before it, never stacks: `role start` refuses while another extra is live on the ticket, and `--replace <name>` closes that one first. When an extra reports done, the orchestrator closes it: `orca-lc role retire <ticket> <role>`.
+- `role start` refuses to open a new session when available memory is under `minFreeMemMb` (default 3000), and lists the ticket's idle sessions to retire. Reusing a session skips the check.
 - One owner at a time, moving forward only: propose until the proposal is committed, then apply, then review until merge. `role start` records it; `orca-lc role owner <ticket>` prints it, and `orca-lc notify <ticket>` reaches it. An extra session becomes owner only through `orca-lc role owner <ticket> --set <name>`.
 - Only the owner edits the tree: every session shares one index and HEAD. Commit before switching refs; an uncommitted change follows the checkout or is lost.
 - Role sessions report each commit and decision to the orchestrator, which relays what another role needs.
