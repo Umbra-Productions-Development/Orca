@@ -23,7 +23,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 - **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree. `git push` is refused without a fresh marker; `git merge` is always refused.
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
-- **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived.
+- **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
@@ -38,6 +38,7 @@ Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.git
 Optional:
 - codegraph and codebase-memory-mcp, for `orca-lc evidence` and `orca-lc test-affected`
 - [direnv](https://direnv.net), for a per-repository GitHub account
+- util-linux `flock`, to lock handoff writes; without it `orca-lc` falls back to a mkdir lock. The two locks do not exclude each other, so use one `sharedDir` from one kind of host (not WSL2 and Git Bash on the same checkout)
 
 A per-worktree stack (`orca-lc worktree up <ticket> --stack`) runs whatever `stackUp` names, so it needs only what that command needs.
 
