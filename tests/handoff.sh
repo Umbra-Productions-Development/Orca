@@ -74,7 +74,8 @@ rm "$h/ABC-9"
 # A held lock makes the write wait: the holder marks its release, so a write that did not wait finds no mark
 if command -v flock >/dev/null; then
   mkdir -p "$h/abc-5"; rel="$repo/released-5"
-  ( exec 9>"$h/abc-5/.lock"; flock 9; sleep 1; touch "$rel" ) & sleep 0.2
+  ( exec 9>"$h/abc-5/.lock"; flock 9; touch "$repo/held-5"; sleep 1; touch "$rel" ) &
+  for _ in $(seq 50); do [ -e "$repo/held-5" ] && break; sleep 0.1; done
   f=$(as s3 handoff write ABC-5 apply 2>/dev/null)
   check "flock: a write waits for the held lock, then lands" '[ -e "$rel" ] && [ -f "$f" ]'
   wait
@@ -95,7 +96,22 @@ sh -c 'exit 0' & dead=$!; wait "$dead"
 mkdir -p "$h/abc-11/.lock.d"; echo "$dead" >"$h/abc-11/.lock.d/pid"
 f=$(PATH="$nf" as s3 handoff write ABC-11 apply 2>/dev/null)
 check "mkdir lock: a dead holder's lock is reclaimed" '[ -f "$f" ] && [ ! -e "$h/abc-11/.lock.d" ] && [ ! -e "$h/abc-11/.lock.d.reclaim" ]'
+# Not reclaimed: a live holder of another user (kill -0 says EPERM), and any lock while a .reclaim is left over.
+# Both wait out the 10s, so they run side by side.
+mkdir -p "$h/abc-13/.lock.d" "$h/abc-14/.lock.d" "$h/abc-14/.lock.d.reclaim"; echo "$dead" >"$h/abc-14/.lock.d/pid"
+eperm=; kill -0 1 2>/dev/null || { eperm=1; echo 1 >"$h/abc-13/.lock.d/pid"; PATH="$nf" as s3 handoff write ABC-13 apply >/dev/null 2>"$repo/e13" & }
+PATH="$nf" as s3 handoff write ABC-14 apply >/dev/null 2>"$repo/e14" & wait
+[ -n "$eperm" ] && check "mkdir lock: another user's live holder is not reclaimed" '[ -e "$h/abc-13/.lock.d" ] && [ -z "$(ls "$h/abc-13"/*.md 2>/dev/null)" ] && grep -q "lock held" "$repo/e13"'
+check "mkdir lock: a leftover .reclaim is named when the wait gives up" 'grep -q "abc-14/.lock.d and .*abc-14/.lock.d.reclaim" "$repo/e14"'
 rm -rf "$nf"
+
+# Only the front matter says a handoff is consumed: a body line that looks like the field does not
+f=$(as s1 handoff write ABC-15 apply); printf 'consumed-by: not really\n' >>"$f"
+check "a body consumed-by line does not free the role" '! as s2 handoff write ABC-15 apply 2>/dev/null'
+as s1 tidy >/dev/null
+check "tidy leaves a handoff whose body says consumed-by" '[ -f "$f" ]'
+as s2 handoff read ABC-15 apply >/dev/null
+check "consume stamps the front matter, not the body" '[ "$(grep -c "^consumed-by: not really$" "$h/abc-15/archive"/apply-*.md)" = 1 ] && grep -q "^consumed-by: s2 " "$h/abc-15/archive"/apply-*.md'
 
 # role start rejects an unknown third argument instead of dropping it
 e=$("$lc" role start ABC-12 apply --sa x </dev/null 2>&1); rc=$?
