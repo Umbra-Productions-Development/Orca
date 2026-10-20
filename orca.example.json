@@ -22,5 +22,6 @@
   "migrateCommand": "",
   "prShareLimit": 1500,
   "discoveriesDir": "discoveries",
-  "handoffArchiveDays": 7
+  "handoffArchiveDays": 7,
+  "minFreeMemMb": 3000
 }
