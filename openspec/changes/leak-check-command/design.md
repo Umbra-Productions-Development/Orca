@@ -78,7 +78,7 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 - `leakCheck` controls only the automatic steps. `orca-lc leak-check` always runs when called — user (recommended, accepted).
 - Two changes; they share one PR only when their combined counted size is under `prShareLimit`, otherwise the second is stacked on the first — user (recommended, accepted).
 - `orca.example.json` carries `"leakCheck": true` — user (recommended, accepted).
-- Default range is `HEAD --not --remotes`, not `merge-base(baseBranch)..HEAD`, because the merge-base default missed commits on the base branch and unpushed commits below it, so the gate passed on a push that carried them — proposal review finding 1 (replaces the default the user accepted in round 1).
+- Default range is `HEAD --not --remotes`, not `merge-base(baseBranch)..HEAD`, because the merge-base default missed commits on the base branch and unpushed commits below it, so the gate passed on a push that carried them — proposal review finding 1; the user confirmed it replaces their round-1 default.
 - The gate runs the scan in a subshell and always prints `ORCA_GATE_FAIL` on a hit — proposal review finding 2.
 - `--pre-push` keeps the `pre-push:` header; every other mode prints a `leak-check:` header — proposal review suggestion 3, taken.
 - The test copies `bin/orca-lc` and `.githooks/pre-push` into its temporary repo, untracked, so the hook resolves `bin/orca-lc` there — proposal review suggestion 4, taken.
