@@ -25,4 +25,4 @@ Starts after `leak-check-command` is applied.
 
 ## 5. Close
 - [x] 5.1 Run `applyChecks`, then `orca-lc gate` passes
-- [ ] 5.2 After 1.2, 3.3 and 4.3, run `applyChecks` and `orca-lc gate` again
+- [x] 5.2 After 1.2, 3.3 and 4.3, run `applyChecks` and `orca-lc gate` again
