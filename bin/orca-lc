@@ -9,6 +9,7 @@ USAGE='usage: orca-lc <command> [args]
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
   leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
+  leak-check --file <path>...|--stdin <label>   scan file or stdin lines the same way
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   notify <target> <text>           message a peer: session id/prefix, name, pane id, or ticket [--role r]
@@ -145,17 +146,39 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
   done <<<"$cs"
   return 0
 }
-# Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
-cmd_leak_check() {
-  local prepush="" lists=() f found head
-  [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
-  case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
-  [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
+leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }' "${@:2}"; } # <label> [file]: "<label>:<n>\t<line>"
+# <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
+leak_guard() {
+  [ "$(cfg '.leakCheck')" = true ] || return 0
+  local lists=() f hits
   while IFS= read -r f; do lists+=("$f"); done < <(leak_lists)
-  if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
-  if [ -n "$prepush" ]; then
-    local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
-    found=$(while read -r lref lsha rref rsha; do
+  [ ${#lists[@]} -gt 0 ] || return 0
+  hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}")
+  [ -z "$hits" ] && return 0
+  echo "leak-check: denylisted terms found. Location, then the denylist line that matched:" >&2
+  echo "$hits" | sort -u >&2; echo "orca-lc: refused, nothing written" >&2
+  return 1
+}
+# Returns rather than exits, so the gate keeps control; no mode reads the config or needs jq.
+cmd_leak_check() {
+  local mode=range lists=() f found head="leak-check: denylisted terms found."
+  case "${1:-}" in
+    --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
+    --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
+            for f; do [ -f "$f" ] || usage "leak-check: no file $f"; done;;
+    --stdin) mode=stdin; shift; [ $# -eq 1 ] && [ -n "$1" ] || usage "leak-check --stdin <label>";;
+    -*) usage "leak-check: unknown flag '$1'";;
+    *) [ $# -le 1 ] || usage "leak-check takes one range";;
+  esac
+  while IFS= read -r f; do lists+=("$f"); done < <(leak_lists)
+  if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
+  if [ "$mode" = file ]; then
+    found=$(for f; do leak_lines "$f" "$f"; done | leak_scan "${lists[@]}")
+  elif [ "$mode" = stdin ]; then
+    found=$(leak_lines "$1" | leak_scan "${lists[@]}")
+  elif [ "$mode" = pre-push ]; then
+    local zero=0000000000000000000000000000000000000000 lsha rref rsha
+    found=$(while read -r _ lsha rref rsha; do
       [ "$lsha" = "$zero" ] && continue
       if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
       else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
@@ -165,7 +188,6 @@ cmd_leak_check() {
     # pipefail carries leak_commits' exit 2 out of the pipeline.
     if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}") || return 2
     else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}") || return 2; fi
-    head="leak-check: denylisted terms found."
   fi
   [ -z "$found" ] && return 0
   echo "$head Location, then the denylist line that matched:" >&2
@@ -242,13 +264,14 @@ cmd_notify() {
   fi
   local tk; tk=$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1 | tr 'A-Z' 'a-z')
   [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
-  echo "no live session for $tk, queued: $(cmd_inbox send "$tk" "$text")"
+  local q; q=$(cmd_inbox send "$tk" "$text") || exit 1
+  echo "no live session for $tk, queued: $q"
 }
 
 cmd_inbox() {
   local d; d="$(shared)/inbox"; mkdir -p "$d"
   case "${1:-}" in
-    send) need ticket "${2:-}"; need text "${3:-}"; local t="$2"; shift 2; mkdir -p "$d/$t"; local i; i=$(me id | cut -c1-8); local f="$d/$t/$(date +%s)-${i:-anon}.md"
+    send) need ticket "${2:-}"; need text "${3:-}"; local t="$2"; shift 2; leak_guard "inbox send text" "$*" || exit 1; mkdir -p "$d/$t"; local i; i=$(me id | cut -c1-8); local f="$d/$t/$(date +%s)-${i:-anon}.md"
           printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; echo "$f";;
     read) local t="${2:-$(ticket)}"; [ -n "$t" ] && [ -d "$d/$t" ] || return 0; mkdir -p "$d/$t/archive"
           for f in "$d/$t"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv "$f" "$d/$t/archive/"; done;;
@@ -289,6 +312,7 @@ cmd_discover() {
   esac
   need slug "${1:-}"; need rule "${2:-}"; local slug="$1" rule="$2" by="${3:-none}"
   case "$by" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
+  leak_guard "discover slug" "$slug" "discover rule" "$rule" || exit 1
   local f="$d/$slug.md"; [ -e "$f" ] && die "$f exists"
   printf -- '---\nrule: %s\nenforced-by: %s\nsince: %s\n---\n\n# %s\n\n' "$rule" "$by" "$(date +%F)" "$slug" > "$f"; echo "$f"
 }
@@ -399,6 +423,7 @@ cmd_role() {
       need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role start needs herdr"
       [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
+      leak_guard "role start handoff" "$body" || exit 1
       local t r dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
