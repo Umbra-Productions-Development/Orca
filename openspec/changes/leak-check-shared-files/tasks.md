@@ -4,7 +4,7 @@ Starts after `leak-check-command` is applied.
 
 ## 1. `--file` mode
 - [x] 1.1 Add `--file <path>…` and `--stdin <label>` to `cmd_leak_check` (design: `--file` mode, `--stdin` mode) and extend its `USAGE` line
-- [ ] 1.2 `--file`: label content lines `file:<n>`, never the path, and scan the path itself as `file path:1` (design: `--file` mode; user decision during apply)
+- [x] 1.2 `--file`: label content lines `file:<n>`, never the path, and scan the path itself as `file path:1` (design: `--file` mode; user decision during apply)
 
 ## 2. Callers
 - [x] 2.1 Add `leak_guard <where> <text>`, active only when `leakCheck` is true and a denylist exists
@@ -21,7 +21,7 @@ Starts after `leak-check-command` is applied.
 ## 4. Docs
 - [x] 4.1 README: `leak-check --file` and `--stdin` in the command table, the `leakCheck` row naming `discover`, `role start` and `inbox send`, and the pretool scan of handoff and discovery writes
 - [x] 4.2 `docs/daily-use.md`: with `leakCheck` on, a queued `notify` and `/discover` refuse a denylisted term and write nothing (Talking between sessions; What persists between tickets)
-- [ ] 4.3 README and `orca-lc help`: `--file` locations read `file:<line>` and `file path:1`
+- [x] 4.3 README and `orca-lc help`: `--file` locations read `file:<line>` and `file path:1`
 
 ## 5. Close
 - [x] 5.1 Run `applyChecks`, then `orca-lc gate` passes
