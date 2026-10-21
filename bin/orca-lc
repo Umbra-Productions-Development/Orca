@@ -133,14 +133,17 @@ leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per b
   ' "$@" -
 }
 leak_commits() { # <branch> <git log args>...: the branch name, then per commit its people, message, paths and added lines
-  local b="$1" c; shift
+  local b="$1" cs c; shift
+  # A failed git log must not read as clean: exit 2, without echoing the range git would name.
+  cs=$(git log --format='%h' "$@" 2>/dev/null) || usage "leak-check: bad range"
   printf 'branch name\t%s\n' "$b"
-  git log --format='%h' "$@" | while read -r c; do
+  [ -n "$cs" ] && while read -r c; do
     git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
     git show --format= -p --no-renames "$c" | awk -v c="$c" '
       /^\+\+\+ / { f = substr($0, 7); print "commit " c " path\t" f; next }
       /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
-  done
+  done <<<"$cs"
+  return 0
 }
 # Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
 cmd_leak_check() {
@@ -156,11 +159,12 @@ cmd_leak_check() {
       [ "$lsha" = "$zero" ] && continue
       if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
       else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
-    done | leak_scan "${lists[@]}")
+    done | leak_scan "${lists[@]}") || return 2
     head="pre-push: denylisted terms found, push refused."
   else
-    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}")
-    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}"); fi
+    # pipefail carries leak_commits' exit 2 out of the pipeline.
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}") || return 2
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}") || return 2; fi
     head="leak-check: denylisted terms found."
   fi
   [ -z "$found" ] && return 0
