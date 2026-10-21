@@ -21,5 +21,5 @@
 - [x] 5.3 `docs/daily-use.md`: mention the gate's leak step in the gate paragraph of the apply section
 
 ## 6. Close
-- [ ] 6.1 Run `applyChecks`, then `orca-lc gate` passes
-- [ ] 6.2 Report to the orchestrator: the follow-up for wiring `tests/leak-check.sh` into `tests/run.sh` after #49
+- [x] 6.1 Run `applyChecks`, then `orca-lc gate` passes
+- [x] 6.2 Report to the orchestrator: the follow-up for wiring `tests/leak-check.sh` into `tests/run.sh` after #49
