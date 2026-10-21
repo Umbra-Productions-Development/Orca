@@ -69,7 +69,7 @@ Apply implements `tasks.md`, commit by commit. While it works:
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
 - Editing a test file is blocked. When a test is genuinely wrong, `orca-lc test-lock on`, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
-- `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. Any later edit makes the mark stale.
+- `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. Any later edit makes the mark stale. With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.
 - Each commit is reported to the orchestrator; the PreToolUse hook reminds it.
 
 ### 4. Review
