@@ -8,6 +8,7 @@ USAGE='usage: orca-lc <command> [args]
   gate-fresh                       exit 0 when the marker matches the tree
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
+  leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   ticket                           ticket of this directory or its branch, empty when none
@@ -130,8 +131,78 @@ cmd_gate() {
   fi
   cd "$r" || exit 1; rm -f "$(marker)"; load_env
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  if bash -c "$g"; then tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0; fi
+  if bash -c "$g"; then
+    if [ "$(cfg '.leakCheck')" = true ]; then
+      # Subshell: no exit inside the scan may end the gate before it prints its last line.
+      echo "orca-lc: leak-check on commits not on any remote"
+      ( cmd_leak_check ) || { echo "ORCA_GATE_FAIL"; return 1; }
+    fi
+    tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0
+  fi
   echo "ORCA_GATE_FAIL"; return 1
+}
+
+# ---- leak check: denylists are untracked; a committed list would itself be the leak.
+# Syntax follows .gitignore: one pattern per line, `#` comments, `*` wildcard, `!` re-allows,
+# last matching line wins. Matching ignores case and only hits whole words.
+leak_lists() { # global first, then this clone's: the later list wins a tie
+  local f; for f in "${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist" "$(root)/.orca/denylist"; do [ -f "$f" ] && echo "$f"; done; return 0
+}
+leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per blocked hit
+  awk -F'\t' '
+    FILENAME != "-" {
+      line = $0; sub(/\r$/, "", line)
+      if (line ~ /^[ \t]*(#|$)/) next
+      neg = (substr(line, 1, 1) == "!"); if (neg) line = substr(line, 2)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      re = tolower(line)
+      gsub(/[][\\.^$+?(){}|\/]/, "\\\\&", re)
+      gsub(/\*/, ".*", re)
+      n++; pat[n] = "(^|[^[:alnum:]])" re "([^[:alnum:]]|$)"; deny[n] = !neg; src[n] = FILENAME ":" FNR
+      next
+    }
+    {
+      where = $1; text = tolower(substr($0, length($1) + 2)); hit = 0
+      for (i = 1; i <= n; i++) if (text ~ pat[i]) hit = deny[i] ? i : 0
+      if (hit) print where "  (" src[hit] ")"
+    }
+  ' "$@" -
+}
+leak_commits() { # <branch> <git log args>...: the branch name, then per commit its people, message, paths and added lines
+  local b="$1" c; shift
+  printf 'branch %s\t%s\n' "$b" "$b"
+  git log --format='%h' "$@" | while read -r c; do
+    git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
+    git show --format= -p --no-renames "$c" | awk -v c="$c" '
+      /^\+\+\+ / { f = substr($0, 7); print "commit " c " path\t" f; next }
+      /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
+  done
+}
+# Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
+cmd_leak_check() {
+  local prepush="" lists=() f found head
+  [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
+  case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
+  [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
+  while IFS= read -r f; do lists+=("$f"); done < <(leak_lists)
+  if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
+  if [ -n "$prepush" ]; then
+    local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
+    found=$(while read -r lref lsha rref rsha; do
+      [ "$lsha" = "$zero" ] && continue
+      if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
+      else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
+    done | leak_scan "${lists[@]}")
+    head="pre-push: denylisted terms found, push refused."
+  else
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}")
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}"); fi
+    head="leak-check: denylisted terms found."
+  fi
+  [ -z "$found" ] && return 0
+  echo "$head Location, then the denylist line that matched:" >&2
+  echo "$found" | sort -u >&2
+  return 1
 }
 
 base_ref() { local b; b=$(cfg '.baseBranch' main); git merge-base HEAD "$b" 2>/dev/null || git rev-parse HEAD~1; }
@@ -560,6 +631,7 @@ fi
 case "$cmd" in
   -h|--help|help|"") echo "$USAGE";;
   context) cmd_context;; gate) cmd_gate "$@";; gate-fresh) cmd_gate_fresh;; test-affected) cmd_test_affected;; evidence) cmd_evidence "$@";;
+  leak-check) cmd_leak_check "$@";;
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
