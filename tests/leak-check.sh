@@ -53,7 +53,10 @@ has "push refused"; ok $(( $? == 0 ? 1 : 0 )) "range mode does not print the pre
 lc "$c5~1..$c5"; has "commit $c5 path"; a=$?; has "commit $c1 "; ok $(( a == 0 && $? != 0 ? 0 : 1 )) "explicit range scans only that range"
 git reset -q --hard "$(git rev-parse main)"
 
-git checkout -q -b zebra-branch; lc; has "branch zebra-branch  ($pl:2)"; ok $? "branch name reported"
+git checkout -q -b zebra-branch; lc; has "branch name  ($pl:2)"; ok $? "branch name reported"
+clean; ok $? "branch hit never prints the term"
+c6=$(add zebra-two.txt "more zebra"); lc; has "commit $c6 added line  ($pl:2)"; ok $? "added line in a denylisted path reported as added line"
+has "commit $c6 path  ($pl:2)"; ok $? "denylisted path reported"; clean; ok $? "path hit never prints the term"
 git checkout -q topic; git branch -q -D zebra-branch
 
 # Matching: ! re-allows, the project list's later line beats the global one, case-insensitive, whole words only.
