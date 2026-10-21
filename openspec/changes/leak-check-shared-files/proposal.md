@@ -14,7 +14,7 @@ Sessions share notes through the shared `.orca/` directory: discoveries, handoff
   - `orca-lc role start <ticket> <role>` scans the handoff body before it opens a tab or writes the handoff;
   - `orca-lc inbox send <ticket> <text>` scans the text. `notify` falls back to `inbox send` when no session is live, so its queued messages are covered too.
 - `leak-check --stdin <label>` scans text on stdin and reports `<label>:<line>`, for callers that hold text rather than a file.
-- When `leakCheck` is true, `hooks/pretool.sh` scans the content of a Write, Edit or MultiEdit aimed at the shared `handoffs/` or discoveries directory and blocks the tool call on a hit, before anything is written. This covers handoff bodies that sessions write after `handoff write`, and discovery bodies that the `discover` skill has the session write or update after `orca-lc discover`.
+- When `leakCheck` is true, `hooks/pretool.sh` scans the content of a Write, Edit or MultiEdit aimed at the shared `handoffs/` or discoveries directory, plus the target's file name, and blocks the tool call on a hit, before anything is written. This covers handoff bodies that sessions write after `handoff write`, and discovery bodies that the `discover` skill has the session write or update after `orca-lc discover`.
 - `docs/daily-use.md`: the refusals, where it describes `notify`'s inbox fallback and `/discover`.
 - README and `orca-lc help`: the `--file` mode, and the `leakCheck` row extended to name these commands.
 - `tests/leak-check.sh` gains cases for `--file` and the three callers.

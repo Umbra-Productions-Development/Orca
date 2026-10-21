@@ -31,15 +31,23 @@ When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `
 - **THEN** the discovery is written as before this change
 
 ### Requirement: Handoff and discovery writes are scanned before they happen
-When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory or the shared discoveries directory (`discoveriesDir`, default `discoveries`). On a hit it SHALL block the call with exit 2 and name the location and denylist line, never the term. The line number SHALL count within the written text (`content` or `new_string`), not within the file. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
+When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory or the shared discoveries directory (`discoveriesDir`, default `discoveries`). It SHALL also scan the target's file name. On a hit in either it SHALL block the call with exit 2 and name the location and denylist line, never the term. A location SHALL be `<kind> file name:1` or `<kind> body:<line>`, never the file name itself, with `<kind>` `handoff` or `discovery`. The line number SHALL count within the written text (`content` or `new_string`), not within the file. A directory whose name only starts with that of a shared directory (`handoffs-old`) SHALL NOT match. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
 
 #### Scenario: Handoff body with a denylisted term
 - **WHEN** a session writes a handoff body containing a denylisted term with `leakCheck` true
-- **THEN** the Write is blocked, nothing reaches the file, and stderr names `handoff <file>:<line>`, where `<line>` counts within the written text, and the denylist line
+- **THEN** the Write is blocked, nothing reaches the file, and stderr names `handoff body:<line>`, where `<line>` counts within the written text, and the denylist line
 
 #### Scenario: Discovery body edited with a denylisted term
 - **WHEN** a session edits a discovery file under the shared discoveries directory and the `new_string` contains a denylisted term with `leakCheck` true
-- **THEN** the Edit is blocked and stderr names `discovery <file>:<line>`, where `<line>` counts within `new_string`
+- **THEN** the Edit is blocked and stderr names `discovery body:<line>`, where `<line>` counts within `new_string`
+
+#### Scenario: Denylisted file name with a clean body
+- **WHEN** a session writes `<shared>/discoveries/<name containing a denylisted term>.md` with a clean body and `leakCheck` true
+- **THEN** the Write is blocked, stderr names `discovery file name:1` and the denylist line, and stderr does not contain the term
+
+#### Scenario: Sibling directory
+- **WHEN** a Write with a denylisted term targets `<shared>/handoffs-old/x.md`
+- **THEN** the hook does not scan it
 
 #### Scenario: Handoff reached through a worktree's linked .orca
 - **WHEN** the target path goes through a worktree's `.orca` link into the shared `handoffs/` directory
