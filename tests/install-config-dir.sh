@@ -62,6 +62,16 @@ ok $? "rerun: a single-quoted path with arguments is Orca's and rewritten"
   && [ "$(jq -r '.hooks.Stop[1].hooks[0].command' "$S")" = "$(cmd stop)" ] && [ "$(jq '.hooks.Stop | length' "$S")" = 2 ]
 ok $? "rerun: stop.sh.disabled is not Orca's; it is kept and Orca's is appended"
 
+jq -n '{hooks: {
+  SessionStart: [{matcher: "startup", hooks: [{type: "command", command: "bash /x/hooks/orca/session-start.sh;echo hi"}]}],
+  PostToolUse: [{matcher: "Read", hooks: [{type: "command", command: "bash /x/hooks/orca/post-read.sh&&true"}]}],
+  Stop: [{matcher: "*", hooks: [{type: "command", command: "bash /x/hooks/orca/stop.sh|tee l"}]}]}}' > "$S"
+run; ok $st "rerun over commands with ; && | right after .sh exits 0"
+r=0; for p in SessionStart:session-start PostToolUse:post-read Stop:stop; do
+  [ "$(jq --arg e "${p%%:*}" '.hooks[$e] | length' "$S")" = 1 ] \
+    && [ "$(jq -r --arg e "${p%%:*}" '.hooks[$e][0].hooks[0].command' "$S")" = "$(cmd "${p#*:}")" ] || r=1; done
+ok $r "rerun: ; && | after .sh still count as Orca's, one entry each"
+
 bad='["junk", {"matcher": "x", "hooks": []}, {"matcher": "y", "hooks": [{"type": "command", "command": 42}, "bare"]}]'
 jq -n --argjson b "$bad" '{hooks: {PreToolUse: $b}}' > "$S"
 run; ok $st "rerun over malformed entries exits 0"

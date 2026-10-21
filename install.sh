@@ -51,11 +51,11 @@ chmod +x "$here"/bin/orca-lc "$here"/hooks/*.sh
 
 mkdir -p "$cfg"; S="$cfg/settings.json"; [ -f "$S" ] || echo '{}' > "$S"
 tmp=$(mktemp)
-# ensure: a hook is Orca's when its command names hooks/orca/<script>.sh (either separator), followed by a quote, a space
-# or the end, so a stop.sh.bak is not Orca's. The first one in the event gets Orca's command and keeps its other fields;
-# later ones go, and so does a group they leave empty. None: append one.
+# ensure: a hook is Orca's when its command names hooks/orca/<script>.sh (either separator), followed by the end or a
+# character that cannot continue a file name, so a stop.sh.bak is not Orca's. The first one in the event gets Orca's
+# command and keeps its other fields; later ones go, and so does a group they leave empty. None: append one.
 jq '
-  def orca(s): (.command? // "") | type == "string" and test("hooks[/\\\\]orca[/\\\\]" + s + "\\.sh([\"\u0027\\s]|$)");
+  def orca(s): (.command? // "") | type == "string" and test("hooks[/\\\\]orca[/\\\\]" + s + "\\.sh([^A-Za-z0-9_.-]|$)");
   def ensure(ev; m; s): ("bash \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/orca/" + s + ".sh\"") as $cmd
     | .hooks[ev] = ((.hooks[ev] // []) | reduce .[] as $g ({seen: false, out: []};
         if ($g | type) != "object" or ($g.hooks | type) != "array" or ($g.hooks | length) == 0 then .out += [$g]
