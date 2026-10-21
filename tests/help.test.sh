@@ -11,13 +11,15 @@ check() { local out st; out=$(cd "$r" && orca-lc "$@" 2>&1); st=$?
 for c in $cmds; do check "$c" --help; check "$c" -h; done
 for s in "worktree up" "worktree down" "handoff write" "handoff consume" "inbox send" "discover set" "role start" "test-lock on" "name --set" "gate --inline"; do check $s --help; done
 # --help after positional values: the usage of the (sub)command named before it, nothing after it runs
-narrow() { local want="$1" out st; shift; out=$(cd "$r" && orca-lc "$@" 2>&1); st=$?
+# leaves the output in $out for a case that also asserts what must not print
+narrow() { local want="$1" st; shift; out=$(cd "$r" && orca-lc "$@" 2>&1); st=$?
   assert_status $st 0 "orca-lc $* exit $st: $out"; assert_contains "$out" "  $want " "orca-lc $*: no '$want' usage: $out"; }
 narrow "handoff write" handoff write T-1 review --help
 narrow "worktree up" worktree up T-1 br --help
 narrow "inbox send" inbox send t --help
 narrow "inbox send" inbox send t hello --help world
 narrow "role start" role start T-1 apply --help
+assert_not_contains "$out" "  role owner " "role start --help lost its narrowing: $out"
 narrow "discover set" discover set some-slug hook --help
 narrow notify notify x --help
 narrow notify notify x "some text" -h
