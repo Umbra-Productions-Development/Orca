@@ -119,4 +119,69 @@ has "leak-check: bad range"; ok $? "unborn HEAD: leak step says bad range"
 [ "$(printf '%s\n' "$out" | tail -1)" = ORCA_GATE_FAIL ]; ok $? "unborn HEAD: ORCA_GATE_FAIL is the last line"
 [ ! -f "$u/.git/orca-gate-ok" ]; ok $? "unborn HEAD: no marker written"
 
+# --file and --stdin.
+printf 'one\ntwo zebra\n' > "$tmp/h.md"; printf 'clean\n' > "$tmp/c.md"
+lc --file "$tmp/h.md"; ok $st "--file with no denylist exits 0"
+printf 'zebra\n' > "$pl"
+lc --file "$tmp/c.md" "$tmp/h.md"; ok $(( st == 1 ? 0 : 1 )) "--file hit exits 1"
+has "$tmp/h.md:2  ($pl:1)"; ok $? "--file names path:line and the denylist line"; clean; ok $? "--file never prints the term"
+lc --file "$tmp/c.md"; ok $st "--file clean exits 0"
+lc --file "$tmp/missing.md"; ok $(( st == 2 ? 0 : 1 )) "--file missing path exits 2"
+out=$(printf 'a\nzebra\n' | bin/orca-lc leak-check --stdin "some label" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "--stdin hit exits 1"; has "some label:2  ($pl:1)"; ok $? "--stdin names label:line"; clean; ok $? "--stdin never prints the term"
+lc --stdin; ok $(( st == 2 ? 0 : 1 )) "--stdin with no label exits 2"
+
+# Callers refuse before writing, with leakCheck on; write as before with it absent.
+stub="$tmp/stub"; mkdir -p "$stub"; printf '#!/bin/sh\necho "$*" >> "%s"\n' "$tmp/herdr.log" > "$stub/herdr"; chmod +x "$stub/herdr"
+callers() { # <expect: refused|written>
+  out=$(bin/orca-lc discover some-slug "uses zebra" 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "discover hit exits 1"; [ ! -e .orca/discoveries/some-slug.md ]; ok $? "discover hit creates no file"
+    has "discover rule  ($pl:1)"; ok $? "discover names the field"; clean; ok $? "discover never prints the term"
+    out=$(bin/orca-lc discover zebra-slug "clean" 2>&1); has "discover slug  ($pl:1)"; ok $? "discover scans the slug"
+  else ok $st "discover without leakCheck writes"; [ -f .orca/discoveries/some-slug.md ]; ok $? "discover file exists"; rm -f .orca/discoveries/some-slug.md; fi
+  out=$(bin/orca-lc inbox send orca-9 "a zebra note" 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "inbox send hit exits 1"; ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "inbox send hit queues nothing"
+    out=$(bin/orca-lc notify ORCA-9 "a zebra note" 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "notify inbox fallback hit exits 1"; has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "notify hit does not print queued:"
+  else ok $st "inbox send without leakCheck queues"; rm -rf .orca/inbox/orca-9; fi
+  rm -f "$tmp/herdr.log"
+  out=$(printf 'body with zebra\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start hit makes no herdr call"
+    has "role start handoff  ($pl:1)"; ok $? "role start names the field"
+  else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck passes the guard"; fi
+}
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; callers refused
+printf '{"gate":"true"}\n' > .orca/config.json; callers written
+
+# pretool: Write/Edit/MultiEdit into the shared handoffs/ and discoveries dirs.
+pre() { # <want exit> <label> <tool> <path> <tool_input extra as JSON>
+  local j; j=$(jq -n --arg d "$tmp/repo" --arg t "$3" --arg f "$4" --argjson x "$5" '{cwd:$d, tool_name:$t, tool_input:({file_path:$f} + $x)}')
+  out=$(printf '%s' "$j" | PATH="$src/bin:$PATH" bash "$src/hooks/pretool.sh" 2>&1); st=$?
+  ok $(( st == $1 ? 0 : 1 )) "pretool: $2"
+}
+S="$tmp/repo/.orca"; mkdir -p "$S/handoffs/orca-9" "$S/discoveries" "$S/handoffs-old" "$S/notes"
+mkdir -p "$tmp/wt"; ln -s "$S" "$tmp/wt/.orca"
+hit='{"content":"line one\nzebra here"}'
+printf '{"leakCheck":true}\n' > .orca/config.json
+pre 2 "handoff Write hit blocked" Write "$S/handoffs/orca-9/x.md" "$hit"
+has "handoff body:2  ($pl:1)"; ok $? "pretool: names handoff body:2"; clean; ok $? "pretool: never prints the term"
+pre 2 "handoff through a linked .orca blocked" Write "$tmp/wt/.orca/handoffs/orca-9/x.md" "$hit"
+pre 2 "handoff Edit hit blocked" Edit "$S/handoffs/orca-9/x.md" '{"old_string":"a","new_string":"zebra"}'
+pre 2 "handoff MultiEdit hit blocked" MultiEdit "$S/handoffs/orca-9/x.md" '{"edits":[{"old_string":"a","new_string":"fine"},{"old_string":"b","new_string":"x\nzebra"}]}'
+has "handoff body:2"; ok $? "pretool: MultiEdit counts lines within the edit"
+pre 2 "discovery Edit hit blocked" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"zebra"}'
+has "discovery body:1  ($pl:1)"; ok $? "pretool: names discovery body:1"
+pre 2 "discovery file name hit blocked" Write "$S/discoveries/zebra-notes.md" '{"content":"clean"}'
+has "discovery file name:1  ($pl:1)"; ok $? "pretool: names discovery file name:1"; clean; ok $? "pretool: file name hit never prints the term"
+pre 0 "sibling handoffs-old passes" Write "$S/handoffs-old/x.md" "$hit"
+pre 0 "write outside the shared dirs passes" Write "$tmp/repo/notes.md" "$hit"
+pre 0 "clean handoff Write passes" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
+printf '{"leakCheck":true,"discoveriesDir":"notes"}\n' > .orca/config.json
+pre 2 "custom discoveriesDir honoured" Edit "$S/notes/s.md" '{"old_string":"a","new_string":"zebra"}'
+printf '{}\n' > .orca/config.json
+pre 0 "leakCheck absent: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
+
 exit $fail
