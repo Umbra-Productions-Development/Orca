@@ -29,3 +29,18 @@ When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `
 #### Scenario: Key absent
 - **WHEN** `leakCheck` is not set and a discovery rule contains a denylisted term
 - **THEN** the discovery is written as before this change
+
+### Requirement: Handoff writes are scanned before they happen
+When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory. On a hit it SHALL block the call with exit 2 and name the location and denylist line, never the term. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
+
+#### Scenario: Handoff body with a denylisted term
+- **WHEN** a session writes a handoff body containing a denylisted term with `leakCheck` true
+- **THEN** the Write is blocked, nothing reaches the file, and stderr names `handoff <file>:<line>` and the denylist line
+
+#### Scenario: Handoff reached through a worktree's linked .orca
+- **WHEN** the target path goes through a worktree's `.orca` link into the shared `handoffs/` directory
+- **THEN** it is scanned the same way
+
+#### Scenario: Write outside handoffs
+- **WHEN** a Write with a denylisted term targets a file outside the shared `handoffs/` directory
+- **THEN** the hook does not scan it

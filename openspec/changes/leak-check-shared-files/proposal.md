@@ -13,15 +13,17 @@ Sessions share notes through the shared `.orca/` directory: discoveries, handoff
   - `orca-lc discover <slug> "<rule>"` scans the slug and the rule;
   - `orca-lc role start <ticket> <role>` scans the handoff body before it opens a tab or writes the handoff;
   - `orca-lc inbox send <ticket> <text>` scans the text. `notify` falls back to `inbox send` when no session is live, so its queued messages are covered too.
+- `leak-check --stdin <label>` scans text on stdin and reports `<label>:<line>`, for callers that hold text rather than a file.
+- When `leakCheck` is true, `hooks/pretool.sh` scans the content of a Write, Edit or MultiEdit aimed at the shared `handoffs/` directory and blocks the tool call on a hit, before anything is written. This covers handoff bodies that sessions write after `handoff write`.
 - `docs/daily-use.md`: the refusals, where it describes `notify`'s inbox fallback and `/discover`.
 - README and `orca-lc help`: the `--file` mode, and the `leakCheck` row extended to name these commands.
 - `tests/leak-check.sh` gains cases for `--file` and the three callers.
 
 ## Impact
 
-- `bin/orca-lc` (`cmd_leak_check`, `cmd_discover`, `cmd_role start`, `cmd_inbox send`), `README.md`, `docs/daily-use.md`, `tests/leak-check.sh`.
+- `bin/orca-lc` (`cmd_leak_check`, `cmd_discover`, `cmd_role start`, `cmd_inbox send`, `cmd_notify`), `hooks/pretool.sh`, `README.md`, `docs/daily-use.md`, `tests/leak-check.sh`.
 - Without `leakCheck`, nothing changes for these commands.
-- Not covered: the body a session writes into the file `handoff write` printed, because that file is filled after the command returns. Neither is a live `notify` delivered through herdr, which writes no file. A follow-up for the orchestrator decides whether to scan handoffs on `handoff read`. Until then, `leak-check --file` can be run on a handoff by hand.
+- Not covered: a live `notify` delivered through herdr, which writes no file, and handoffs written by something other than a Claude Code tool call (an editor, a shell redirect). `leak-check --file` can be run on those by hand.
 
 ## Out of scope
 
