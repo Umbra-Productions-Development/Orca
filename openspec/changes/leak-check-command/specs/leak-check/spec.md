@@ -35,7 +35,7 @@ Every line the command prints SHALL name a location and the denylist file and li
 - **THEN** `--pre-push` prints the header `pre-push: denylisted terms found, push refused.` and every other mode prints `leak-check: denylisted terms found.`
 
 ### Requirement: Range mode
-With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan every commit reachable from HEAD that no remote-tracking ref has (`HEAD --not --remotes`). In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0.
+With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan every commit reachable from HEAD that no remote-tracking ref has (`HEAD --not --remotes`). In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0. When `git log` fails on the range, it SHALL print `leak-check: bad range`, without the range, and exit 2.
 
 #### Scenario: Default range
 - **WHEN** `orca-lc leak-check` runs on a branch with two commits that no remote has
@@ -49,12 +49,20 @@ With a range argument, the command SHALL scan the commits that `git log <range>`
 - **WHEN** neither denylist file exists
 - **THEN** the command prints `leak-check: no denylist, skipped` and exits 0
 
+#### Scenario: Bad range
+- **WHEN** `orca-lc leak-check <range>` names a revision that does not exist and a denylist exists
+- **THEN** the command prints `leak-check: bad range`, the output does not contain the range, and it exits 2
+
 ### Requirement: Pre-push mode
-With `--pre-push`, the command SHALL read git's pre-push stdin and, for each ref that is not a deletion, scan the remote branch name and the commits being pushed: `<remote sha>..<local sha>`, or `<local sha> --not --remotes` for a new branch. With no denylist file it SHALL exit 0 silently. It SHALL NOT require `.orca/config.json` or `jq`.
+With `--pre-push`, the command SHALL read git's pre-push stdin and, for each ref that is not a deletion, scan the remote branch name and the commits being pushed: `<remote sha>..<local sha>`, or `<local sha> --not --remotes` for a new branch. With no denylist file it SHALL exit 0 silently. When `git log` fails for a ref, it SHALL print `leak-check: bad range` and exit 2, so the push is refused. It SHALL NOT require `.orca/config.json` or `jq`.
 
 #### Scenario: Repository hook unchanged in behaviour
 - **WHEN** this repository's `.githooks/pre-push` is enabled and a push carries a denylisted term
 - **THEN** the push is refused with the same header and location lines as before this change, except that a branch hit prints `branch name` and a hit under a denylisted path prints `commit <sha> added line`
+
+#### Scenario: Remote sha not in the local repo
+- **WHEN** a push names a remote sha that the local repo does not have, and a denylist exists
+- **THEN** `--pre-push` prints `leak-check: bad range`, exits 2, and the push is refused
 
 #### Scenario: New branch
 - **WHEN** a new branch is pushed whose commits are partly on a remote already
@@ -70,6 +78,10 @@ When `.orca/config.json` sets `leakCheck` to `true`, `orca-lc gate` SHALL run th
 #### Scenario: Gate reports the failure
 - **WHEN** `leakCheck` is true and the leak check finds a hit
 - **THEN** `ORCA_GATE_FAIL` is the last line of the gate's output and the gate returns 1
+
+#### Scenario: Unborn HEAD
+- **WHEN** `leakCheck` is true, a denylist exists, and HEAD has no commit yet
+- **THEN** the leak step exits 2 with `leak-check: bad range`, and the gate prints `ORCA_GATE_FAIL` and writes no marker
 
 #### Scenario: Key absent
 - **WHEN** `leakCheck` is not set
