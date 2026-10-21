@@ -344,7 +344,7 @@ cmd_notify() {
 }
 
 cmd_inbox() {
-  local d; d="$(shared)/inbox"; mkdir -p "$d"
+  local d; d="$(shared)/inbox"
   case "${1:-}" in
     send) need ticket "${2:-}"; need text "${3:-}"; local td; td=$(tdir "$d" "$2"); shift 2; leak_guard "inbox send text" "$*" || exit 1; mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
           local f; f=$(free_path "$td" "$(date +%s)-${i:-anon}.md")
