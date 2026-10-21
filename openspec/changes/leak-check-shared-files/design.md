@@ -15,7 +15,7 @@ Established facts:
 
 ## `--file` mode
 
-`leak-check --file <path>…`: for each path, it feeds `"<path>:<n>\t<line>"` for every line into `leak_scan`. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A missing path goes through `usage` and exits 2, so a caller can tell a bad path from a hit, as decision 1 of `leak-check-command` sets (0 clean, 1 hits, 2 usage).
+`leak-check --file <path>…`: for each path, it feeds the path itself as one line labelled `file path:1`, then every line of the file as `"file:<n>\t<line>"`, into `leak_scan`. No location carries the path, so a denylisted path is caught and never echoed. With several files, a hit's location doesn't say which file it was in; the caller reruns on one file to find it. Callers that scan text use `--stdin` with their own label instead. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A missing path goes through `usage` and exits 2, so a caller can tell a bad path from a hit, as decision 1 of `leak-check-command` sets (0 clean, 1 hits, 2 usage).
 
 ## `--stdin` mode
 
@@ -53,7 +53,7 @@ In the `Edit|Write|MultiEdit` branch of `hooks/pretool.sh`, after the test-file 
 
 Added to `tests/leak-check.sh`:
 
-- `--file` reports `<path>:<line>` and the denylist line, never the term; it exits 0 on a clean file and when there is no denylist, and 2 on a missing path.
+- `--file` reports `file:<line>` and the denylist line, never the path or the term; a denylisted path with clean contents is reported as `file path:1`; it exits 0 on a clean file and when there is no denylist, and 2 on a missing path.
 - With `leakCheck: true` and a hit:
   - `discover` creates no file;
   - `inbox send` queues nothing;
@@ -72,6 +72,7 @@ Added to `tests/leak-check.sh`:
 - Handoff bodies written after `handoff write` are covered: with `leakCheck` on, pretool scans Write, Edit and MultiEdit content aimed at the shared `handoffs/` directory and blocks on a hit before the write. This replaces the earlier "named as uncovered" answer and the follow-up to scan at `handoff read` — user (proposal review suggestion 8, recommended, accepted).
 - A hit in a shared file refuses before writing anything: `discover` creates no file, `role start` opens no tab and writes no handoff, `inbox send` queues nothing. Exit 1, location `<command> <field>` plus the denylist line — user (recommended, accepted).
 - `leakCheck` controls these automatic scans. `leak-check --file` run by hand always runs — user (recommended, accepted).
+- `--file` prints `file:<line>` (`--stdin` prints the caller's label) instead of the path, and scans the path itself as its own line — user (during apply).
 - A missing `--file` path exits 2 through `usage`, not 1 — proposal review suggestion 6, taken.
 - `docs/daily-use.md` documents the refusals where it describes `notify`'s inbox fallback and `/discover` — proposal review suggestion 5, taken.
 - This change shares a PR with `leak-check-command` only when their combined counted size is under `prShareLimit`. Otherwise it is stacked on it — user (recommended, accepted).
