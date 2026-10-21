@@ -4,51 +4,5 @@
 # Syntax follows .gitignore: one pattern per line, `#` comments, `*` wildcard, `!` re-allows,
 # last matching line wins. Matching ignores case and only hits whole words.
 # Enable once per clone: git config core.hooksPath .githooks
-set -uo pipefail
-
-lists=()
-for f in "${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist" "$(git rev-parse --show-toplevel)/.orca/denylist"; do
-  [ -f "$f" ] && lists+=("$f")
-done
-[ ${#lists[@]} -gt 0 ] || exit 0
-
-zero=0000000000000000000000000000000000000000
-scan() { # stdin: "<where>\t<text>" lines; prints one line per blocked hit
-  awk -F'\t' '
-    FILENAME != "-" {
-      line = $0; sub(/\r$/, "", line)
-      if (line ~ /^[ \t]*(#|$)/) next
-      neg = (substr(line, 1, 1) == "!"); if (neg) line = substr(line, 2)
-      gsub(/^[ \t]+|[ \t]+$/, "", line)
-      re = tolower(line)
-      gsub(/[][\\.^$+?(){}|\/]/, "\\\\&", re)
-      gsub(/\*/, ".*", re)
-      n++; pat[n] = "(^|[^[:alnum:]])" re "([^[:alnum:]]|$)"; deny[n] = !neg; src[n] = FILENAME ":" FNR
-      next
-    }
-    {
-      where = $1; text = tolower(substr($0, length($1) + 2)); hit = 0
-      for (i = 1; i <= n; i++) if (text ~ pat[i]) hit = deny[i] ? i : 0
-      if (hit) print where "  (" src[hit] ")"
-    }
-  ' "${lists[@]}" -
-}
-
-found=$(
-  while read -r lref lsha rref rsha; do
-    [ "$lsha" = "$zero" ] && continue
-    if [ "$rsha" = "$zero" ]; then range=("$lsha" --not --remotes); else range=("$rsha..$lsha"); fi
-    printf 'branch %s\t%s\n' "${rref#refs/heads/}" "${rref#refs/heads/}"
-    git log --format='%h' "${range[@]}" | while read -r c; do
-      git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
-      git show --format= -p --no-renames "$c" | awk -v c="$c" '
-        /^\+\+\+ / { f = substr($0, 7); print "commit " c " path\t" f; next }
-        /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
-    done
-  done | scan
-)
-
-[ -z "$found" ] && exit 0
-echo "pre-push: denylisted terms found, push refused. Location, then the denylist line that matched:" >&2
-echo "$found" | sort -u >&2
-exit 1
+# The scan is `orca-lc leak-check --pre-push`, run from this checkout so it needs no install.
+exec "$(git rev-parse --show-toplevel)/bin/orca-lc" leak-check --pre-push
