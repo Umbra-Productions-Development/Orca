@@ -16,6 +16,7 @@ Starts after `leak-check-command` is applied.
 
 ## 4. Docs
 - [ ] 4.1 README: `leak-check --file` in the command table, the `leakCheck` row naming `discover`, `role start` and `inbox send`, and the uncovered `handoff write` bodies
+- [ ] 4.2 `docs/daily-use.md`: with `leakCheck` on, a queued `notify` and `/discover` refuse a denylisted term and write nothing (Talking between sessions; What persists between tickets)
 
 ## 5. Close
 - [ ] 5.1 Run `applyChecks`, then `orca-lc gate` passes
