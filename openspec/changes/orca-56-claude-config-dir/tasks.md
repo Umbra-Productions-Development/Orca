@@ -14,4 +14,4 @@
 
 - [x] 3.1 Add `tests/install-config-dir.sh` with the cases in design.md "Tests".
 - [x] 3.2 `tests/install-keep.sh`: `unset CLAUDE_CONFIG_DIR` after the `HOME` export (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
-- [ ] 3.3 Run both test scripts and the gate (`orca-lc gate`); all pass.
+- [x] 3.3 Run both test scripts and the gate (`orca-lc gate`); all pass.
