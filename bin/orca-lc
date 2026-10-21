@@ -146,7 +146,7 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
   done <<<"$cs"
   return 0
 }
-leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }' "${@:2}"; } # <label> [file]: "<label>:<n>\t<line>"
+leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; stdin: lines out as "<label>:<n>\t<line>"
 # <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
 leak_guard() {
   [ "$(cfg '.leakCheck')" = true ] || return 0
@@ -165,7 +165,7 @@ cmd_leak_check() {
   case "${1:-}" in
     --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
     --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
-            for f; do [ -f "$f" ] || usage "leak-check: no such file"; done;;
+            for f; do [ -f "$f" ] || usage "leak-check: no such file"; [ -r "$f" ] || usage "leak-check: unreadable file"; done;;
     --stdin) mode=stdin; shift; [ $# -eq 1 ] && [ -n "$1" ] || usage "leak-check --stdin <label>";;
     -*) usage "leak-check: unknown flag '$1'";;
     *) [ $# -le 1 ] || usage "leak-check takes one range";;
@@ -174,7 +174,9 @@ cmd_leak_check() {
   if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
   if [ "$mode" = file ]; then
     # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".
-    found=$(for f; do printf 'file path:1\t%s\n' "$f"; leak_lines file "$f"; done | leak_scan "${lists[@]}")
+    # Content goes in on stdin: awk would take a path operand holding "=" as an assignment. A newline in a path is
+    # flattened so no part of it escapes the "file path" label.
+    found=$(for f; do printf 'file path:1\t%s\n' "${f//$'\n'/ }"; leak_lines file < "$f"; done | leak_scan "${lists[@]}")
   elif [ "$mode" = stdin ]; then
     found=$(leak_lines "$1" | leak_scan "${lists[@]}")
   elif [ "$mode" = pre-push ]; then
