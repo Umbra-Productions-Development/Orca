@@ -26,7 +26,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
 - **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
-- **Leak check:** `orca-lc leak-check [range]` scans commits no remote has yet (or the given range) for terms from the untracked denylists `~/.config/orca/denylist` and `.orca/denylist`, and names each hit by location and denylist line. With `leakCheck: true` the gate runs it, so a hit leaves no marker and the push is refused. To cover pushes from a terminal too, add the one-line hook: `printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push`.
+- **Leak check:** `orca-lc leak-check [range]` scans commits no remote has yet (or the given range) for terms from the untracked denylists `~/.config/orca/denylist` and `.orca/denylist`, and names each hit by location and denylist line. `--file <path>...` and `--stdin <label>` scan file or stdin lines the same way. With `leakCheck: true` the gate runs it, so a hit leaves no marker and the push is refused; `discover`, `role start` and `inbox send` refuse text that carries a term before writing it; and a Write or Edit into the shared `handoffs/` or discoveries directory is blocked on a hit in its file name or content. To cover pushes from a terminal too, add the one-line hook: `printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push`.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
 `orca-lc help` lists every command.
@@ -75,7 +75,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `sharedDir` | Absolute path to the main checkout's `.orca`, shared by every worktree |
 | `baseBranch` | Branch new worktrees start from |
 | `gate` | Command that must pass before a push |
-| `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has; a hit fails it. Default off |
+| `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has, and a hit fails it; `discover`, `role start` and `inbox send` refuse denylisted text, and pretool blocks such writes into the shared handoffs and discoveries. Default off |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
