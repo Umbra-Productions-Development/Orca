@@ -71,7 +71,8 @@ printf 'zebra\n' > "$pl"; git reset -q --hard main
 
 # Default range: commits no remote has, including ones on main itself and on local main below the branch.
 git checkout -q main; m1=$(add m.txt "zebra on main"); lc
-has "commit $m1 m.txt"; ok $? "commit on the base branch is scanned"
+has "commit $m1 m.txt"; ok $? "commit on the base branch is scanned"; ok $(( st == 1 ? 0 : 1 )) "commit on the base branch: hit exits 1"
+lc nozebra..HEAD; ok $(( st == 2 ? 0 : 1 )) "bad range exits 2"; has "leak-check: bad range"; ok $? "bad range says bad range"; clean; ok $? "bad range never prints the range"
 git checkout -q -b topic2; add t.txt "clean" >/dev/null; lc
 has "commit $m1 m.txt"; ok $? "unpushed commit on local main below the branch is scanned"
 has "commit $(git rev-parse --short origin/main) "; ok $(( $? == 0 ? 1 : 0 )) "commits already on origin are left out"
@@ -86,6 +87,8 @@ has "commit $(git rev-parse --short origin/main) "; ok $(( $? == 0 ? 1 : 0 )) "-
 has "pre-push: denylisted terms found, push refused."; ok $? "--pre-push prints the pre-push header"
 out=$(printf '(delete) %040d refs/heads/gone %s\n' 0 "$(git rev-parse HEAD)" | bin/orca-lc leak-check --pre-push 2>&1); st=$?
 ok $st "--pre-push deletion skipped"
+out=$(printf 'refs/heads/topic3 %s refs/heads/topic3 %s\n' "$(git rev-parse HEAD)" 1111111111111111111111111111111111111111 | bin/orca-lc leak-check --pre-push 2>&1); st=$?
+ok $(( st == 2 ? 0 : 1 )) "--pre-push with an unknown remote sha exits 2, not clean"
 
 # Through the repository hook.
 git push -q origin topic3 2>"$tmp/push.err"; ok $(( $? == 0 ? 1 : 0 )) "git push with a hit is refused by the hook"
@@ -108,5 +111,12 @@ out=$(bin/orca-lc gate --inline 2>&1); st=$?; ok $st "gate without leakCheck pas
 printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; rm -f "$pl"
 out=$(bin/orca-lc gate --inline 2>&1); st=$?; ok $st "leakCheck gate with no denylist passes"
 has "leak-check: no denylist, skipped"; ok $? "leakCheck gate with no denylist prints the note"
+# Unborn HEAD: git log has nothing to read, so the leak step exits 2 and the gate fails without a marker.
+u="$tmp/unborn"; git init -q -b main "$u"; mkdir -p "$u/bin" "$u/.orca"; cp "$src/bin/orca-lc" "$u/bin/"
+printf '{"gate":"true","leakCheck":true}\n' > "$u/.orca/config.json"; printf 'zebra\n' > "$u/.orca/denylist"
+out=$(cd "$u" && bin/orca-lc gate --inline 2>&1); st=$?; ok $(( st == 1 ? 0 : 1 )) "unborn HEAD: leakCheck gate fails"
+has "leak-check: bad range"; ok $? "unborn HEAD: leak step says bad range"
+[ "$(printf '%s\n' "$out" | tail -1)" = ORCA_GATE_FAIL ]; ok $? "unborn HEAD: ORCA_GATE_FAIL is the last line"
+[ ! -f "$u/.git/orca-gate-ok" ]; ok $? "unborn HEAD: no marker written"
 
 exit $fail
