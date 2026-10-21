@@ -204,11 +204,13 @@ callers() { # <expect: refused|written>
     ok $(( st == 1 ? 0 : 1 )) "inbox send hit exits 1"; ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "inbox send hit queues nothing"
     out=$(bin/orca-lc notify ORCA-9 "a zebra note" 2>&1); st=$?
     ok $(( st == 1 ? 0 : 1 )) "notify inbox fallback hit exits 1"; has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "notify hit does not print queued:"
+    ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "notify hit queues nothing"
   else ok $st "inbox send without leakCheck queues"; rm -rf .orca/inbox/orca-9; fi
   rm -f "$tmp/herdr.log"
   out=$(printf 'body with zebra\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?
   if [ "$1" = refused ]; then
     ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start hit makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
     has "role start handoff  ($pl:1)"; ok $? "role start names the field"
   else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck passes the guard"; fi
 }
@@ -242,5 +244,8 @@ printf '{"leakCheck":true,"discoveriesDir":"notes"}\n' > .orca/config.json
 pre 2 "custom discoveriesDir honoured" Edit "$S/notes/s.md" '{"old_string":"a","new_string":"zebra"}'
 printf '{}\n' > .orca/config.json
 pre 0 "leakCheck absent: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
+pre 0 "leakCheck absent: discovery Edit hit passes" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"zebra"}'
+printf '{"leakCheck":false}\n' > .orca/config.json
+pre 0 "leakCheck false: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
 
 exit $fail
