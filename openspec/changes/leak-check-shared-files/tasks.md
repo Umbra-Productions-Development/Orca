@@ -16,7 +16,7 @@ Starts after `leak-check-command` is applied.
 ## 3. Test
 - [x] 3.1 Extend `tests/leak-check.sh` with the cases in design: Test, with this checkout's `bin/` first on `PATH` for the pretool cases (test-lock on; the commit body says why)
 - [x] 3.2 Run it on Linux or WSL2 and show the output in the commit or PR
-- [ ] 3.3 Test the 1.2 output: a content hit prints `file:<n>` without the path, a denylisted path with clean contents prints `file path:1`, and neither carries the term (test-lock on; the commit body says why)
+- [x] 3.3 Test the 1.2 output: a content hit prints `file:<n>` without the path, a denylisted path with clean contents prints `file path:1`, and neither carries the term (test-lock on; the commit body says why)
 
 ## 4. Docs
 - [x] 4.1 README: `leak-check --file` and `--stdin` in the command table, the `leakCheck` row naming `discover`, `role start` and `inbox send`, and the pretool scan of handoff and discovery writes
