@@ -23,7 +23,7 @@ Established facts:
   - `--pre-push`: the hook's stdin loop, unchanged, calling `leak_commits` per ref.
   - `[range]`: `leak_commits "$(git branch --show-current)" <range>`. With no range, the range is `HEAD --not --remotes`: every commit reachable from HEAD that no remote-tracking ref has, which is what a push of this branch sends, including unpushed commits on a local base branch and commits made on the base branch itself.
 - With no denylist file: `--pre-push` exits 0 silently. The range mode prints `leak-check: no denylist, skipped` to stderr and exits 0.
-- On hits: a header line and the sorted, unique hit lines go to stderr; exit 1. `--pre-push` keeps today's header, `pre-push: denylisted terms found, push refused. Location, then the denylist line that matched:`, so the repo's hook prints exactly what it prints now. Every other mode prints `leak-check: denylisted terms found. Location, then the denylist line that matched:`. Bad usage exits 2 through `usage`.
+- On hits: a header line and the sorted, unique hit lines go to stderr; exit 1. `--pre-push` keeps today's header, `pre-push: denylisted terms found, push refused. Location, then the denylist line that matched:`, so the repo's hook prints what it prints now, except for the two locations the output decision below changes. Every other mode prints `leak-check: denylisted terms found. Location, then the denylist line that matched:`. Bad usage exits 2 through `usage`.
 - `cmd_leak_check` returns its status and never calls `exit` itself, apart from `usage` and `die` on bad input, so a caller inside the same process keeps control.
 - The `USAGE` line is `leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)`.
 
@@ -83,6 +83,7 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 - `--pre-push` keeps the `pre-push:` header; every other mode prints a `leak-check:` header — proposal review suggestion 3, taken.
 - The test copies `bin/orca-lc` and `.githooks/pre-push` into its temporary repo, untracked, so the hook resolves `bin/orca-lc` there — proposal review suggestion 4, taken.
 - `docs/daily-use.md` describes the gate, so task 5.3 is unconditional — proposal review suggestion 5, taken.
+- No output line carries the term, even where today's hook printed it: a branch-name hit prints `branch name`, not the branch, and a hit in a commit whose changed path holds a denylisted term prints `commit <sha> added line`, not `commit <sha> <path>`. The repo hook's output changes for these two cases only; every other location is as before (implemented in d17f969) — user (during apply).
 - The proposal commit carries both changes. If the changes are stacked, whoever cuts the stack moves `openspec/changes/leak-check-shared-files/` into the second branch — proposal review suggestion 7, accepted as is.
 
 ## Risks
