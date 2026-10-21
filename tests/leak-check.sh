@@ -131,6 +131,15 @@ has "file path:1  ($pl:1)"; ok $? "--file names a path hit as file path:1"; clea
 lc --file "$tmp/c.md"; ok $st "--file clean exits 0"
 lc --file "$tmp/missing.md"; ok $(( st == 2 ? 0 : 1 )) "--file missing path exits 2"
 has "missing.md"; ok $(( $? == 0 ? 1 : 0 )) "--file missing path message does not echo the path"
+has "leak-check: no such file"; ok $? "--file missing path says no such file"
+printf 'a zebra\n' > y=clean; lc --file y=clean; ok $(( st == 1 ? 0 : 1 )) "--file path with = is still scanned"; rm -f y=clean
+printf 'clean\n' > "$tmp/nl
+zebra.md"; lc --file "$tmp/nl
+zebra.md"; ok $(( st == 1 ? 0 : 1 )) "--file path with a newline is scanned whole"; clean; ok $? "--file newline path never prints the term"
+if [ "$(id -u)" != 0 ]; then
+  printf 'x\n' > "$tmp/zebra-unr.md"; chmod 000 "$tmp/zebra-unr.md"; lc --file "$tmp/zebra-unr.md"
+  ok $(( st == 2 ? 0 : 1 )) "--file unreadable file exits 2"; clean; ok $? "--file unreadable file never prints the path"
+fi
 out=$(printf 'a\nzebra\n' | bin/orca-lc leak-check --stdin "some label" 2>&1); st=$?
 ok $(( st == 1 ? 0 : 1 )) "--stdin hit exits 1"; has "some label:2  ($pl:1)"; ok $? "--stdin names label:line"; clean; ok $? "--stdin never prints the term"
 lc --stdin; ok $(( st == 2 ? 0 : 1 )) "--stdin with no label exits 2"
