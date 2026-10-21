@@ -30,17 +30,21 @@ When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `
 - **WHEN** `leakCheck` is not set and a discovery rule contains a denylisted term
 - **THEN** the discovery is written as before this change
 
-### Requirement: Handoff writes are scanned before they happen
-When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory. On a hit it SHALL block the call with exit 2 and name the location and denylist line, never the term. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
+### Requirement: Handoff and discovery writes are scanned before they happen
+When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory or the shared discoveries directory (`discoveriesDir`, default `discoveries`). On a hit it SHALL block the call with exit 2 and name the location and denylist line, never the term. The line number SHALL count within the written text (`content` or `new_string`), not within the file. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
 
 #### Scenario: Handoff body with a denylisted term
 - **WHEN** a session writes a handoff body containing a denylisted term with `leakCheck` true
-- **THEN** the Write is blocked, nothing reaches the file, and stderr names `handoff <file>:<line>` and the denylist line
+- **THEN** the Write is blocked, nothing reaches the file, and stderr names `handoff <file>:<line>`, where `<line>` counts within the written text, and the denylist line
+
+#### Scenario: Discovery body edited with a denylisted term
+- **WHEN** a session edits a discovery file under the shared discoveries directory and the `new_string` contains a denylisted term with `leakCheck` true
+- **THEN** the Edit is blocked and stderr names `discovery <file>:<line>`, where `<line>` counts within `new_string`
 
 #### Scenario: Handoff reached through a worktree's linked .orca
 - **WHEN** the target path goes through a worktree's `.orca` link into the shared `handoffs/` directory
 - **THEN** it is scanned the same way
 
-#### Scenario: Write outside handoffs
-- **WHEN** a Write with a denylisted term targets a file outside the shared `handoffs/` directory
+#### Scenario: Write outside the shared directories
+- **WHEN** a Write with a denylisted term targets a file outside the shared `handoffs/` and discoveries directories
 - **THEN** the hook does not scan it

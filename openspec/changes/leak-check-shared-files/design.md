@@ -9,7 +9,8 @@ Established facts:
 - `cmd_inbox send` writes `$(shared)/inbox/<ticket>/<epoch>-<id>.md` from its text arguments. `cmd_notify` calls it when no live session matches a ticket target.
 - `cmd_handoff write` creates the file with front matter and the role's lines only; the session writes the body afterwards with its own tools (Write, Edit, MultiEdit).
 - `hooks/pretool.sh` already sees every Write, Edit and MultiEdit before it runs, with `tool_input.file_path` and the content (`content`, `new_string`, or `edits[].new_string`). Exit 2 blocks the call, and stderr reaches the session.
-- Worktrees link `.orca` to the main checkout, so one handoff can be addressed by either path.
+- `cmd_discover` writes only front matter, the rule and `# <slug>`. The `discover` skill (`skills/discover/SKILL.md`, steps 1 and 4) then has the session fill the body, or update an existing discovery in place, with Write and Edit.
+- Worktrees link `.orca` to the main checkout, so one handoff or discovery can be addressed by either path.
 - `leak-check-command` provides `leak_lists` and `leak_scan`. `leak_scan` reads `<where>\t<text>` lines and prints `<where>  (<denylist>:<line>)` for each hit.
 
 ## `--file` mode
@@ -30,15 +31,18 @@ A helper `leak_guard <where> <text>` returns 0 when `cfg '.leakCheck'` is not `t
 | `role start <ticket> <role>` | right after the body is read, before any herdr call | `role start handoff` |
 | `inbox send <ticket> <text>` | before `mkdir` and the write | `inbox send text` |
 
-## Handoff bodies through pretool
+## Handoff and discovery bodies through pretool
 
 In the `Edit|Write|MultiEdit` branch of `hooks/pretool.sh`, after the test-file check:
 
 - It acts only when `leakCheck` is `true` in `$root/.orca/config.json`.
-- It acts only when `readlink -f` of the target's directory sits under `readlink -f` of `$(orca-lc config sharedDir)/handoffs`, falling back to `$root/.orca/handoffs` when `sharedDir` is unset. Resolving both sides catches the worktree link and the main path alike.
-- It pipes the content (`content` for Write, `new_string` for Edit, every `edits[].new_string` for MultiEdit) into `orca-lc leak-check --stdin "handoff $(basename "$f")"`.
-- On exit 1 it calls `block` with `handoff write blocked: denylisted term` plus the location lines, so the write never happens. Locations are line numbers within the written text, not within the file.
-- Any other exit (no denylist, a usage error) lets the call through. A broken scan never stops a session from writing its handoff.
+- It acts only when `readlink -f` of the target's directory sits under `readlink -f` of one of two shared directories, with `<shared>` being `$(orca-lc config sharedDir)`, or `$root/.orca` when `sharedDir` is unset:
+  - `<shared>/handoffs`, labelled `handoff <file>`;
+  - `<shared>/$(orca-lc config discoveriesDir)` (default `discoveries`), labelled `discovery <file>`. Its `archive/` subfolder is matched too.
+- Resolving both sides catches the worktree link and the main path alike.
+- It pipes the content (`content` for Write, `new_string` for Edit, every `edits[].new_string` for MultiEdit) into `orca-lc leak-check --stdin "<label>"`.
+- On exit 1 it calls `block` with `<handoff|discovery> write blocked: denylisted term` plus the location lines, so the write never happens. Locations are line numbers within the written text, not within the file.
+- Any other exit (no denylist, a usage error) lets the call through. A broken scan never stops a session from writing its handoff or discovery.
 
 `discover set` and `discover archive` take no free text and are not scanned. `notify` reaches the inbox guard through `inbox send`; it gets no guard of its own. Today `cmd_notify` calls `cmd_inbox send` inside `$(…)` and prints `queued:` whatever the result, so a refusal would be swallowed. `cmd_notify` must check that call's exit status and exit 1 without printing `queued:`.
 
@@ -53,11 +57,13 @@ Added to `tests/leak-check.sh`:
   - `role start` refuses before any herdr call. The test runs it with `HERDR_ENV=1` and a `herdr` stub on `PATH` that records any call; the stub must record none.
 - With `leakCheck` absent, the same three commands write as before.
 - `--stdin <label>` reports `<label>:<n>`; with no label it exits 2.
-- pretool: a Write whose `content` carries a hit, aimed at `<shared>/handoffs/<t>/x.md`, exits 2 and the stderr carries no term. The same file reached through a linked `.orca` path is blocked too. An Edit and a MultiEdit with a hit are blocked. A Write outside `handoffs/` and a clean Write pass. With `leakCheck` absent, everything passes. The test feeds JSON to `hooks/pretool.sh` the way `tests/pretool-merge.sh` does.
+- pretool: a Write whose `content` carries a hit, aimed at `<shared>/handoffs/<t>/x.md`, exits 2 and the stderr carries no term. The same file reached through a linked `.orca` path is blocked too. An Edit and a MultiEdit with a hit are blocked. An Edit with a hit aimed at `<shared>/discoveries/<slug>.md` is blocked and labelled `discovery <slug>.md`; a custom `discoveriesDir` is honoured. A Write outside both directories and a clean Write pass. With `leakCheck` absent, everything passes.
+- The pretool cases feed JSON to `hooks/pretool.sh` the way `tests/pretool-merge.sh` does, with this checkout's `bin/` first on `PATH`. The hook calls `orca-lc` from `PATH`, and an installed copy without `--stdin` would exit 2 and let every write through.
 
 ## Decisions
 
 - Shared files are scanned in this second change, through `leak-check --file` and the creation points that carry content (`discover`, `role start`, `inbox send`) — user (recommended, accepted).
+- Discovery bodies are covered the same way: the pretool scan also matches `<shared>/<discoveriesDir>`, labelled `discovery <file>` — user (re-review finding 1, recommended, accepted).
 - Handoff bodies written after `handoff write` are covered: with `leakCheck` on, pretool scans Write, Edit and MultiEdit content aimed at the shared `handoffs/` directory and blocks on a hit before the write. This replaces the earlier "named as uncovered" answer and the follow-up to scan at `handoff read` — user (proposal review suggestion 8, recommended, accepted).
 - A hit in a shared file refuses before writing anything: `discover` creates no file, `role start` opens no tab and writes no handoff, `inbox send` queues nothing. Exit 1, location `<command> <field>` plus the denylist line — user (recommended, accepted).
 - `leakCheck` controls these automatic scans. `leak-check --file` run by hand always runs — user (recommended, accepted).
@@ -68,6 +74,6 @@ Added to `tests/leak-check.sh`:
 ## Risks
 
 - A false positive in `role start` stops a role from starting until the denylist is fixed or a `!` line re-allows the term. This is intended: the denylist is the user's to tune.
-- Hook latency: the scan spawns `orca-lc` and awk only for writes under `handoffs/` with `leakCheck` on; every other tool call costs one `jq` read and a path compare.
-- `readlink -f` needs GNU coreutils or macOS 12.3 or later; Git Bash ships GNU. With an older macOS `readlink`, the path compare fails closed to "not a handoff", and the write passes unscanned.
+- Hook latency: the scan spawns `orca-lc` and awk only for writes under `handoffs/` or the discoveries directory with `leakCheck` on; every other tool call costs one `jq` read and a path compare.
+- `readlink -f` needs GNU coreutils or macOS 12.3 or later; Git Bash ships GNU. With an older macOS `readlink`, the path compare finds no match and the write passes unscanned: the check fails open. That is the one path where a denylisted term reaches a shared file silently while `leakCheck` is true. It is accepted because macOS before 12.3 is out of support.
 - The `discover` slug becomes a file name. Scanning it means a denylisted slug cannot be created even when the rule is clean. This is intended.
