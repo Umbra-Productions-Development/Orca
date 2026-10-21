@@ -191,7 +191,20 @@ ok $(( st == 1 ? 0 : 1 )) "--stdin hit exits 1"; has "some label:2  ($pl:1)"; ok
 lc --stdin; ok $(( st == 2 ? 0 : 1 )) "--stdin with no label exits 2"
 
 # Callers refuse before writing, with leakCheck on; write as before with it absent.
-stub="$tmp/stub"; mkdir -p "$stub"; printf '#!/bin/sh\necho "$*" >> "%s"\n' "$tmp/herdr.log" > "$stub/herdr"; chmod +x "$stub/herdr"
+# The herdr stub logs every call and answers enough for role start to reach the handoff write: the ticket's
+# worktree is open in workspace w1 and its apply agent is already live.
+stub="$tmp/stub"; mkdir -p "$stub" "$tmp/ORCA-9"
+cat > "$stub/herdr" <<STUB
+#!/bin/sh
+echo "\$*" >> "$tmp/herdr.log"
+case "\$1 \$2" in
+  "workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","worktree":{"checkout_path":"$tmp/ORCA-9"}}]}}';;
+  "agent list") echo '{"result":{"agents":[{"name":"orca9-apply"}]}}';;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';;
+  *) echo '{}';;
+esac
+STUB
+chmod +x "$stub/herdr"
 callers() { # <expect: refused|written>
   out=$(bin/orca-lc discover some-slug "uses zebra" 2>&1); st=$?
   if [ "$1" = refused ]; then
@@ -210,9 +223,10 @@ callers() { # <expect: refused|written>
   out=$(printf 'body with zebra\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?
   if [ "$1" = refused ]; then
     ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start hit makes no herdr call"
-    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
+    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
     has "role start handoff  ($pl:1)"; ok $? "role start names the field"
-  else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck passes the guard"; fi
+  else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck passes the guard"
+    ls .orca/handoffs/ORCA-9/*.md >/dev/null 2>&1; ok $? "role start without leakCheck writes the handoff"; rm -rf .orca/handoffs/ORCA-9; fi
 }
 printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; callers refused
 printf '{"gate":"true"}\n' > .orca/config.json; callers written
