@@ -9,7 +9,7 @@ USAGE='usage: orca-lc <command> [args]
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
   leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
-  leak-check --file <path>...|--stdin <label>   scan file or stdin lines the same way
+  leak-check --file <path>...|--stdin <label>   scan files (as file:<n>, the path as file path:1) or stdin (as <label>:<n>)
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   ticket                           ticket of this directory or its branch, empty when none
@@ -237,7 +237,7 @@ cmd_leak_check() {
   case "${1:-}" in
     --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
     --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
-            for f; do [ -f "$f" ] || usage "leak-check: no file $f"; done;;
+            for f; do [ -f "$f" ] || usage "leak-check: no such file"; done;;
     --stdin) mode=stdin; shift; [ $# -eq 1 ] && [ -n "$1" ] || usage "leak-check --stdin <label>";;
     -*) usage "leak-check: unknown flag '$1'";;
     *) [ $# -le 1 ] || usage "leak-check takes one range";;
@@ -245,7 +245,8 @@ cmd_leak_check() {
   f=$(leak_lists) || return 2; [ -n "$f" ] && mapfile -t lists <<<"$f"
   if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
   if [ "$mode" = file ]; then
-    found=$(for f; do leak_lines "$f" "$f"; done | leak_scan "${lists[@]}") || return 2
+    # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".
+    found=$(for f; do printf 'file path:1\t%s\n' "$f"; leak_lines file "$f"; done | leak_scan "${lists[@]}") || return 2
   elif [ "$mode" = stdin ]; then
     found=$(leak_lines "$1" | leak_scan "${lists[@]}") || return 2
   elif [ "$mode" = pre-push ]; then
