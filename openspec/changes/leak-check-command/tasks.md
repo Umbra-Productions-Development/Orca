@@ -16,9 +16,9 @@
 - [x] 4.2 Run it on Linux or WSL2 and show the output in the commit or PR
 
 ## 5. Docs
-- [ ] 5.1 README: `leak-check` command row, `leakCheck` config row, Contributing paragraph, the adopter's one-line pre-push hook
-- [ ] 5.2 `orca.example.json`: add `"leakCheck": true`
-- [ ] 5.3 `docs/daily-use.md`: mention the gate's leak step in the gate paragraph of the apply section
+- [x] 5.1 README: `leak-check` command row, `leakCheck` config row, Contributing paragraph, the adopter's one-line pre-push hook
+- [x] 5.2 `orca.example.json`: add `"leakCheck": true`
+- [x] 5.3 `docs/daily-use.md`: mention the gate's leak step in the gate paragraph of the apply section
 
 ## 6. Close
 - [ ] 6.1 Run `applyChecks`, then `orca-lc gate` passes
