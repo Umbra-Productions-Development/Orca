@@ -73,6 +73,11 @@ Added to `tests/leak-check.sh`:
 - A hit in a shared file refuses before writing anything: `discover` creates no file, `role start` opens no tab and writes no handoff, `inbox send` queues nothing. Exit 1, location `<command> <field>` plus the denylist line — user (recommended, accepted).
 - `leakCheck` controls these automatic scans. `leak-check --file` run by hand always runs — user (recommended, accepted).
 - `--file` prints `file:<line>` (`--stdin` prints the caller's label) instead of the path, and scans the path itself as its own line — user (during apply).
+- A `--file` path that exists but cannot be read exits 2 through `usage` with `leak-check: unreadable file`, rather than failing on the redirect with a shell error that names the path and treating the file as clean — apply, accepted at review.
+- A missing `--file` path prints `leak-check: no such file`, without the path — orchestrator, under the user's decision that output never echoes the path.
+- A newline in a `--file` path is flattened to a space before the path is scanned as `file path:1`, so no part of the path escapes onto a line without the label — apply, accepted at review.
+- `--file` feeds each file's contents to awk on stdin, not as an operand, because awk takes an operand of the form `var=value` as an assignment, so a path holding `=` would never be read — apply, accepted at review.
+- `leak_guard` prints the `leak-check: denylisted terms found. Location, then the denylist line that matched:` header before the hits, then `orca-lc: refused, nothing written` — apply, accepted at review.
 - A missing `--file` path exits 2 through `usage`, not 1 — proposal review suggestion 6, taken.
 - `docs/daily-use.md` documents the refusals where it describes `notify`'s inbox fallback and `/discover` — proposal review suggestion 5, taken.
 - This change shares a PR with `leak-check-command` only when their combined counted size is under `prShareLimit`. Otherwise it is stacked on it — user (recommended, accepted).

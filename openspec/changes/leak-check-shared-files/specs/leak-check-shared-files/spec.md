@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<denylist file>:<line>)` for a hit in the contents and `file path:1  (<denylist file>:<line>)` for a hit in the path, never the path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists, and 2 when a path does not exist.
+`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<denylist file>:<line>)` for a hit in the contents and `file path:1  (<denylist file>:<line>)` for a hit in the path, never the path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
@@ -13,14 +13,22 @@
 
 #### Scenario: Missing path
 - **WHEN** `leak-check --file` is given a path that does not exist
-- **THEN** it exits 2
+- **THEN** it prints `leak-check: no such file`, exits 2, and the output does not contain the path
+
+#### Scenario: Unreadable path
+- **WHEN** `leak-check --file` is given a file it cannot read
+- **THEN** it prints `leak-check: unreadable file`, exits 2, and the output does not contain the path
+
+#### Scenario: Path holding `=` or a newline
+- **WHEN** `leak-check --file` is given a path containing `=` or a newline
+- **THEN** its contents are scanned, and the path is reported, if at all, only as `file path:1`
 
 ### Requirement: Shared files are refused before they are written
 When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When `leakCheck` is absent or false, they SHALL behave as before this change.
 
 #### Scenario: Discovery with a denylisted rule
 - **WHEN** `orca-lc discover some-slug "<rule containing a denylisted term>"` runs with `leakCheck` true
-- **THEN** no discovery file is created and stderr names `discover rule` and the denylist line
+- **THEN** no discovery file is created, and stderr carries the `leak-check: denylisted terms found.` header, `discover rule` with the denylist line, and `orca-lc: refused, nothing written`
 
 #### Scenario: Role start with a denylisted handoff body
 - **WHEN** `orca-lc role start <ticket> apply` receives a body containing a denylisted term with `leakCheck` true
