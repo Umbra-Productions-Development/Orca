@@ -7,6 +7,14 @@
 - **WHEN** a commit in the range adds a line that contains a denylisted term
 - **THEN** the command exits 1 and prints `commit <sha> <path>  (<denylist file>:<line>)` to stderr
 
+#### Scenario: Term in an added line under a denylisted path
+- **WHEN** the added line's file path itself contains a denylisted term
+- **THEN** the location is printed as `commit <sha> added line`, without the path
+
+#### Scenario: Term in the branch name
+- **WHEN** the branch name contains a denylisted term
+- **THEN** the location is printed as `branch name`, without the branch
+
 #### Scenario: Re-allowed term
 - **WHEN** a term matches a deny line and then a later `!` line
 - **THEN** it is not reported
@@ -46,7 +54,7 @@ With `--pre-push`, the command SHALL read git's pre-push stdin and, for each ref
 
 #### Scenario: Repository hook unchanged in behaviour
 - **WHEN** this repository's `.githooks/pre-push` is enabled and a push carries a denylisted term
-- **THEN** the push is refused with the same header and location lines as before this change
+- **THEN** the push is refused with the same header and location lines as before this change, except that a branch hit prints `branch name` and a hit under a denylisted path prints `commit <sha> added line`
 
 #### Scenario: New branch
 - **WHEN** a new branch is pushed whose commits are partly on a remote already
