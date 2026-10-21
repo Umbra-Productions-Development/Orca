@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan every line of each file against the denylists of the `leak-check` capability. It SHALL print `<path>:<line>  (<denylist file>:<line>)` for each hit, never the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists, and 2 when a path does not exist.
+`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<denylist file>:<line>)` for a hit in the contents and `file path:1  (<denylist file>:<line>)` for a hit in the path, never the path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists, and 2 when a path does not exist.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
-- **THEN** it prints `<path>:12  (<denylist file>:<line>)`, exits 1, and the output does not contain the term
+- **THEN** it prints `file:12  (<denylist file>:<line>)`, exits 1, and the output contains neither the path nor the term
+
+#### Scenario: Denylisted path with clean contents
+- **WHEN** `leak-check --file` runs on a clean file whose path contains a denylisted term
+- **THEN** it prints `file path:1  (<denylist file>:<line>)`, exits 1, and the output does not contain the term
 
 #### Scenario: Missing path
 - **WHEN** `leak-check --file` is given a path that does not exist
