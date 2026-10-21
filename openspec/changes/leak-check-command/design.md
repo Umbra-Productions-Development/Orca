@@ -84,6 +84,7 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 - The test copies `bin/orca-lc` and `.githooks/pre-push` into its temporary repo, untracked, so the hook resolves `bin/orca-lc` there — proposal review suggestion 4, taken.
 - `docs/daily-use.md` describes the gate, so task 5.3 is unconditional — proposal review suggestion 5, taken.
 - No output line carries the term, even where today's hook printed it: a branch-name hit prints `branch name`, not the branch, and a hit in a commit whose changed path holds a denylisted term prints `commit <sha> added line`, not `commit <sha> <path>`. The repo hook's output changes for these two cases only; every other location is as before (implemented in d17f969) — user (during apply).
+- When `git log` fails on the range, range mode and `--pre-push` exit 2 through `usage` with `leak-check: bad range`, without echoing the range, instead of reporting clean (fbeb41e). Consequences: a push whose remote sha is not in the local repo (a force-push over commits never fetched) is refused, and on an unborn HEAD with `leakCheck` on and a denylist present, the gate's leak step fails — apply, accepted at review.
 - The proposal commit carries both changes. If the changes are stacked, whoever cuts the stack moves `openspec/changes/leak-check-shared-files/` into the second branch — proposal review suggestion 7, accepted as is.
 
 ## Risks
