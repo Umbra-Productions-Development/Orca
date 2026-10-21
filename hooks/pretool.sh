@@ -106,6 +106,31 @@ case "$tool" in
     if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git rev-parse --git-dir)/orca-allow-test-edits" ]; then
       block "test file edit blocked ($f). Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
     fi
+    # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
+    # file name, so no output line can echo a denylisted one. Any scan exit but 1 lets the write through.
+    if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
+      sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
+      dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
+      dir=$(readlink -f "$(dirname "$f")" 2>/dev/null); kind=""
+      for k in "handoff:$sh/handoffs" "discovery:$sh/$dd"; do
+        base=$(readlink -f "${k#*:}" 2>/dev/null) || continue
+        [ -n "$dir" ] && [ -n "$base" ] && [[ "$dir/" == "$base/"* ]] && { kind=${k%%:*}; break; }
+      done
+      if [ -n "$kind" ]; then
+        hits=""
+        scan() { local o; o=$(orca-lc leak-check --stdin "$1" 2>&1); [ $? = 1 ] && hits+=$(grep -v '^leak-check:' <<<"$o")$'\n'; }
+        scan "$kind file name" <<<"$(basename "$f")"
+        if [ "$tool" = MultiEdit ]; then
+          n=$(jq '.tool_input.edits | length' <<<"$in")
+          for ((i = 0; i < n; i++)); do scan "$kind body" < <(jq -r --argjson i "$i" '.tool_input.edits[$i].new_string // ""' <<<"$in"); done
+        else
+          scan "$kind body" < <(jq -r '.tool_input.content // .tool_input.new_string // ""' <<<"$in")
+        fi
+        [ -n "$hits" ] && block "$kind write blocked: denylisted term. Location, then the denylist line that matched:
+${hits%$'\n'}
+"
+      fi
+    fi
     ;;
 esac
 exit 0
