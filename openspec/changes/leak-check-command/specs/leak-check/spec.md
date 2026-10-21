@@ -22,12 +22,20 @@ Every line the command prints SHALL name a location and the denylist file and li
 - **WHEN** a commit message contains a denylisted term
 - **THEN** the output contains `commit <sha> message` and the denylist location, and does not contain the term
 
+#### Scenario: Header per mode
+- **WHEN** hits are found
+- **THEN** `--pre-push` prints the header `pre-push: denylisted terms found, push refused.` and every other mode prints `leak-check: denylisted terms found.`
+
 ### Requirement: Range mode
-With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan `merge-base(HEAD, baseBranch)..HEAD`. In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0.
+With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan every commit reachable from HEAD that no remote-tracking ref has (`HEAD --not --remotes`). In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0.
 
 #### Scenario: Default range
-- **WHEN** `orca-lc leak-check` runs on a branch with two commits past the base
+- **WHEN** `orca-lc leak-check` runs on a branch with two commits that no remote has
 - **THEN** exactly those two commits and the branch name are scanned
+
+#### Scenario: Commit on the base branch
+- **WHEN** `orca-lc leak-check` runs on `main` with one unpushed commit carrying a denylisted term
+- **THEN** the hit is reported and the command exits 1
 
 #### Scenario: No denylist
 - **WHEN** neither denylist file exists
@@ -48,8 +56,12 @@ With `--pre-push`, the command SHALL read git's pre-push stdin and, for each ref
 When `.orca/config.json` sets `leakCheck` to `true`, `orca-lc gate` SHALL run the range-mode leak check after the gate command passes. A hit SHALL fail the gate and leave no marker. When `leakCheck` is absent or false, the gate SHALL NOT run it.
 
 #### Scenario: Hit blocks the push
-- **WHEN** `leakCheck` is true and a commit on the branch carries a denylisted term
-- **THEN** `orca-lc gate` prints `ORCA_GATE_FAIL`, writes no marker, and the pretool hook refuses `git push`
+- **WHEN** `leakCheck` is true and an unpushed commit reachable from HEAD carries a denylisted term
+- **THEN** `orca-lc gate` writes no marker and the pretool hook refuses `git push`
+
+#### Scenario: Gate reports the failure
+- **WHEN** `leakCheck` is true and the leak check finds a hit
+- **THEN** `ORCA_GATE_FAIL` is the last line of the gate's output and the gate returns 1
 
 #### Scenario: Key absent
 - **WHEN** `leakCheck` is not set
