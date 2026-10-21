@@ -52,6 +52,23 @@ ok $r "rerun: each match carries Orca's command"
 [ "$(jq '.hooks.PreToolUse | length' "$S")" = 1 ] && [ "$(jq '.hooks.Stop | length' "$S")" = 1 ]; ok $? "rerun: emptied groups are dropped"
 before=$(cat "$S"); run; [ "$(cat "$S")" = "$before" ]; ok $? "rerun over Orca's own text changes nothing"
 
+jq -n '{hooks: {
+  PreToolUse: [{matcher: "Bash", hooks: [{type: "command", command: "bash '\''/x/hooks/orca/pretool.sh'\'' --edited"}]}],
+  Stop: [{matcher: "*", hooks: [{type: "command", command: "bash /x/hooks/orca/stop.sh.disabled"}]}]}}' > "$S"
+run; ok $st "rerun over a disabled copy and a single-quoted path exits 0"
+[ "$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$S")" = "$(cmd pretool)" ] && [ "$(jq '.hooks.PreToolUse | length' "$S")" = 1 ]
+ok $? "rerun: a single-quoted path with arguments is Orca's and rewritten"
+[ "$(jq -r '.hooks.Stop[0].hooks[0].command' "$S")" = "bash /x/hooks/orca/stop.sh.disabled" ] \
+  && [ "$(jq -r '.hooks.Stop[1].hooks[0].command' "$S")" = "$(cmd stop)" ] && [ "$(jq '.hooks.Stop | length' "$S")" = 2 ]
+ok $? "rerun: stop.sh.disabled is not Orca's; it is kept and Orca's is appended"
+
+bad='["junk", {"matcher": "x", "hooks": []}, {"matcher": "y", "hooks": [{"type": "command", "command": 42}, "bare"]}]'
+jq -n --argjson b "$bad" '{hooks: {PreToolUse: $b}}' > "$S"
+run; ok $st "rerun over malformed entries exits 0"
+[ "$(jq -c '.hooks.PreToolUse[0:3]' "$S")" = "$(jq -c . <<< "$bad")" ]; ok $? "rerun: malformed entries pass through unchanged"
+[ "$(jq -r '.hooks.PreToolUse[3].hooks[0].command' "$S")" = "$(cmd pretool)" ] && [ "$(jq '.hooks.PreToolUse | length' "$S")" = 4 ]
+ok $? "rerun: Orca's hook is appended after malformed entries"
+
 sk="$CLAUDE_CONFIG_DIR/skills"
 rm -rf "$sk/grilling"; mkdir -p "$sk/grilling"; printf -- '---\nname: grilling\n---\nthird party\n' > "$sk/grilling/SKILL.md"
 run; ok $st "keep rule in the config dir: install exits 0"
