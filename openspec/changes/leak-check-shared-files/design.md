@@ -12,7 +12,7 @@ Established facts:
 
 ## `--file` mode
 
-`leak-check --file <path>…`: for each path, it feeds `"<path>:<n>\t<line>"` for every line into `leak_scan`. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A missing path goes through `die`.
+`leak-check --file <path>…`: for each path, it feeds `"<path>:<n>\t<line>"` for every line into `leak_scan`. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A missing path goes through `usage` and exits 2, so a caller can tell a bad path from a hit, as decision 1 of `leak-check-command` sets (0 clean, 1 hits, 2 usage).
 
 ## Callers
 
@@ -30,7 +30,7 @@ A helper `leak_guard <where> <text>` returns 0 when `cfg '.leakCheck'` is not `t
 
 Added to `tests/leak-check.sh`:
 
-- `--file` reports `<path>:<line>` and the denylist line, never the term; it exits 0 on a clean file and when there is no denylist.
+- `--file` reports `<path>:<line>` and the denylist line, never the term; it exits 0 on a clean file and when there is no denylist, and 2 on a missing path.
 - With `leakCheck: true` and a hit:
   - `discover` creates no file;
   - `inbox send` queues nothing;
@@ -42,6 +42,8 @@ Added to `tests/leak-check.sh`:
 - Shared files are scanned in this second change, through `leak-check --file` and the creation points that carry content (`discover`, `role start`, `inbox send`). Bodies written later through `handoff write` are named as uncovered — user (recommended, accepted).
 - A hit in a shared file refuses before writing anything: `discover` creates no file, `role start` opens no tab and writes no handoff, `inbox send` queues nothing. Exit 1, location `<command> <field>` plus the denylist line — user (recommended, accepted).
 - `leakCheck` controls these automatic scans. `leak-check --file` run by hand always runs — user (recommended, accepted).
+- A missing `--file` path exits 2 through `usage`, not 1 — proposal review suggestion 6, taken.
+- `docs/daily-use.md` documents the refusals where it describes `notify`'s inbox fallback and `/discover` — proposal review suggestion 5, taken.
 - This change shares a PR with `leak-check-command` only when their combined counted size is under `prShareLimit`. Otherwise it is stacked on it — user (recommended, accepted).
 
 ## Risks

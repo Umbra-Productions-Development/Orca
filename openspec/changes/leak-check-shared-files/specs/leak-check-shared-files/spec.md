@@ -1,11 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan every line of each file against the denylists of the `leak-check` capability. It SHALL print `<path>:<line>  (<denylist file>:<line>)` for each hit, never the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists.
+`orca-lc leak-check --file <path>…` SHALL scan every line of each file against the denylists of the `leak-check` capability. It SHALL print `<path>:<line>  (<denylist file>:<line>)` for each hit, never the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists, and 2 when a path does not exist.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
 - **THEN** it prints `<path>:12  (<denylist file>:<line>)`, exits 1, and the output does not contain the term
+
+#### Scenario: Missing path
+- **WHEN** `leak-check --file` is given a path that does not exist
+- **THEN** it exits 2
 
 ### Requirement: Shared files are refused before they are written
 When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When `leakCheck` is absent or false, they SHALL behave as before this change.
