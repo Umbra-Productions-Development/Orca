@@ -21,4 +21,4 @@ Starts after `leak-check-command` is applied.
 - [x] 4.2 `docs/daily-use.md`: with `leakCheck` on, a queued `notify` and `/discover` refuse a denylisted term and write nothing (Talking between sessions; What persists between tickets)
 
 ## 5. Close
-- [ ] 5.1 Run `applyChecks`, then `orca-lc gate` passes
+- [x] 5.1 Run `applyChecks`, then `orca-lc gate` passes
