@@ -87,12 +87,12 @@ Apply fixes the findings. When the user approves, the review is posted to the PR
 ## Talking between sessions
 
 - `orca-lc peers` lists every live session on any worktree of the project.
-- `orca-lc notify <target> "<text>"` sends a short message; the target can be a session id, a name, or a ticket with `--role`. A ticket with no live session gets the message queued in its inbox, delivered at its next session start.
+- `orca-lc notify <target> "<text>"` sends a short message; the target can be a session id, a name, or a ticket with `--role`. A ticket with no live session gets the message queued in its inbox, delivered at its next session start. With `leakCheck` on, a queued message carrying a denylisted term is refused and nothing is queued; so is a `role start` handoff body, and a session's own Write or Edit into a handoff.
 - Anything longer than a few lines goes in a handoff (`orca-lc handoff write`) and the message carries only its path.
 
 ## What persists between tickets
 
-**Discoveries.** When something cost time and a future session would hit it again (a hook block nobody expected, a quirk of the gate), `/discover` records it as one rule with where it is enforced: a hook, a skill, a memory, or nothing yet. `orca-lc triage` lists the ones nothing enforces; turning them into hooks or skill text is how the setup gets better.
+**Discoveries.** When something cost time and a future session would hit it again (a hook block nobody expected, a quirk of the gate), `/discover` records it as one rule with where it is enforced: a hook, a skill, a memory, or nothing yet. With `leakCheck` on, a discovery whose slug, rule or body carries a denylisted term is refused and nothing is written. `orca-lc triage` lists the ones nothing enforces; turning them into hooks or skill text is how the setup gets better.
 
 ## When a session starts
 
