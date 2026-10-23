@@ -19,7 +19,7 @@ Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch
 
 ## Test files
 
-Edits to test files are blocked by default. When the test itself is wrong or a scenario is missing: `orca-lc test-lock on`, make the change, say why in the commit body, `orca-lc test-lock off`.
+Edits to test files, creating a new one included, are blocked by default. When the test itself is wrong or a scenario is missing: `orca-lc test-lock on`, make the change, say why in the commit body, `orca-lc test-lock off`.
 
 ## Identity, peers, messages
 
@@ -56,7 +56,7 @@ The tracker is the one `orca-lc config tracker` names. When it prints nothing, a
 
 ### orchestrator
 Owns: the user's entry point; the stack, seeded database, and migrations before apply starts; starting each session and writing its handoff; routing findings and decisions; relaying edge notices; PRs and tracker writes; extra sessions for work no role owns.
-Never: explores, writes specs or code, or reviews. A handoff it writes names the work and who to report to, never "check their work".
+Never: explores, writes specs or code, or reviews; plans before propose reports; or answers propose's open questions unless the user delegates them. A handoff it writes names the work and who to report to, never "check their work".
 
 ### propose
 Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them. Grilling runs through the `grilling` skill, Orca's or a third-party one of the same name, after exploration and before the proposal. Whichever skill runs, the settled decisions go into the change's `design.md` under `## Decisions`, one line each with who decided, and decisions outside the ticket go to the orchestrator as follow-ups.
