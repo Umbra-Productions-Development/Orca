@@ -25,6 +25,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
+- **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
 `orca-lc help` lists every command.
@@ -85,9 +86,10 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `linkPaths` | Untracked paths each worktree links back to the main checkout |
 | `envCommand` | Command printing the worktree stack's env vars for the gate |
 | `ports` | Port names a ticket's stack needs; each becomes `<NAME>_PORT` in the worktree's `.env.local` |
-| `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10` |
+| `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10`. A ticket id with no trailing number uses `cksum` of the uppercased id in place of the number |
 | `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET`, `ORCA_WORKTREE` and the ports exported |
 | `migrateCommand` | Command run after `stackUp` |
+| `stackTool` | What `orca-lc stack` drives: `gh-stack` ([github/gh-stack](https://github.com/github/gh-stack)), `git` (plain git + `gh pr`), or `auto` (gh-stack when installed). Default `auto` |
 | `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
@@ -97,6 +99,8 @@ Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an 
 ## Contributing
 
 See [PROJECT_PLAN.md](PROJECT_PLAN.md) for goals, rules and how changes land.
+
+Run the tests with `bash tests/run.sh`, or name files to run only those. The suite needs only bash, git and jq; each file runs in throwaway repos under a temp dir with its own `HOME`.
 
 Turn on the leak check once per clone: `git config core.hooksPath .githooks`. The pre-push hook refuses commits carrying any term from `~/.config/orca/denylist` or `.orca/denylist`, both untracked. Syntax follows `.gitignore`: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, last match wins; matching ignores case and hits whole words only.
 
