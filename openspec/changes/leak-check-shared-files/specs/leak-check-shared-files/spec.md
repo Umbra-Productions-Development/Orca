@@ -1,15 +1,15 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<denylist file>:<line>)` for a hit in the contents and `file path:1  (<denylist file>:<line>)` for a hit in the path, never the path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line.
+`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<list> denylist:<line>)` for a hit in the contents and `file path:1  (<list> denylist:<line>)` for a hit in the path, where `<list>` is `global` or `project`, never the path, the list's path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
-- **THEN** it prints `file:12  (<denylist file>:<line>)`, exits 1, and the output contains neither the path nor the term
+- **THEN** it prints `file:12  (project denylist:<line>)`, exits 1, and the output contains neither the path nor the term
 
 #### Scenario: Denylisted path with clean contents
 - **WHEN** `leak-check --file` runs on a clean file whose path contains a denylisted term
-- **THEN** it prints `file path:1  (<denylist file>:<line>)`, exits 1, and the output does not contain the term
+- **THEN** it prints `file path:1  (project denylist:<line>)`, exits 1, and the output does not contain the term
 
 #### Scenario: Missing path
 - **WHEN** `leak-check --file` is given a path that does not exist

@@ -11,7 +11,7 @@ Established facts:
 - `hooks/pretool.sh` already sees every Write, Edit and MultiEdit before it runs, with `tool_input.file_path` and the content (`content`, `new_string`, or `edits[].new_string`). Exit 2 blocks the call, and stderr reaches the session.
 - `cmd_discover` writes only front matter, the rule and `# <slug>`. The `discover` skill (`skills/discover/SKILL.md`, steps 1 and 4) then has the session fill the body, or update an existing discovery in place, with Write and Edit.
 - Worktrees link `.orca` to the main checkout, so one handoff or discovery can be addressed by either path.
-- `leak-check-command` provides `leak_lists` and `leak_scan`. `leak_scan` reads `<where>\t<text>` lines and prints `<where>  (<denylist>:<line>)` for each hit.
+- `leak-check-command` provides `leak_lists` and `leak_scan`. `leak_scan` reads `<where>\t<text>` lines and prints `<where>  (global denylist:<line>)` or `<where>  (project denylist:<line>)` for each hit, never the list's path.
 
 ## `--file` mode
 

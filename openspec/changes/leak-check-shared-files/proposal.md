@@ -8,7 +8,7 @@ Sessions share notes through the shared `.orca/` directory: discoveries, handoff
 
 ## What changes
 
-- `orca-lc leak-check --file <path>…` scans each path and the file's contents line by line against the same denylists and prints `file:<line>  (<denylist file>:<line>)` for each hit (`file path:1` for the path itself), never the path or the term. It exits 1 on hits, 0 when clean or when there is no denylist, and 2 on a missing path.
+- `orca-lc leak-check --file <path>…` scans each path and the file's contents line by line against the same denylists and prints `file:<line>  (project denylist:<line>)` for each hit, or `global denylist:<line>` when the global list matched, (`file path:1` for the path itself), never the path or the term. It exits 1 on hits, 0 when clean or when there is no denylist, and 2 on a missing path.
 - When `leakCheck` is true, the commands that create shared files with content scan that content first and refuse before writing anything on a hit:
   - `orca-lc discover <slug> "<rule>"` scans the slug and the rule;
   - `orca-lc role start <ticket> <role>` scans the handoff body before it opens a tab or writes the handoff;
