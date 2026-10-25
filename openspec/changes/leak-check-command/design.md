@@ -7,7 +7,7 @@ Established facts:
 - `.githooks/pre-push` reads git's pre-push stdin (`<lref> <lsha> <rref> <rsha>` per line) and skips deletions (`lsha` all zeros). For each ref it scans:
   - the remote branch name;
   - for each commit (`<rsha>..<lsha>`, or `<lsha> --not --remotes` for a new branch): the author and committer names and emails, the message, every path from `+++` lines, and every added line.
-- It prints `<location>  (<denylist file>:<line>)` lines, sorted and unique, to stderr, then exits 1. With no denylist file it exits 0 silently. It never prints the matched text.
+- It prints `<location>  (<denylist file>:<line>)` lines, sorted and unique, to stderr, then exits 1. With no denylist file it exits 0 silently. It never prints the matched text. The subcommand names the list as `global denylist:<line>` or `project denylist:<line>` instead of its path (see Decisions).
 - Adopting projects run only the Claude Code hooks. `hooks/pretool.sh` refuses `git push` unless `orca-lc gate-fresh` holds, and the marker is written only when the gate passes on the exact tree.
 - Worktrees made by `orca-lc worktree up` link `.orca` back to the main checkout, so `<toplevel>/.orca/denylist` resolves to one file across all of them.
 - PR #50 answers `--help` for every subcommand from its `USAGE` line, centrally.
@@ -17,14 +17,14 @@ Established facts:
 `cmd_leak_check` in `bin/orca-lc`, dispatched as `leak-check`:
 
 - `leak_lists` prints the existing denylist files: `${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist`, then `$(root)/.orca/denylist`. The order matters because the last match wins.
-- `leak_scan` is the hook's awk matcher, moved verbatim. It reads `<where>\t<text>` lines on stdin and prints one line per blocked hit.
-- `leak_commits <name> <git-log args…>` emits the branch-name line and the per-commit lines exactly as the hook's loop body does today.
+- `leak_scan` is built from the hook's awk matcher, with the same syntax and matching. It reads `<where>\t<text>` lines on stdin and prints one line per blocked hit as `<where>  (global denylist:<n>)` or `<where>  (project denylist:<n>)`. It changes the hook's output only where Decisions say: the list label, and the location cut for a commit whose path matches a deny pattern.
+- `leak_commits <name> <git-log args…>` emits the branch-name line and the per-commit lines the hook's loop body emits today, with two differences: it reads paths with `core.quotePath=false` and fixed `a/` and `b/` prefixes, and unquotes the C-quoted ones, turning escapes such as a tab or newline into spaces. When `git log` fails, it prints the bad-range line and exits 2.
 - Modes:
   - `--pre-push`: the hook's stdin loop, unchanged, calling `leak_commits` per ref.
   - `[range]`: `leak_commits "$(git branch --show-current)" <range>`. With no range, the range is `HEAD --not --remotes`: every commit reachable from HEAD that no remote-tracking ref has, which is what a push of this branch sends, including unpushed commits on a local base branch and commits made on the base branch itself.
 - With no denylist file: `--pre-push` exits 0 silently. The range mode prints `leak-check: no denylist, skipped` to stderr and exits 0.
-- On hits: a header line and the sorted, unique hit lines go to stderr; exit 1. `--pre-push` keeps today's header, `pre-push: denylisted terms found, push refused. Location, then the denylist line that matched:`, so the repo's hook prints what it prints now, except for the two locations the output decision below changes. Every other mode prints `leak-check: denylisted terms found. Location, then the denylist line that matched:`. Bad usage exits 2 through `usage`.
-- `cmd_leak_check` returns its status and never calls `exit` itself, apart from `usage` and `die` on bad input, so a caller inside the same process keeps control.
+- On hits: a header line and the sorted, unique hit lines go to stderr; exit 1. `--pre-push` keeps today's header, `pre-push: denylisted terms found, push refused. Location, then the denylist line that matched:`, so the repo's hook prints what it prints now, except for the two locations the output decision below changes. Every other mode prints `leak-check: denylisted terms found. Location, then the denylist line that matched:`. Bad usage exits 2 through `usage`. A bad range exits 2 with `orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)` on one line, without the command list and without the range.
+- `cmd_leak_check` returns its status and never calls `exit` itself, apart from `usage` and `die` on bad input and the bad-range exit in `leak_commits`, so a caller inside the same process keeps control.
 - The `USAGE` line is `leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)`.
 
 ## The hook
@@ -42,7 +42,7 @@ It calls this checkout's own copy, so a clone without an install works and the h
 In `cmd_gate`, after `bash -c "$g"` succeeds and before the marker is written, when `cfg '.leakCheck'` is `true`:
 
 - print `orca-lc: leak-check on commits not on any remote`;
-- run `( cmd_leak_check )` in a subshell, so no `exit` inside it, including from `usage` or `die`, can end the gate process. On a non-zero status, print `ORCA_GATE_FAIL` as the gate's last line and return 1, so no marker is written. In herdr mode, the pane's `wait-output` on `ORCA_GATE_(PASS|FAIL)$` therefore always ends.
+- run `( cmd_leak_check )` in a subshell, so no `exit` inside it, including from `usage`, `die` or the bad-range exit, can end the gate process. On a non-zero status, print `ORCA_GATE_FAIL` as the gate's last line and return 1, so no marker is written. In herdr mode, the pane's `wait-output` on `ORCA_GATE_(PASS|FAIL)$` therefore always ends.
 
 The scan covers commits only, not uncommitted changes, because a push sends commits. The pretool hook is unchanged: a fresh marker now means every commit reachable from HEAD that no remote has was scanned. That is a superset of what `git push` sends from that tree, whichever branch is checked out, including the base branch. A push of a different ref than HEAD (`git push origin other:other`) is not covered by the marker; it is not covered today either.
 
@@ -83,8 +83,9 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 - `--pre-push` keeps the `pre-push:` header; every other mode prints a `leak-check:` header — proposal review suggestion 3, taken.
 - The test copies `bin/orca-lc` and `.githooks/pre-push` into its temporary repo, untracked, so the hook resolves `bin/orca-lc` there — proposal review suggestion 4, taken.
 - `docs/daily-use.md` describes the gate, so task 5.3 is unconditional — proposal review suggestion 5, taken.
-- No output line carries the term, even where today's hook printed it: a branch-name hit prints `branch name`, not the branch, and a hit in a commit whose changed path holds a denylisted term prints `commit <sha> added line`, not `commit <sha> <path>`. The repo hook's output changes for these two cases only; every other location is as before (implemented in 7cb0d91) — user (during apply).
-- When `git log` fails on the range, range mode and `--pre-push` exit 2 through `usage` with `leak-check: bad range`, without echoing the range, instead of reporting clean (a2ae9b5). Consequences: a push whose remote sha is not in the local repo (a force-push over commits never fetched) is refused, and on an unborn HEAD with `leakCheck` on and a denylist present, the gate's leak step fails — apply, accepted at review.
+- No output line carries the term, even where today's hook printed it: a branch-name hit prints `branch name`, not the branch, and a hit in a commit whose changed path holds a denylisted term prints `commit <sha> added line`, not `commit <sha> <path>`. The cut applies when the path matches any deny pattern, even one a later `!` re-allows, so a re-allowed path never prints the term. A path is read unquoted, with escapes such as a tab or newline turned into spaces, so it can neither print git's quoted form nor split a line. A hit names its list as `global denylist:<line>` or `project denylist:<line>`, never by the list's path. The repo hook's output changes for these cases only; every other location is as before (implemented in 7cb0d91 and c48cf72) — user (during apply); the re-allowed path, unquoting and list label from the PR #94 review.
+- When `git log` fails on the range, range mode and `--pre-push` print `orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)` and exit 2 directly, not through `usage`, so no command list follows and the range is not echoed, instead of reporting clean (a2ae9b5; message and direct exit in c48cf72). Consequences: a push whose remote sha is not in the local repo (a force-push over commits never fetched) is refused, and on an unborn HEAD with `leakCheck` on and a denylist present, the gate's leak step fails — apply, accepted at review.
+- PR #94 review by Excalimbito, findings 1, 2, 3 and 5, fixed by apply in c48cf72 (tests in 932e7d1): a path re-allowed by `!` is still cut to `added line`; paths are read unquoted with escapes as spaces and pinned `a/`/`b/` prefixes; hits name `global denylist` or `project denylist` instead of the list's path, which can carry a term through a checkout or home directory name; a bad range prints one line and exits 2 without the command list — Excalimbito (PR #94 review), fixed by apply.
 - The proposal commit carries both changes. If the changes are stacked, whoever cuts the stack moves `openspec/changes/leak-check-shared-files/` into the second branch — proposal review suggestion 7, accepted as is.
 
 ## Risks
