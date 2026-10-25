@@ -1,17 +1,11 @@
-#!/usr/bin/env bash
-# orca-lc handoffs: one ticket case, archive without overwrite, one live handoff per ticket and role. Run: tests/handoff.sh
-set -uo pipefail
-lc="$(cd "$(dirname "$0")/.." && pwd)/bin/orca-lc"
-repo=$(mktemp -d); trap 'rm -rf "$repo"' EXIT
+# orca-lc handoffs: one ticket case, archive without overwrite, one live handoff per ticket and role (#31)
+lc="$ORCA_SRC/bin/orca-lc"
+repo=$(mktemp -d)
 git -C "$repo" init -q && mkdir "$repo/.orca" && echo '{}' >"$repo/.orca/config.json"
 cd "$repo" || exit 1
-unset HERDR_ENV ORCA_ROLE
 h="$repo/.orca/handoffs"
 
-fail=0
-ok() { echo "ok   $1"; }
-no() { echo "FAIL $1"; fail=1; }
-check() { if eval "$2"; then ok "$1"; else no "$1"; fi; }
+check() { eval "$2" || fail "$1"; }
 # as <session> <orca-lc args>: run as a session with its own pane, so its identity file is its own
 as() { local s="$1"; shift; HERDR_PANE_ID="pane-$s" "$lc" "$@"; }
 for s in s1 s2 s3 s4; do HERDR_PANE_ID="pane-$s" CLAUDE_SESSION_ID="$s" "$lc" name --set >/dev/null; done
@@ -35,8 +29,8 @@ check "mixed-case inbox drains" 'as s2 inbox read xyz-9 | grep -q hello'
 
 # Same-day handoffs all survive the archive
 for i in 1 2 3; do
-  as s1 handoff write ABC-3 review >/dev/null || no "write $i"
-  as s2 handoff read ABC-3 review >/dev/null || no "read $i"
+  as s1 handoff write ABC-3 review >/dev/null || fail "write $i"
+  as s2 handoff read ABC-3 review >/dev/null || fail "read $i"
 done
 check "three same-day handoffs all in the archive" '[ "$(ls "$h/abc-3/archive" | grep -cE "^review-[0-9]{4}-[0-9]{2}-[0-9]{2}-[0-9]{6}(-[0-9]+)?\.md$")" = 3 ]'
 
@@ -117,4 +111,3 @@ check "consume stamps the front matter, not the body" '[ "$(grep -c "^consumed-b
 e=$("$lc" role start ABC-12 apply --sa x </dev/null 2>&1); rc=$?
 check "role start: an unknown third argument is a usage error" '[ "$rc" = 2 ] && [[ $e == *"role start <ticket> <role> [--as <name>]"* ]]'
 
-exit $fail
