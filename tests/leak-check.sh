@@ -42,28 +42,40 @@ c3=$(GIT_AUTHOR_NAME="Zebra Person" add other.txt "plain2" "by someone")
 c4=$(GIT_COMMITTER_EMAIL="me@zebra.example" add other.txt "plain3" "committed by someone")
 c5=$(add zebra-notes.txt "plain")
 lc; ok $(( st == 1 ? 0 : 1 )) "hits exit 1"
-has "commit $c1 notes.txt  ($pl:2)"; ok $? "added line reported with denylist line"
-has "commit $c2 message  ($pl:2)"; ok $? "message reported"
-has "commit $c3 message  ($pl:2)"; ok $? "author name reported"
-has "commit $c4 message  ($pl:2)"; ok $? "committer email reported"
-has "commit $c5 path  ($pl:2)"; ok $? "path reported"
+has "commit $c1 notes.txt  (project denylist:2)"; ok $? "added line reported with denylist line"
+has "commit $c2 message  (project denylist:2)"; ok $? "message reported"
+has "commit $c3 message  (project denylist:2)"; ok $? "author name reported"
+has "commit $c4 message  (project denylist:2)"; ok $? "committer email reported"
+has "commit $c5 path  (project denylist:2)"; ok $? "path reported"
 clean; ok $? "the term never appears in the output"
 has "leak-check: denylisted terms found."; ok $? "range mode prints the leak-check header"
 has "push refused"; ok $(( $? == 0 ? 1 : 0 )) "range mode does not print the pre-push header"
 lc "$c5~1..$c5"; has "commit $c5 path"; a=$?; has "commit $c1 "; ok $(( a == 0 && $? != 0 ? 0 : 1 )) "explicit range scans only that range"
 git reset -q --hard "$(git rev-parse main)"
 
-git checkout -q -b zebra-branch; lc; has "branch name  ($pl:2)"; ok $? "branch name reported"
+git checkout -q -b zebra-branch; lc; has "branch name  (project denylist:2)"; ok $? "branch name reported"
 clean; ok $? "branch hit never prints the term"
-c6=$(add zebra-two.txt "more zebra"); lc; has "commit $c6 added line  ($pl:2)"; ok $? "added line in a denylisted path reported as added line"
-has "commit $c6 path  ($pl:2)"; ok $? "denylisted path reported"; clean; ok $? "path hit never prints the term"
+c6=$(add zebra-two.txt "more zebra"); lc; has "commit $c6 added line  (project denylist:2)"; ok $? "added line in a denylisted path reported as added line"
+has "commit $c6 path  (project denylist:2)"; ok $? "denylisted path reported"; clean; ok $? "path hit never prints the term"
 git checkout -q topic; git branch -q -D zebra-branch
+
+# A path that matches a deny pattern is cut even when a later ! re-allows it; quoted paths are read unquoted.
+printf 'zebra\n!zebra-notes\n' > "$pl"; c7=$(add zebra-notes.txt "zebra"); lc
+has "commit $c7 added line  (project denylist:1)"; ok $? "re-allowed path: added-line hit reported as added line"; clean; ok $? "re-allowed path never prints the term"
+printf 'zebra\n' > "$pl"; git reset -q --hard "$(git rev-parse main)"
+c8=$(add "$(printf 'x\tzebra.txt')" "zebra"); lc
+has "commit $c8 path  (project denylist:1)"; ok $? "tab in a path: the path is still scanned"
+has "commit $c8 added line  (project denylist:1)"; ok $? "tab in a path: hit reported as added line"; clean; ok $? "tab in a path never prints the term"
+c9=$(add "$(printf 'q\tw.txt')" "zebra"); lc; has "commit $c9 q w.txt  (project denylist:1)"; ok $? "tab in a clean path reads unquoted, tab as space"
+git reset -q --hard "$(git rev-parse main)"
 
 # Matching: ! re-allows, the project list's later line beats the global one, case-insensitive, whole words only.
 printf 'zebra\n!zebra\n' > "$pl"; add a.txt "zebra" >/dev/null; lc; ok $st "! re-allows"
 printf 'zebra\n' > "$gl"; printf '!zebra\n' > "$pl"; lc; ok $st "project list's later ! wins over the global deny"
 printf '!zebra\n' > "$gl"; printf 'zebra\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "project list's deny wins over the global !"
-has "($pl:1)"; ok $? "hit names the project list line"
+has "(project denylist:1)"; ok $? "hit names the project list line"; has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "hit never prints the list's path"
+printf 'zebra\n' > "$gl"; : > "$pl"; lc; has "(global denylist:1)"; ok $? "hit names the global list line"
+has "$gl"; ok $(( $? == 0 ? 1 : 0 )) "global hit never prints the list's path"
 rm -f "$gl"; printf 'ZEBRA\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "matching ignores case"
 git reset -q --hard main; add b.txt "zebras and azebra" >/dev/null; printf 'zebra\n' > "$pl"; lc; ok $st "whole words only"
 printf 'zeb*\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "* wildcard matches"
@@ -73,6 +85,7 @@ printf 'zebra\n' > "$pl"; git reset -q --hard main
 git checkout -q main; m1=$(add m.txt "zebra on main"); lc
 has "commit $m1 m.txt"; ok $? "commit on the base branch is scanned"; ok $(( st == 1 ? 0 : 1 )) "commit on the base branch: hit exits 1"
 lc nozebra..HEAD; ok $(( st == 2 ? 0 : 1 )) "bad range exits 2"; has "leak-check: bad range"; ok $? "bad range says bad range"; clean; ok $? "bad range never prints the range"
+has "git fetch first"; ok $? "bad range hints to fetch first"; has "leak-check [range]"; ok $(( $? == 0 ? 1 : 0 )) "bad range does not dump the command list"
 git checkout -q -b topic2; add t.txt "clean" >/dev/null; lc
 has "commit $m1 m.txt"; ok $? "unpushed commit on local main below the branch is scanned"
 has "commit $(git rev-parse --short origin/main) "; ok $(( $? == 0 ? 1 : 0 )) "commits already on origin are left out"
