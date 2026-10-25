@@ -4,7 +4,7 @@
 set -uo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export HOME="$tmp/home"; mkdir -p "$HOME"
+export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR
 sk="$HOME/.claude/skills"
 
 fail=0
