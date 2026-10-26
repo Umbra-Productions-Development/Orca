@@ -19,6 +19,8 @@ A ticket gets one terminal tab per session, managed through herdr.
 
 Ownership moves forward only: propose, then apply, then review until merge. Only the owner edits the tree.
 
+`orca-lc role retire <ticket> <role> [--wait]` exits a role's session and keeps its tab, so the next `role start` for that role runs in the same tab and `claude --resume` there lists the earlier sessions. It refuses a working session unless `--wait` is given, which waits for it to go idle first.
+
 ## What it enforces
 
 - **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree. `git push` is refused without a fresh marker; `git merge` is always refused.
@@ -93,6 +95,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
+| `minFreeMemMb` | Available memory, in MB, under which `role start` refuses to open a new session. Default `3000` |
 
 Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an agent name, or `{"do": "<instruction>"}`. Any object entry may add `"when": "<regex>"` to run only when a changed path matches.
 
