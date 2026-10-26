@@ -80,24 +80,32 @@ load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
   local ec; ec=$(cfg '.envCommand'); [ -n "$ec" ] || return 0
   local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && { set -a; eval "$kv"; set +a; echo "orca-lc: env: $kv"; }; }
 
+# The gate is this process's own child, so its exit status (pass, fail, crash, kill) is the result.
+# gateTimeoutMin bounds a hung gate: TERM, then KILL 30s later. Output also goes to $(gitdir)/orca-gate.log.
+run_gate() {
+  rm -f "$(marker)"; load_env
+  echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
+  timeout --kill-after=30s "$(cfg '.gateTimeoutMin' 30)m" bash -c "$1"; local rc=$?
+  case $rc in 0) tree_sig > "$(marker)"; echo "ORCA_GATE_PASS";; 124) echo "ORCA_GATE_TIMEOUT";; *) echo "ORCA_GATE_FAIL";; esac
+  return $rc
+}
 cmd_gate() {
   local r; r=$(root) || die "not in a repo"
   local g; g=$(cfg '.gate'); [ -n "$g" ] || die "no gate in .orca/config.json"
+  cd "$r" || exit 1
+  local log old pane="" out=/dev/stdout rc; log="$(gitdir)/orca-gate.log"; old="$(gitdir)/orca-gate-pane"; : > "$log"
   if [ "${1:-}" != "--inline" ] && inherdr; then
-    local old; old="$(gitdir)/orca-gate-pane"; [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
-    local pane; pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
-    if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"; else
-      herdr pane run "$pane" "orca-lc gate --inline" >/dev/null
-      herdr pane wait-output "$pane" --regex 'ORCA_GATE_(PASS|FAIL)$' --timeout 1200000 >/dev/null
-      herdr pane read "$pane" --source recent-unwrapped --lines 200 | tail -60
-      if cmd_gate_fresh; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
-      echo "$pane" > "$old"; echo "orca-lc: gate FAIL, pane $pane left open (closed automatically on the next run)"; return 1
-    fi
+    [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
+    pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
+    # The pane only follows the log (and stops when this process ends); closing it cannot change the result.
+    if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"
+    else herdr pane run "$pane" "tail -n +1 -f --pid=$$ $(printf %q "$log")" >/dev/null; out=/dev/null; fi
   fi
-  cd "$r" || exit 1; rm -f "$(marker)"; load_env
-  echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  if bash -c "$g"; then tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0; fi
-  echo "ORCA_GATE_FAIL"; return 1
+  run_gate "$g" 2>&1 | tee -a "$log" > "$out"; rc=${PIPESTATUS[0]}
+  [ -n "$pane" ] || return $rc
+  tail -60 "$log"
+  if [ $rc = 0 ]; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
+  echo "$pane" > "$old"; echo "orca-lc: gate FAIL (exit $rc), pane $pane left open (closed automatically on the next run)"; return $rc
 }
 
 base_ref() { local b; b=$(cfg '.baseBranch' main); git merge-base HEAD "$b" 2>/dev/null || git rev-parse HEAD~1; }

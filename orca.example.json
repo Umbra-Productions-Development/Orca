@@ -3,6 +3,7 @@
   "sharedDir": "/abs/path/to/main-checkout/.orca",
   "baseBranch": "main",
   "gate": "npm run lint && npm run typecheck && npm test",
+  "gateTimeoutMin": 30,
   "testCommand": "npx vitest run",
   "testGlob": "\\.test\\.tsx?$",
   "sourceGlob": "src/|\\.tsx?\\b",
