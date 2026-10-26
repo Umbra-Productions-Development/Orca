@@ -516,4 +516,4 @@ case "$cmd" in
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
   stack) cmd_stack "$@";; ticket) ticket;;
   *) usage "unknown command '$cmd'";;
-esac
+esac; exit $?  # same line: bash stops reading here, so editing this file under a running orca-lc cannot break it
