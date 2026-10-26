@@ -57,7 +57,7 @@ cmd_name() {
   local f; f=$(idfile)
   if [ "${1:-}" = "--set" ]; then
     local sid="${CLAUDE_SESSION_ID:-}" t r n base i=1
-    t=$(ticket); [ -n "$t" ] || t=$(cfg '.project' proj); r=$(role_from_tab); n="${t//-/}-$r"; base="$n"
+    t=$(echo "${ORCA_TICKET:-}" | tr 'A-Z' 'a-z'); [ -n "$t" ] || t=$(ticket); [ -n "$t" ] || t=$(cfg '.project' proj); r=$(role_from_tab); n="${t//-/}-$r"; base="$n"
     if inherdr; then
       while herdr agent list | jq -e --arg n "$n" --arg me "${HERDR_PANE_ID:-}" '.result.agents[] | select((.agent_name // .name)==$n and .pane_id!=$me)' >/dev/null 2>&1; do i=$((i+1)); n="$base$i"; done
       herdr agent rename "$HERDR_PANE_ID" "$n" >/dev/null 2>&1
@@ -367,7 +367,7 @@ cmd_role() {
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         [ "${free:-0}" -lt "$min" ] && die "only ${free:-?} MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
         local pane; pane=$(role_tab_pane "$ws" "$r")
-        [ -n "$pane" ] || pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --no-focus | jq -r '.result.root_pane.pane_id // empty')
+        [ -n "$pane" ] || pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --env "ORCA_TICKET=$t" --no-focus | jq -r '.result.root_pane.pane_id // empty')
         [ -n "$pane" ] || die "herdr tab create returned no pane"
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
           die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
