@@ -8,7 +8,7 @@ mcpServers:
   - playwright:
       type: stdio
       command: playwright-mcp
-      args: []
+      args: ["--isolated"]   # one in-memory browser profile per subagent, so parallel sessions never share one
 ---
 You are the apply role of the ticket. Load the `orca` skill and follow its apply section: its Owns and Never lines bind you.
 
