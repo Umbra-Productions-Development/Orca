@@ -53,9 +53,13 @@ role_from_tab() {
     | ((.roles // {}) | with_entries(.key |= ascii_downcase))[$k]
       // (if ["orchestrator","propose","apply","review"] | index($k) then $k else "session" end)' "$f"
 }
+# An agent started inside another agent's pane (claude -p from a Bash tool) inherits the pane id; it must not rename that pane.
+nested_agent() { local p=$PPID own=""; while [ "${p:-1}" -gt 1 ] && [ "$p" != "${ORCA_PS_STOP:-}" ]; do  # ORCA_PS_STOP: tests stop the walk at their own shell
+  [ "$(ps -o comm= -p "$p" 2>/dev/null)" = claude ] && { [ -n "$own" ] && return 0; own=1; }
+  p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); done; return 1; }
 cmd_name() {
   local f; f=$(idfile)
-  if [ "${1:-}" = "--set" ]; then
+  if [ "${1:-}" = "--set" ] && ! nested_agent; then
     local sid="${CLAUDE_SESSION_ID:-}" t r n base i=1
     t=$(echo "${ORCA_TICKET:-}" | tr 'A-Z' 'a-z'); [ -n "$t" ] || t=$(ticket); [ -n "$t" ] || t=$(cfg '.project' proj); r=$(role_from_tab); n="${t//-/}-$r"; base="$n"
     if inherdr; then
@@ -355,7 +359,7 @@ cmd_role() {
           blocked) die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command";;
         esac
         herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"
-        herdr agent wait "$name" --until idle --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
+        herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
       else
         case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
           local other; other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
@@ -385,7 +389,7 @@ cmd_role() {
       [ -n "$ag" ] || die "no live session named $name"
       if [ "$(jq -r .status <<<"$ag")" = working ]; then
         [ "${3:-}" = --wait ] || die "$name is working; retire it once it reports, or pass --wait"
-        herdr agent wait "$name" --until idle >/dev/null 2>&1 || die "herdr wait on $name failed"
+        herdr agent wait "$name" --until idle --until done >/dev/null 2>&1 || die "herdr wait on $name failed"
       fi
       exit_role_agent "$ag"; echo "retired $name";;
     *) usage "role start|owner|retire";;

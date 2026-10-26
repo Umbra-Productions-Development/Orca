@@ -22,8 +22,12 @@ case "$1 $2" in
   "workspace list") jq -n --arg d "$wt" '{result:{workspaces:[{workspace_id:"w1",worktree:{checkout_path:$d}}]}}';;
   "agent list") jq '{result:{agents:.}}' "$H/agents";;
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
-  "agent wait") echo "wait $3 $5" >>"$H/log"; [ "$5" = idle ] && put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; :;;
-  "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && put agents --arg n "$3" 'map(select(.name!=$n))'; :;;
+  "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
+                 u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
+                 [ "$st" = working ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
+                 grep -qw "$st" <<<"$u";;
+  "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && put agents --arg n "$3" 'map(select(.name!=$n))'
+                  [ "$4" = /clear ] && put agents --arg n "$3" 'map(if .name==$n then .agent_status="done" else . end)'; :;;
   "agent start") put agents --arg n "$3" --arg p "$7" --arg c "$wt" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c}]'; echo "start $3" >>"$H/log";;
   "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
                 put tabs --arg t "tp$n" --arg l "$l" '. + [{tab_id:$t, label:$l}]'; jq -n --arg p "p$n" '{result:{root_pane:{pane_id:$p}}}';;
@@ -31,6 +35,7 @@ case "$1 $2" in
   "pane list") jq '{result:{panes:[.[] | {pane_id:(.tab_id|ltrimstr("t")), tab_id}]}}' "$H/tabs";;
   "tab get") jq --arg t "$3" '{result:{tab:(.[] | select(.tab_id==$t))}}' "$H/tabs";;
   "tab close") echo "close $3" >>"$H/log"; put agents --arg t "$3" 'map(select(.tab_id!=$t))'; put tabs --arg t "$3" 'map(select(.tab_id!=$t))';;
+  "agent rename") echo "rename $3 $4" >>"$H/log";;
   *) :;;
 esac
 EOF
@@ -84,4 +89,12 @@ jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents
 jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
 run role retire ABC-1 mine
 check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
+set_status abc1-propose done; run role start ABC-1 propose
+check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
+cp "$(command -v bash)" "$tmp/bin/claude"; export ORCA_PS_STOP=$$
+(cd "$main" && "$tmp/bin/claude" -c '"$0" -c "\"$1\" name --set >/dev/null; :"; :' "$tmp/bin/claude" "$lc")   # "; :" keeps bash from exec-ing away each claude
+check 'an agent inside another agent pane does not rename the pane' '! grep -q "^rename" "$H/log"'
+(cd "$main" && "$tmp/bin/claude" -c '"$0" name --set >/dev/null; :' "$lc")
+check 'the pane own agent names it' 'grep -q "^rename" "$H/log"'
+rm -f "$tmp/bin/claude"
 exit $fail
