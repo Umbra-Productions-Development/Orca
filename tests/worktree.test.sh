@@ -66,3 +66,25 @@ if ln -s "$r/.secret" "$d/probe" 2>/dev/null && [ -L "$d/probe" ]; then
 else echo "  SKIP: ln -s copies here (no native symlinks); linkPaths link assert skipped"; fi
 out=$(cd "$d/nest/L" && orca-lc worktree down L-1 --force 2>&1); assert_status $? 0
 [ ! -e "$d/L-1" ] || fail "down left $d/L-1: $out"
+
+# claude.disabledMcpServers: up merges the list into the new worktree's entry in $HOME/.claude.json
+# (other keys kept); an empty or missing list writes nothing; down drops it, and the entry once empty.
+cj="$HOME/.claude.json"
+r=$(new_repo '{"project":"p","gate":"true","claude":{"disabledMcpServers":["playwright","x"]}}'); d=$(dirname "$r")
+jq -n --arg k "$(native "$d")/M-1" '{theme:"dark", projects:{"/other":{a:1}, ($k):{disabledMcpServers:["x","mine"], allowedTools:["Bash"]}}}' > "$cj"
+out=$(cd "$r" && orca-lc worktree up M-1 2>&1); assert_status $? 0; assert_contains "$out" "mcp off: playwright x"
+k="$(native "$d")/M-1"
+assert_eq "$(jq -c --arg k "$k" '.projects[$k].disabledMcpServers' "$cj")" '["mine","playwright","x"]'
+assert_eq "$(jq -c --arg k "$k" '[.theme, .projects["/other"].a, .projects[$k].allowedTools[0]]' "$cj")" '["dark",1,"Bash"]' "other keys lost"
+out=$(cd "$r" && orca-lc worktree up M-2 2>&1)
+assert_eq "$(jq -c --arg k "$(native "$d")/M-2" '.projects[$k]' "$cj")" '{"disabledMcpServers":["playwright","x"]}'
+(cd "$r" && orca-lc worktree down M-1 --force >/dev/null 2>&1)
+assert_eq "$(jq -c --arg k "$k" '.projects[$k]' "$cj")" '{"allowedTools":["Bash"]}' "down: entry not cleared"
+(cd "$r" && orca-lc worktree down M-2 --force >/dev/null 2>&1)
+assert_eq "$(jq --arg k "$(native "$d")/M-2" '.projects | has($k)' "$cj")" false "down: empty entry kept"
+assert_eq "$(jq -c '[.theme, .projects["/other"].a]' "$cj")" '["dark",1]'
+rm -f "$cj"
+for c in '{"project":"p","gate":"true"}' '{"project":"p","gate":"true","claude":{"disabledMcpServers":[]}}'; do
+  r=$(new_repo "$c"); out=$(cd "$r" && orca-lc worktree up M-3 2>&1); assert_status $? 0
+  [ ! -e "$cj" ] || fail "wrote $cj with config $c"; assert_not_contains "$out" "mcp off"
+done

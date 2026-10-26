@@ -268,6 +268,12 @@ wt_link() { local main="$1" dir="$2" p
 stack_check() { local c w; c=$(cfg ".$1"); [ -n "$c" ] || die "--stack needs $1 in .orca/config.json"
   for w in $c; do case "$w" in *=*) ;; *) break;; esac; done
   case "$w" in /*) [ -x "$w" ];; */*) [ -x "$2/$w" ];; *) command -v "$w" >/dev/null;; esac || die "$1 command '$w' is missing or not executable; nothing created"; }
+# Claude Code's per-user state (beside the config dir install.sh uses): .projects["<dir>"].disabledMcpServers
+# keeps those MCP servers off for sessions started in <dir>; claude.ai connectors stay.
+claude_state() { echo "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"; }
+# claude_state_edit <jq args...>: rewrite it atomically, a temp file in the same dir then mv.
+claude_state_edit() { local f t; f=$(claude_state); t=$(mktemp "$f.XXXXXX") || return 1
+  if { cat "$f" 2>/dev/null || echo '{}'; } | jq "$@" > "$t"; then mv "$t" "$f"; else rm -f "$t"; return 1; fi; }
 cmd_worktree() {
   local sub="${1:-}"; shift || true
   case "$sub" in
@@ -286,6 +292,12 @@ cmd_worktree() {
         elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then git -C "$main" worktree add --track -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
         elif inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
         else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
+      fi
+      # Before any session opens there.
+      local off; off=$(cfg '.claude.disabledMcpServers | select(length > 0)')
+      if [ -n "$off" ]; then
+        if claude_state_edit --arg d "$dir" --argjson s "$off" '.projects[$d].disabledMcpServers = ((.projects[$d].disabledMcpServers // []) + $s | unique)'
+        then echo "mcp off: $(jq -r 'join(" ")' <<< "$off")"; else echo "WARNING: could not write disabledMcpServers to $(claude_state)"; fi
       fi
       # Every worktree gets its own workspace, grouped under the repository's: open one for a worktree
       # made outside herdr or whose workspace was closed.
@@ -325,6 +337,11 @@ cmd_worktree() {
       if inherdr; then local ws; ws=$(wt_ws "$dir"); [ -n "$ws" ] && herdr worktree remove --workspace "$ws" --force >/dev/null 2>&1; fi
       local main; main=$(main_root)
       [ -d "$dir" ] && git -C "$main" worktree remove --force "$dir"
+      # Drop the worktree's disabledMcpServers, and its project entry once nothing else is left in it.
+      if jq -e --arg d "$dir" '.projects[$d] | has("disabledMcpServers")' "$(claude_state)" >/dev/null 2>&1; then
+        claude_state_edit --arg d "$dir" 'del(.projects[$d].disabledMcpServers) | if .projects[$d] == {} then del(.projects[$d]) else . end' \
+          || echo "WARNING: could not clear disabledMcpServers in $(claude_state)"
+      fi
       git -C "$main" branch -D "$branch" >/dev/null 2>&1 && echo "local branch $branch deleted"
       echo "torn down $t; remote branch untouched" ;;
     *) usage "worktree up|down";;
