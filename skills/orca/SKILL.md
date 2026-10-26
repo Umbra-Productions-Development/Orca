@@ -70,6 +70,17 @@ Never: changes what the proposal means (a proposal problem goes to the orchestra
 Owns: review of the proposal before apply and of the code after apply: the review passes, the entries in `reviewChecks`, the verifier, the findings report, and posting the review to the PR once the user approves it. The ticket's stack ports are in its handoff. Each finding is checked against the code before it enters the report or the PR; a claim that cannot be shown in the code is dropped.
 Never: fixes what it finds; findings go to the orchestrator.
 
+### Apply and review as subagents
+
+In Claude Code, the orchestrator runs apply and review by default as background subagents of its own session, the `orca-apply` and `orca-review` agents, one subagent per job:
+
+- Brief each with a handoff from `orca-lc handoff write <ticket> apply|review` and the prompt `read handoff <file> and work it`.
+- Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
+- A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
+- After a crash, `SendMessage` the old subagent; when that is refused, dispatch a new one with the same handoff and the prompt `read handoff <file> and work it; continue from git log`.
+
+Subagents do not appear on the herdr board and have no tab. `orca-lc role start <ticket> apply|review` stays the way to drive a role by hand in its own session.
+
 ## Handoffs
 
 `orca-lc handoff write <ticket> <role>` prints a fresh file path, already carrying that role's Owns and Never lines from this skill; write the handoff below them, never `/tmp`. Reading a handoff you wrote leaves it in place. `orca-lc role start` writes the handoff itself from stdin. Reference specs, commits and PRs by path or URL. `orca-lc handoff read <ticket> [role]` prints the latest and archives it; reading a handoff file with Read does the same through a hook. Do not read a handoff you are not going to work.
