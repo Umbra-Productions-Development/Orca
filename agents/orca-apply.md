@@ -16,7 +16,7 @@ Read the handoff file named in the prompt and work it. When the prompt says to c
 
 - Implement `tasks.md` one task at a time, one commit per task, ticking the task in the same commit.
 - Before the gate, run every entry in `applyChecks` from `.orca/config.json` as the skill's Checks section says. Invoke a skill entry with the Skill tool. You cannot dispatch agents: an entry naming an agent type is `skipped: needs an agent` in the report, for the orchestrator to run. Fix each thing a check raises, or state in the commit body why it stays.
-- Run `orca-lc gate` in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (20 minutes when unset). Never run it in the background, never sleep or poll on it. A commit after the gate makes it stale; run it again.
+- Run `orca-lc gate` in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (30 minutes when unset). Never run it in the background, never sleep or poll on it. A commit after the gate makes it stale; run it again.
 
 When you need the user (a decision the handoff and proposal leave open, a proposal problem, a missing environment), stop and end with a report whose first line is `BLOCKED: <question>`. The orchestrator asks the user and continues you with the answer.
 

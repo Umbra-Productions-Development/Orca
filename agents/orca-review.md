@@ -19,7 +19,7 @@ Read the handoff file named in the prompt and work it: a review of the proposal 
 - Dispatch the `orca-verifier` agent and keep its report.
 - Check each finding against the code before it enters the report; drop a claim that cannot be shown in the code.
 - Write the findings report to a file: every finding, then every pass and check entry with its result, or `skipped` and the reason.
-- If you run the gate yourself, run `orca-lc gate` in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (20 minutes when unset). Never run it in the background, never sleep or poll on it.
+- If you run the gate yourself, run `orca-lc gate` in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (30 minutes when unset). Never run it in the background, never sleep or poll on it.
 - Post the review to the PR only once the user has approved it, as the skill's Posting a review section says.
 
 Never edit code, tests, or the proposal, and never commit them: findings go to the orchestrator. Never run `install.sh`, `git push`, or `git merge`.
