@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# orca-lc role start/retire against a fake herdr: reuse, name folding, extras replace, memory guard, retire.
+# orca-lc role start/retire against a fake herdr: reuse, name folding, extras replace, memory guard, retire keeps the tab, kept tabs are reused.
 # Run: tests/role-sessions.sh
 set -uo pipefail
 lc="$(cd "$(dirname "$0")/.." && pwd)/bin/orca-lc"
@@ -22,10 +22,13 @@ case "$1 $2" in
   "workspace list") jq -n --arg d "$wt" '{result:{workspaces:[{workspace_id:"w1",worktree:{checkout_path:$d}}]}}';;
   "agent list") jq '{result:{agents:.}}' "$H/agents";;
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
+  "agent wait") echo "wait $3 $5" >>"$H/log"; [ "$5" = idle ] && put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; :;;
   "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && put agents --arg n "$3" 'map(select(.name!=$n))'; :;;
   "agent start") put agents --arg n "$3" --arg p "$7" --arg c "$wt" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c}]'; echo "start $3" >>"$H/log";;
   "tab create") n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
                 put tabs --arg t "tp$n" --arg l "$l" '. + [{tab_id:$t, label:$l}]'; jq -n --arg p "p$n" '{result:{root_pane:{pane_id:$p}}}';;
+  "tab list") jq '{result:{tabs:.}}' "$H/tabs";;
+  "pane list") jq '{result:{panes:[.[] | {pane_id:(.tab_id|ltrimstr("t")), tab_id}]}}' "$H/tabs";;
   "tab get") jq --arg t "$3" '{result:{tab:(.[] | select(.tab_id==$t))}}' "$H/tabs";;
   "tab close") echo "close $3" >>"$H/log"; put agents --arg t "$3" 'map(select(.tab_id!=$t))'; put tabs --arg t "$3" 'map(select(.tab_id!=$t))';;
   *) :;;
@@ -56,7 +59,7 @@ check 'an extra session opens' '[ "$(agents)" = "abc1-review abc1-walk" ]'
 run role start ABC-1 tour
 check 'a second extra refuses while one is live' '[ "$(agents)" = "abc1-review abc1-walk" ] && grep -q "extra session is live" "$H/out"'
 run role start ABC-1 tour --replace abc1-walk
-check '--replace exits the extra, closes its tab, opens the new one' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "prompt abc1-walk /exit" "$H/log" && grep -q "close tp2" "$H/log"'
+check '--replace exits the extra, keeps its tab, opens the new one' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "prompt abc1-walk /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"walk\")" "$H/tabs" >/dev/null'
 
 printf 'MemAvailable:   1024000 kB\n' >"$H/meminfo"
 run role start ABC-1 propose
@@ -68,9 +71,15 @@ run role start ABC-1 propose
 check 'minFreeMemMb sets the threshold' '[ "$(agents)" = "abc1-propose abc1-review abc1-tour" ]'
 
 run role retire ABC-1 tour
-check 'retire exits the session and closes its tab' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "prompt abc1-tour /exit" "$H/log"'
+check 'retire exits the session and keeps its tab' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "prompt abc1-tour /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"tour\")" "$H/tabs" >/dev/null'
+set_status abc1-review working; run role retire ABC-1 review
+check 'retire refuses a working session without --wait' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "pass --wait" "$H/out"'
+run role retire ABC-1 review --wait
+check 'retire --wait waits for idle, then retires' '[ "$(agents)" = abc1-propose ] && grep -q "wait abc1-review idle" "$H/log" && grep -q "prompt abc1-review /exit" "$H/log"'
+tabs=$(jq length "$H/tabs"); run role start ABC-1 review
+check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
 jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
 jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
 run role retire ABC-1 mine
-check 'retire never closes a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
+check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
 exit $fail
