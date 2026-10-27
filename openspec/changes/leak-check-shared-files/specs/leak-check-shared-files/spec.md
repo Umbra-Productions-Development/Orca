@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<list> denylist:<line>)` for a hit in the contents and `file path:1  (<list> denylist:<line>)` for a hit in the path, where `<list>` is `global` or `project`, never the path, the list's path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line. `--stdin <label>` SHALL use the same output and exit codes. When a denylist file exists but cannot be read, both modes SHALL print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, never the list's path, and exit 2.
+`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<list> denylist:<line>)` for a hit in the contents and `file path:1  (<list> denylist:<line>)` for a hit in the path, where `<list>` is `global` or `project`, never the path, the list's path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line. In `--file`, `--stdin`, `--pre-push` and range modes, a scan that fails after the lists were read SHALL print `orca-lc: leak-check: scan failed`, never awk's error, and exit 2. `--stdin <label>` SHALL use the same output and exit codes. When a denylist file exists but cannot be read, both modes SHALL print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, never the list's path, and exit 2.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
@@ -23,12 +23,16 @@
 - **WHEN** `leak-check --file` or `leak-check --stdin <label>` runs and a denylist file exists but cannot be read
 - **THEN** it prints `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, with no path and no awk error, and exits 2
 
+#### Scenario: Scan fails in leak-check
+- **WHEN** the scan fails after the lists were read, in `--file`, `--stdin`, `--pre-push` or range mode
+- **THEN** the command prints `orca-lc: leak-check: scan failed`, exits 2, and the output does not contain awk's error or the list's path
+
 #### Scenario: Path holding `=` or a newline
 - **WHEN** `leak-check --file` is given a path containing `=` or a newline
 - **THEN** its contents are scanned, and the path is reported, if at all, only as `file path:1`
 
 ### Requirement: Shared files are refused before they are written
-When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When a denylist file exists but cannot be read, or the scan fails, they and `notify`'s inbox fallback SHALL write nothing, print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, or `orca-lc: leak-check: scan failed, text not checked`, then `orca-lc: refused, nothing written`, never the list's path or an awk error, and exit 2. When `leakCheck` is absent or false, they SHALL behave as before this change, except for the messages that the requirement "Messages never echo unscanned arguments" changes.
+When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write; `role start` SHALL also scan its ticket and role, as `role start ticket` and `role start role`, before its herdr and tty checks. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When a denylist file exists but cannot be read, or the scan fails, they and `notify`'s inbox fallback SHALL write nothing, print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, or `orca-lc: leak-check: scan failed, text not checked`, then `orca-lc: refused, nothing written`, never the list's path or an awk error, and exit 2. When `leakCheck` is absent or false, they SHALL behave as before this change, except for the messages that the requirement "Messages never echo unscanned arguments" changes.
 
 #### Scenario: Discovery with a denylisted rule
 - **WHEN** `orca-lc discover some-slug "<rule containing a denylisted term>"` runs with `leakCheck` true
@@ -37,6 +41,10 @@ When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `
 #### Scenario: Role start with a denylisted handoff body
 - **WHEN** `orca-lc role start <ticket> apply` receives a body containing a denylisted term with `leakCheck` true
 - **THEN** no herdr tab or agent is created, no handoff is written, and the command exits 1
+
+#### Scenario: Role start with a denylisted role or ticket
+- **WHEN** `orca-lc role start <ticket> <role>` runs with `leakCheck` true and the role or the ticket contains a denylisted term
+- **THEN** it names `role start role` or `role start ticket` with the denylist line, does not echo the argument, makes no herdr call, writes no handoff, and exits 1
 
 #### Scenario: Notify falls back to the inbox
 - **WHEN** `orca-lc notify <ticket> "<text containing a denylisted term>"` finds no live session and `leakCheck` is true
@@ -105,7 +113,7 @@ When `leakCheck` is `true` and the target resolves into a shared directory, the 
 - **THEN** the Write is blocked with `handoff write blocked: leak scan failed (exit N), write not checked`, and the stub's output is not echoed
 
 ### Requirement: Messages never echo unscanned arguments
-`discover set` and `discover archive` on an unknown slug, and `notify` with no live session and no ticket in its target, SHALL fail without printing the slug or target. `notify`'s queued line SHALL NOT name the ticket, and `inbox send` SHALL print only the queued file's name. The PreToolUse test-lock block SHALL NOT print the target's path. These hold whether or not `leakCheck` is set.
+`discover set` and `discover archive` on an unknown slug, and `notify` with no live session and no ticket in its target, SHALL fail without printing the slug or target. `notify`'s queued line SHALL NOT name the ticket, and `inbox send` SHALL print only the queued file's name. `role start` without a piped body SHALL fail naming its arguments only as `role start <ticket> <role>`. The PreToolUse test-lock block SHALL NOT print the target's path. These hold whether or not `leakCheck` is set.
 
 #### Scenario: Unknown discovery slug
 - **WHEN** `orca-lc discover set <slug containing a denylisted term> hook` names no existing discovery

@@ -22,6 +22,7 @@ Starts after `leak-check-command` is applied.
 - [x] 4.1 README: `leak-check --file` and `--stdin` in the command table, the `leakCheck` row naming `discover`, `role start` and `inbox send`, and the pretool scan of handoff and discovery writes
 - [x] 4.2 `docs/daily-use.md`: with `leakCheck` on, a queued `notify` and `/discover` refuse a denylisted term and write nothing (Talking between sessions; What persists between tickets)
 - [x] 4.3 README and `orca-lc help`: `--file` locations read `file:<line>` and `file path:1`
+- [x] 4.4 README: pretool blocks a shared write it could not scan, and a stale install (an `orca-lc` without `leak-check --stdin`) blocks every such write until `install.sh` is re-run (PR #95 round 4 review, suggestion 3)
 
 ## 5. Close
 - [x] 5.1 Run `applyChecks`, then `orca-lc gate` passes
