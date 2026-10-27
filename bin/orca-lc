@@ -345,7 +345,7 @@ cmd_notify() {
     fi
   fi
   local tk; tk=$(tkey "$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1)")
-  [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
+  [ -n "$tk" ] || die "no live session matches the target and it is not a ticket, nothing queued (orca-lc peers lists targets)"
   local q; q=$(cmd_inbox send "$tk" "$text") || exit $?
   echo "no live session for the ticket, queued: $q"
 }
@@ -353,9 +353,9 @@ cmd_notify() {
 cmd_inbox() {
   local d; d="$(shared)/inbox"
   case "${1:-}" in
-    send) need ticket "${2:-}"; need text "${3:-}"; local td; td=$(tdir "$d" "$2"); shift 2; leak_guard "inbox send text" "$*" || exit $?; mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
+    send) need ticket "${2:-}"; need text "${3:-}"; local tk="$2" td; shift 2; leak_guard "inbox send text" "$*" || exit $?; td=$(tdir "$d" "$tk"); mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
           local f; f=$(free_path "$td" "$(date +%s)-${i:-anon}.md")
-          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; echo "$f";;
+          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; basename "$f";; # the file name only: the ticket is an unscanned argument
     read) local t="${2:-$(ticket)}"; [ -n "$t" ] || return 0; local td; td=$(tdir "$d" "$t"); [ -d "$td" ] || return 0
           for f in "$td"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv_free "$f" "$td/archive" >/dev/null; done;;
     *) usage "inbox send|read";;

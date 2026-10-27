@@ -246,7 +246,7 @@ callers() { # <expect: refused|written> [label suffix]
     ok $(( st == 1 ? 0 : 1 )) "role start denylisted ticket exits 1"; has "role start ticket  (project denylist:1)"; ok $? "role start names the ticket field"
     clean; ok $? "role start never echoes the ticket"
   else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck$cw passes the guard"
-    ls .orca/handoffs/ORCA-9/*.md >/dev/null 2>&1; ok $? "role start without leakCheck$cw writes the handoff"; rm -rf .orca/handoffs/ORCA-9; fi
+    ls .orca/handoffs/orca-9/*.md >/dev/null 2>&1; ok $? "role start without leakCheck$cw writes the handoff"; rm -rf .orca/handoffs/orca-9; fi
 }
 printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; callers refused
 printf '{"gate":"true"}\n' > .orca/config.json; callers written
