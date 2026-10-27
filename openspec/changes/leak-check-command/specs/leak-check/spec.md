@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Leak check scans commits against local denylists
-`orca-lc leak-check` SHALL read `${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist`, then `<toplevel>/.orca/denylist`, with `.gitignore`-like syntax: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, the last matching line wins, case is ignored, and only whole words match. It SHALL scan the branch name and, for each commit, the author and committer names and emails, the message, the paths of changed files, and the added lines.
+`orca-lc leak-check` SHALL read `${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist`, then `<toplevel>/.orca/denylist`, with `.gitignore`-like syntax: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, the last matching line wins, case is ignored, and only whole words match. It SHALL scan the branch name and, for each commit, the author and committer names and emails, the message, the paths of changed files, and the added lines. Paths SHALL come from `git show --name-only -z --no-renames`, NUL-separated and unquoted, so a binary or empty file's path is scanned, with tabs, CRs and newlines turned into spaces and the location `commit <sha> path`. A deleted path SHALL NOT be scanned. A `+++` line SHALL count as a file header only right after the `---` line that follows `diff --git` or `diff --cc`, and SHALL only name the file for the added lines under it.
 
 #### Scenario: Term in an added line
 - **WHEN** a commit in the range adds a line that contains a denylisted term
@@ -10,6 +10,22 @@
 #### Scenario: Term in an added line under a denylisted path
 - **WHEN** the added line's file path matches any deny pattern, even one a later `!` line re-allows
 - **THEN** the location is printed as `commit <sha> added line`, without the path
+
+#### Scenario: Denylisted path of a binary file
+- **WHEN** a commit adds a binary file whose path contains a denylisted term
+- **THEN** the command prints `commit <sha> path` with the denylist line, exits 1, and the output does not contain the term
+
+#### Scenario: Denylisted path of an empty file
+- **WHEN** a commit adds an empty file whose path contains a denylisted term
+- **THEN** the command prints `commit <sha> path` with the denylist line and exits 1
+
+#### Scenario: Deleted denylisted path
+- **WHEN** the only place a denylisted term appears is the path of a file a commit deletes
+- **THEN** the command reports nothing and exits 0
+
+#### Scenario: Added line starting with `++ `
+- **WHEN** a commit adds the line `++ harmless` and then a line with a denylisted term to the same clean-named file
+- **THEN** the hit is located as `commit <sha> <file>` with the real file name, not as `commit <sha> harmless`
 
 #### Scenario: Term in the branch name
 - **WHEN** the branch name contains a denylisted term
