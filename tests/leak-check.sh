@@ -83,7 +83,8 @@ printf 'zebra\n' > "$pl"; git reset -q --hard main
 
 # An unreadable list fails closed with 2 and is named by kind, never by its path; pre-push refuses the same way.
 pp() { out=$(printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 | bin/orca-lc leak-check --pre-push 2>&1); st=$?; }
-for k in global project; do
+# Root reads a chmod 000 file, so these cases only run as another user.
+[ "$(id -u)" != 0 ] && for k in global project; do
   if [ $k = global ]; then u="$gl"; printf 'zebra\n' > "$gl"; else u="$pl"; fi
   chmod 000 "$u"; lc
   ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: range mode exits 2"; has "leak-check: $k denylist unreadable"; ok $? "unreadable $k list: named by kind"
@@ -92,6 +93,13 @@ for k in global project; do
   chmod 644 "$u"
 done
 rm -f "$gl"
+
+# No bash 4 builtins: macOS ships bash 3.2. With mapfile and readarray disabled, a hit still exits 1.
+printf 'enable -n mapfile readarray\n' > "$tmp/bash3.sh"
+h=$(add bash3.txt "a zebra"); out=$(BASH_ENV="$tmp/bash3.sh" bin/orca-lc leak-check 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: range hit exits 1"; has "commit $h bash3.txt  (project denylist:1)"; ok $? "without mapfile: hit reported"
+has "not found"; ok $(( $? == 0 ? 1 : 0 )) "without mapfile: no command-not-found error"
+git reset -q --hard HEAD~1
 
 # Default range: commits no remote has, including ones on main itself and on local main below the branch.
 git checkout -q main; m1=$(add m.txt "zebra on main"); lc
