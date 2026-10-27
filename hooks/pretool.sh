@@ -8,6 +8,17 @@ tool=$(jq -r '.tool_name' <<<"$in")
 tail_msg="If this block was unexpected, record it: /discover"
 block() { echo "orca-lc: $1. $tail_msg" >&2; exit 2; }
 advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"PreToolUse", additionalContext:$m}}'; exit 0; }
+# Absolute, symlink-free form of a path whose tail may not exist yet: the existing head through cd -P, the missing
+# tail lexically, where ".." drops the component before it. readlink -f needs all but the last part, BSD has no -m.
+abspath() { local d="$1" rest="" b up=0
+  while [ ! -d "$d" ]; do
+    b=$(basename "$d"); d=$(dirname "$d")
+    case "$b" in .) ;; ..) up=$((up + 1));; *) if [ $up -gt 0 ]; then up=$((up - 1)); else rest="/$b$rest"; fi;; esac
+  done
+  d=$(cd -P "$d" 2>/dev/null && pwd -P) || return 1
+  while [ $up -gt 0 ]; do d=$(dirname "$d"); up=$((up - 1)); done
+  d="${d%/}$rest"; echo "${d:-/}"
+}
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
@@ -112,9 +123,9 @@ case "$tool" in
     if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
       sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
       dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
-      dir=$(readlink -f "$(dirname "$f")" 2>/dev/null); kind=""
+      dir=$(abspath "$(dirname "$f")"); kind=""
       for k in "handoff:$sh/handoffs" "discovery:$sh/$dd"; do
-        base=$(readlink -f "${k#*:}" 2>/dev/null) || continue
+        base=$(abspath "${k#*:}") || continue
         [ -n "$dir" ] && [ -n "$base" ] && [[ "$dir/" == "$base/"* ]] && { kind=${k%%:*}; break; }
       done
       if [ -n "$kind" ]; then
