@@ -147,7 +147,13 @@ cmd_gate() {
 # last matching line wins. Matching ignores case and only hits whole words.
 leak_global() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist"; }
 leak_lists() { # global first, then this clone's: the later list wins a tie
-  local f; for f in "$(leak_global)" "$(root)/.orca/denylist"; do [ -f "$f" ] && echo "$f"; done; return 0
+  # An unreadable list is named by kind, never by its path, and fails closed with 2.
+  local f k; for k in global project; do
+    if [ $k = global ]; then f="$(leak_global)"; else f="$(root)/.orca/denylist"; fi
+    [ -f "$f" ] || continue
+    [ -r "$f" ] || { echo "orca-lc: leak-check: $k denylist unreadable" >&2; return 2; }
+    echo "$f"
+  done; return 0
 }
 leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per blocked hit
   # A commit location whose path matches any deny pattern, re-allowed or not, is cut to "commit <sha> added line",
@@ -210,7 +216,7 @@ cmd_leak_check() {
   [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
   case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
   [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
-  while IFS= read -r f; do lists+=("$f"); done < <(leak_lists)
+  f=$(leak_lists) || return 2; [ -n "$f" ] && mapfile -t lists <<<"$f"
   if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
   if [ -n "$prepush" ]; then
     local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
