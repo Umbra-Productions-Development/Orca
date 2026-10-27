@@ -212,11 +212,12 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
 }
 # Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
 cmd_leak_check() {
-  local prepush="" lists=() f found head
+  local prepush="" lists=() f l found head
   [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
   case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
   [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
-  f=$(leak_lists) || return 2; [ -n "$f" ] && mapfile -t lists <<<"$f"
+  # A while-read loop, not mapfile: macOS ships bash 3.2, where a missing mapfile would leave no lists.
+  f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
   if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
   if [ -n "$prepush" ]; then
     local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
