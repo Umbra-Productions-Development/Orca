@@ -35,7 +35,7 @@ Every line the command prints SHALL name a location and the denylist that matche
 - **THEN** `--pre-push` prints the header `pre-push: denylisted terms found, push refused.` and every other mode prints `leak-check: denylisted terms found.`
 
 ### Requirement: Range mode
-With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan every commit reachable from HEAD that no remote-tracking ref has (`HEAD --not --remotes`). In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0. When `git log` fails on the range, it SHALL print `orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)` as its only line, without the range, and exit 2.
+With a range argument, the command SHALL scan the commits that `git log <range>` lists. With no argument, it SHALL scan every commit reachable from HEAD that no remote-tracking ref has (`HEAD --not --remotes`). In both cases it SHALL also scan the current branch name. With no denylist file it SHALL print `leak-check: no denylist, skipped` and exit 0. When `git log` fails on the range, it SHALL print `orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)` as its only line, without the range, and exit 2. When a denylist file exists but cannot be read, range mode and `--pre-push` SHALL print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable` to stderr, never the list's path, and exit 2.
 
 #### Scenario: Default range
 - **WHEN** `orca-lc leak-check` runs on a branch with two commits that no remote has
@@ -53,12 +53,16 @@ With a range argument, the command SHALL scan the commits that `git log <range>`
 - **WHEN** `orca-lc leak-check <range>` names a revision that does not exist and a denylist exists
 - **THEN** the command prints only the bad-range line (`orca-lc: leak-check: bad range: …`), with no command list, the output does not contain the range, and it exits 2
 
+#### Scenario: Unreadable denylist
+- **WHEN** a denylist file exists but cannot be read, in range mode or with `--pre-push`
+- **THEN** the command prints only `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable` to stderr, with no path and no awk error, and exits 2
+
 ### Requirement: Pre-push mode
 With `--pre-push`, the command SHALL read git's pre-push stdin and, for each ref that is not a deletion, scan the remote branch name and the commits being pushed: `<remote sha>..<local sha>`, or `<local sha> --not --remotes` for a new branch. With no denylist file it SHALL exit 0 silently. When `git log` fails for a ref, it SHALL print `orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)` and exit 2, so the push is refused. It SHALL NOT require `.orca/config.json` or `jq`.
 
 #### Scenario: Repository hook unchanged in behaviour
 - **WHEN** this repository's `.githooks/pre-push` is enabled and a push carries a denylisted term
-- **THEN** the push is refused with the same header and location lines as before this change, except that a branch hit prints `branch name`; a hit under a path matching any deny pattern, re-allowed or not, prints `commit <sha> added line`; a C-quoted path is read unquoted, with escapes as spaces; and the denylist is named `global denylist` or `project denylist` instead of its path
+- **THEN** the push is refused with the same header and location lines as before this change, except that a branch hit prints `branch name`; a hit under a path matching any deny pattern, re-allowed or not, prints `commit <sha> added line`; a C-quoted path is read unquoted, with `\"` and `\\` as `"` and `\` and every other escape as a space; and the denylist is named `global denylist` or `project denylist` instead of its path
 
 #### Scenario: Remote sha not in the local repo
 - **WHEN** a push names a remote sha that the local repo does not have, and a denylist exists
