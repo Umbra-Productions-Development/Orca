@@ -223,11 +223,12 @@ leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; 
 leak_guard() {
   [ "$(cfg '.leakCheck')" = true ] || return 0
   local lists=() f l hits
-  # A list that cannot be read, or a scan that fails, refuses with 2: unscanned text never reads as clean.
+  # A list that cannot be read, or a scan that fails, refuses with 2: unscanned text never reads as clean. awk's own
+  # error is dropped, since it names the list's path.
   f=$(leak_lists) || { echo "orca-lc: refused, nothing written" >&2; return 2; }
   while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
   [ ${#lists[@]} -gt 0 ] || return 0
-  hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}") || {
+  hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}" 2>/dev/null) || {
     echo "orca-lc: leak-check: scan failed, text not checked" >&2; echo "orca-lc: refused, nothing written" >&2; return 2; }
   [ -z "$hits" ] && return 0
   echo "leak-check: denylisted terms found. Location, then the denylist line that matched:" >&2
