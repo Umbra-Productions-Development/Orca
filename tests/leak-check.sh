@@ -81,6 +81,18 @@ git reset -q --hard main; add b.txt "zebras and azebra" >/dev/null; printf 'zebr
 printf 'zeb*\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "* wildcard matches"
 printf 'zebra\n' > "$pl"; git reset -q --hard main
 
+# An unreadable list fails closed with 2 and is named by kind, never by its path; pre-push refuses the same way.
+pp() { out=$(printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 | bin/orca-lc leak-check --pre-push 2>&1); st=$?; }
+for k in global project; do
+  if [ $k = global ]; then u="$gl"; printf 'zebra\n' > "$gl"; else u="$pl"; fi
+  chmod 000 "$u"; lc
+  ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: range mode exits 2"; has "leak-check: $k denylist unreadable"; ok $? "unreadable $k list: named by kind"
+  has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: path never printed"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: no awk error"
+  pp; ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: --pre-push exits 2"; has "leak-check: $k denylist unreadable"; ok $? "unreadable $k list: --pre-push names it by kind"
+  chmod 644 "$u"
+done
+rm -f "$gl"
+
 # Default range: commits no remote has, including ones on main itself and on local main below the branch.
 git checkout -q main; m1=$(add m.txt "zebra on main"); lc
 has "commit $m1 m.txt"; ok $? "commit on the base branch is scanned"; ok $(( st == 1 ? 0 : 1 )) "commit on the base branch: hit exits 1"
