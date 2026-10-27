@@ -8,16 +8,17 @@ tool=$(jq -r '.tool_name' <<<"$in")
 tail_msg="If this block was unexpected, record it: /discover"
 block() { echo "orca-lc: $1. $tail_msg" >&2; exit 2; }
 advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"PreToolUse", additionalContext:$m}}'; exit 0; }
-# Absolute, symlink-free form of a path whose tail may not exist yet: the existing head through cd -P, the missing
-# tail lexically, where ".." drops the component before it. readlink -f needs all but the last part, BSD has no -m.
-abspath() { local d="$1" rest="" b up=0
-  while [ ! -d "$d" ]; do
-    b=$(basename "$d"); d=$(dirname "$d")
-    case "$b" in .) ;; ..) up=$((up + 1));; *) if [ $up -gt 0 ]; then up=$((up - 1)); else rest="/$b$rest"; fi;; esac
+# Absolute, symlink-free form of a path whose tail may not exist yet, walked left to right as mkdir -p would: each
+# existing directory is resolved through cd -P, so a symlink after a missing dir and ".." is still followed; a missing
+# one is kept as written, and ".." drops the last component. readlink -f fails past one missing part; BSD has no -m.
+abspath() { local p="$1" c d
+  case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
+  while [ -n "$p" ]; do
+    c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
+    case "$c" in ""|.) ;; ..) d=${d%/*}; d=${d:-/};; *) d="${d%/}/$c";; esac
+    [ -d "$d" ] && { d=$(CDPATH='' cd -P -- "$d" && pwd -P) || return 1; }
   done
-  d=$(cd -P "$d" 2>/dev/null && pwd -P) || return 1
-  while [ $up -gt 0 ]; do d=$(dirname "$d"); up=$((up - 1)); done
-  d="${d%/}$rest"; echo "${d:-/}"
+  echo "$d"
 }
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
@@ -135,7 +136,7 @@ case "$tool" in
             0) ;;
             1) hits+=$(grep -v '^leak-check:' <<<"$o")$'\n';;
             # Only the fixed unreadable-list line is echoed; any other output may carry a path.
-            *) grep -qE '^orca-lc: leak-check: (global|project) denylist unreadable$' <<<"$o" && r=" (${o#orca-lc: })"
+            *) r=$(grep -m1 -oE '^orca-lc: leak-check: (global|project) denylist unreadable$' <<<"$o") && r=" (${r#orca-lc: })"
                block "$kind write blocked: leak scan failed (exit $s), write not checked$r";;
           esac; }
         scan "$kind file name" <<<"$(basename "$f")"
