@@ -15,7 +15,8 @@ count() { jq --arg s "$3" --arg e "$2" '[.hooks[$e][]?.hooks[]? | select(.comman
 
 run; ok $st "unset: install exits 0"
 [ "${out%%$'\n'*}" = "config dir: $HOME/.claude" ]; ok $? "unset: first line names \$HOME/.claude"
-[ -e "$HOME/.claude/hooks/orca/pretool.sh" ] && [ -e "$HOME/.claude/skills/orca/SKILL.md" ] && [ -e "$HOME/.claude/agents/orca-verifier.md" ]
+[ -e "$HOME/.claude/hooks/orca/pretool.sh" ] && [ -e "$HOME/.claude/skills/orca/SKILL.md" ] && [ -e "$HOME/.claude/agents/orca-verifier.md" ] \
+  && [ -e "$HOME/.claude/agents/orca-apply.md" ] && [ -e "$HOME/.claude/agents/orca-review.md" ]
 ok $? "unset: hooks, skills and agents land under \$HOME/.claude"
 S="$HOME/.claude/settings.json"
 r=0; for p in PreToolUse:pretool SessionStart:session-start PostToolUse:post-read Stop:stop; do

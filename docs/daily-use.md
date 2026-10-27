@@ -11,7 +11,7 @@ Two checkouts of Orca:
 | `Orca` | `main` and feature branches | Developing Orca |
 | `Orca-stable` (a `git worktree` of the same clone) | `stable` | The install everyday work runs on |
 
-`install.sh` runs from `Orca-stable` only. It symlinks `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: pull `stable` in `Orca-stable`, run `install.sh` again. An install that points at another checkout is left alone; run `./install.sh --force` from `Orca-stable` to move it there.
+`install.sh` runs from `Orca-stable` only. It symlinks `orca-lc`, the hooks, the skills and the agents from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: pull `stable` in `Orca-stable`, run `install.sh` again. An install that points at another checkout is left alone; run `./install.sh --force` from `Orca-stable` to move it there.
 
 ```bash
 git -C Orca worktree add --track -b stable ../Orca-stable origin/stable
@@ -62,7 +62,15 @@ Propose reads the ticket, explores the code, grills the user on the decisions th
 
 ### 3. Apply
 
-The orchestrator starts `apply` the same way. Ownership moves forward: only the owner edits the tree, because every session of a ticket shares one index and HEAD.
+By default the orchestrator does not open a tab for apply. It writes the handoff and dispatches the `orca-apply` agent as a background subagent of its own Claude Code session:
+
+```bash
+orca-lc handoff write ABC-12 apply   # prints the file; the orchestrator writes the scope below the role's rules
+```
+
+and prompts it `read handoff <file> and work it`. One subagent per job, and never two in the same worktree at once: apply, review, and apply again for the findings run strictly one after the other. A subagent that needs the user ends its report with a first line `BLOCKED: <question>`; the orchestrator asks the user and continues the same subagent with `SendMessage`. After a crash the orchestrator tries `SendMessage` to the old subagent, and otherwise dispatches a new one with the same handoff plus "continue from `git log`". Subagents do not show on the herdr board. `orca-lc role start ABC-12 apply` still starts apply in its own tab, to drive it by hand. This is Claude Code only for now.
+
+Ownership moves forward: only the owner edits the tree, because every session of a ticket shares one index and HEAD.
 
 Apply implements `tasks.md`, commit by commit. While it works:
 
@@ -75,7 +83,7 @@ Apply implements `tasks.md`, commit by commit. While it works:
 
 ### 4. Review
 
-The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), the review passes and `reviewChecks`, then dispatches the `orca-verifier` agent: a clean-context pass that runs the gate and reads the diff against `tasks.md`. Findings go to a file and to the orchestrator; review never fixes what it finds.
+Once apply has reported, the orchestrator dispatches the `orca-review` agent the same way, with a handoff from `orca-lc handoff write ABC-12 review` (or `orca-lc role start ABC-12 review` for a tab). Review runs `orca-lc evidence` (blast radius and affected tests of the diff), the review passes and `reviewChecks`, then dispatches the `orca-verifier` agent: a clean-context pass that runs the gate and reads the diff against `tasks.md`. Findings go to a file and to the orchestrator; review never fixes what it finds.
 
 Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`.
 
