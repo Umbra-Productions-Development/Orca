@@ -115,7 +115,7 @@ case "$tool" in
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     glob=$(jq -r '.testGlob // empty' "$root/.orca/config.json")
     if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git rev-parse --git-dir)/orca-allow-test-edits" ]; then
-      block "test file edit blocked ($f). Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
+      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
     fi
     # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
     # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an

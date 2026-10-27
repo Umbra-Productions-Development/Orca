@@ -402,10 +402,10 @@ disc_dir() { echo "$(shared)/$(cfg '.discoveriesDir' discoveries)"; }
 cmd_discover() {
   local d; d=$(disc_dir); mkdir -p "$d"
   case "${1:-}" in
-    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          case "$3" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
          sed -i "s/^enforced-by:.*/enforced-by: $3/" "$f"; grep -m1 '^enforced-by' "$f"; return;;
-    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          grep -q '^enforced-by: none' "$f" && die "still enforced by nothing; set hook|skill|memory|reference first"
          mkdir -p "$d/archive"; sed -i "0,/^---$/!{0,/^---$/s//archived: $(date +%F)\n---/}" "$f"; mv "$f" "$d/archive/"; echo "$d/archive/$2.md"; return;;
   esac
