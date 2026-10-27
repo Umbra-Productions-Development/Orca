@@ -236,6 +236,15 @@ callers() { # <expect: refused|written> [label suffix]
     ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start hit makes no herdr call"
     [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
     has "role start handoff  (project denylist:1)"; ok $? "role start names the field"; refd "role start hit"
+    # The role becomes the handoff file name and the tab, the ticket a path: both are scanned before anything else.
+    rm -f "$tmp/herdr.log"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 zebra 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "role start denylisted role exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start denylisted role makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "role start denylisted role writes no handoff"
+    has "role start role  (project denylist:1)"; ok $? "role start names the role field"; clean; ok $? "role start never echoes the role"; refd "role start role hit"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ZEBRA-9 apply 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "role start denylisted ticket exits 1"; has "role start ticket  (project denylist:1)"; ok $? "role start names the ticket field"
+    clean; ok $? "role start never echoes the ticket"
   else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck$cw passes the guard"
     ls .orca/handoffs/ORCA-9/*.md >/dev/null 2>&1; ok $? "role start without leakCheck$cw writes the handoff"; rm -rf .orca/handoffs/ORCA-9; fi
 }
@@ -258,6 +267,12 @@ rm -f "$tmp/herdr.log"
 out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$astub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; sf "role start"
 [ ! -e "$tmp/herdr.log" ]; ok $? "failed scan: role start makes no herdr call"
 rm -rf .orca/discoveries/sf-slug.md .orca/inbox/orca-9 .orca/handoffs/ORCA-9 # so a failure here does not spill into later checks
+lsf() { ok $(( st == 2 ? 0 : 1 )) "failed scan: leak-check $1 exits 2"; has "orca-lc: leak-check: scan failed"; ok $? "failed scan: leak-check $1 says so"
+  has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: leak-check $1 never prints the list's path"; }
+out=$(PATH="$astub:$PATH" bin/orca-lc leak-check --file "$tmp/c.md" 2>&1); st=$?; lsf "--file"
+out=$(printf 'x\n' | PATH="$astub:$PATH" bin/orca-lc leak-check --stdin note 2>&1); st=$?; lsf "--stdin"
+out=$(PATH="$astub:$PATH" bin/orca-lc leak-check 2>&1); st=$?; lsf "range"
+out=$(printf 'refs/heads/x %s refs/heads/x %040d\n' "$(git rev-parse HEAD)" 0 | PATH="$astub:$PATH" bin/orca-lc leak-check --pre-push 2>&1); st=$?; lsf "--pre-push"
 
 # Messages for unscanned arguments do not echo them.
 printf '{"gate":"true"}\n' > .orca/config.json
