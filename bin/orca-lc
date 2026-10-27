@@ -222,8 +222,8 @@ leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; 
 # <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
 leak_guard() {
   [ "$(cfg '.leakCheck')" = true ] || return 0
-  local lists=() f hits
-  f=$(leak_lists) || return 2; [ -n "$f" ] && mapfile -t lists <<<"$f"
+  local lists=() f l hits
+  f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
   [ ${#lists[@]} -gt 0 ] || return 0
   hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}")
   [ -z "$hits" ] && return 0
@@ -233,7 +233,7 @@ leak_guard() {
 }
 # Returns rather than exits, so the gate keeps control; no mode reads the config or needs jq.
 cmd_leak_check() {
-  local mode=range lists=() f found head="leak-check: denylisted terms found."
+  local mode=range lists=() f l found head="leak-check: denylisted terms found."
   case "${1:-}" in
     --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
     --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
@@ -242,7 +242,8 @@ cmd_leak_check() {
     -*) usage "leak-check: unknown flag '$1'";;
     *) [ $# -le 1 ] || usage "leak-check takes one range";;
   esac
-  f=$(leak_lists) || return 2; [ -n "$f" ] && mapfile -t lists <<<"$f"
+  # A while-read loop, not mapfile: macOS ships bash 3.2, where a missing mapfile would leave no lists.
+  f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
   if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
   if [ "$mode" = file ]; then
     # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".

@@ -291,4 +291,13 @@ if [ "$(id -u)" != 0 ]; then
   rm -f "$gl"
 fi
 
+# No bash 4 builtins in --file, --stdin or the guard: with mapfile and readarray disabled, a hit is still a hit.
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; printf 'zebra\n' > "$pl"
+out=$(BASH_ENV="$tmp/bash3.sh" bin/orca-lc leak-check --file "$tmp/h.md" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: --file hit exits 1"; has "not found"; ok $(( $? == 0 ? 1 : 0 )) "without mapfile: --file has no command-not-found error"
+out=$(printf 'zebra\n' | BASH_ENV="$tmp/bash3.sh" bin/orca-lc leak-check --stdin note 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: --stdin hit exits 1"
+out=$(BASH_ENV="$tmp/bash3.sh" bin/orca-lc discover b3-slug "uses zebra" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: discover hit exits 1"; [ ! -e .orca/discoveries/b3-slug.md ]; ok $? "without mapfile: discover hit creates no file"
+
 exit $fail
