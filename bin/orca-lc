@@ -218,6 +218,8 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
   done <<<"$cs"
   return 0
 }
+# leak_scan for cmd_leak_check: awk's error names the list's path, so a failed scan says so in a fixed line instead.
+leak_scan_q() { leak_scan "$@" 2>/dev/null || { echo "orca-lc: leak-check: scan failed" >&2; return 2; }; }
 leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; stdin: lines out as "<label>:<n>\t<line>"
 # <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
 leak_guard() {
@@ -253,21 +255,21 @@ cmd_leak_check() {
     # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".
     # Content goes in on stdin: awk would take a path operand holding "=" as an assignment. A newline in a path is
     # flattened so no part of it escapes the "file path" label.
-    found=$(for f; do printf 'file path:1\t%s\n' "${f//$'\n'/ }"; leak_lines file < "$f"; done | leak_scan "${lists[@]}") || return 2
+    found=$(for f; do printf 'file path:1\t%s\n' "${f//$'\n'/ }"; leak_lines file < "$f"; done | leak_scan_q "${lists[@]}") || return 2
   elif [ "$mode" = stdin ]; then
-    found=$(leak_lines "$1" | leak_scan "${lists[@]}") || return 2
+    found=$(leak_lines "$1" | leak_scan_q "${lists[@]}") || return 2
   elif [ "$mode" = pre-push ]; then
     local zero=0000000000000000000000000000000000000000 lsha rref rsha
     found=$(while read -r _ lsha rref rsha; do
       [ "$lsha" = "$zero" ] && continue
       if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
       else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
-    done | leak_scan "${lists[@]}") || return 2
+    done | leak_scan_q "${lists[@]}") || return 2
     head="pre-push: denylisted terms found, push refused."
   else
     # pipefail carries leak_commits' exit 2 out of the pipeline.
-    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}") || return 2
-    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}") || return 2; fi
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan_q "${lists[@]}") || return 2
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan_q "${lists[@]}") || return 2; fi
   fi
   [ -z "$found" ] && return 0
   echo "$head Location, then the denylist line that matched:" >&2
