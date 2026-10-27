@@ -184,15 +184,20 @@ leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per b
   ' "$@" -
 }
 leak_commits() { # <branch> <git log args>...: the branch name, then per commit its people, message, paths and added lines
-  local b="$1" cs c; shift
+  local b="$1" cs c p; shift
   # A failed git log must not read as clean: exit 2, without echoing the range git would name.
   cs=$(git log --format='%h' "$@" 2>/dev/null) || {
     echo "orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)" >&2; exit 2; }
   printf 'branch name\t%s\n' "$b"
   [ -n "$cs" ] && while read -r c; do
     git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
-    # Paths come back unquoted (git C-quotes tabs, newlines, quotes and backslashes even with quotePath off);
-    # tabs, newlines and other escapes become spaces, so a path cannot split the "<where>\t<text>" line.
+    # Paths from --name-only, so a binary or empty file, which has no +++ line, is scanned too. -z leaves them
+    # unquoted; tabs and newlines become spaces. A deleted path is left out: refusing it would block removing it.
+    git show --format= --name-only -z --no-renames --diff-filter=d "$c" | while IFS= read -r -d '' p; do
+      [ -n "$p" ] && printf 'commit %s path\t%s\n' "$c" "${p//[$'\t\r\n']/ }"; done
+    # The +++ path only says which file an added line belongs to, and counts only in a file header (after
+    # diff --git and its --- line), so an added line that starts with "++ " is not read as one. It comes back
+    # unquoted (git C-quotes tabs, newlines, quotes and backslashes even with quotePath off), escapes as spaces.
     git -c core.quotePath=false show --format= -p --no-renames --src-prefix=a/ --dst-prefix=b/ "$c" | awk -v c="$c" '
       function unq(s,   o, i, ch) {
         if (substr(s, 1, 1) != "\"") return s
@@ -204,8 +209,10 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
         }
         return o
       }
-      /^\+\+\+ / { f = unq(substr($0, 5)); gsub(/[\t\r\n]/, " ", f); if (f == "/dev/null") next
-        sub(/^b\//, "", f); print "commit " c " path\t" f; next }
+      /^diff --(git|cc|combined) / { h = 1; next }
+      h == 1 && /^--- / { h = 2; next }
+      h == 2 && /^\+\+\+ / { f = unq(substr($0, 5)); gsub(/[\t\r\n]/, " ", f); sub(/^b\//, "", f); h = 0; next }
+      h { if (/^@@/) h = 0; next }
       /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
   done <<<"$cs"
   return 0
