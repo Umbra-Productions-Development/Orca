@@ -294,6 +294,13 @@ pre 0 "clean handoff Write passes" Write "$S/handoffs/orca-9/x.md" '{"content":"
 pre 2 "handoff two missing levels deep blocked" Write "$S/handoffs/orca-9/new/sub/x.md" "$hit"
 pre 2 "handoff reached through a missing dir and .. blocked" Write "$S/notes/miss/../../handoffs/orca-9/x.md" "$hit"
 pre 2 "handoff through a missing dir, .. and a linked .orca blocked" Write "$tmp/wt/miss/../.orca/handoffs/orca-9/new/x.md" "$hit"
+mkdir -p "$tmp/wt/nl
+"; ln -s "$S/handoffs" "$tmp/wt/nl
+/h"; pre 2 "handoff through a dir whose name ends in a newline blocked" Write "$tmp/wt/nl
+/h/orca-9/x.md" "$hit"
+if [ "$(id -u)" != 0 ]; then mkdir -p "$tmp/wt/zebra-noexec"; chmod 000 "$tmp/wt/zebra-noexec"
+  pre 0 "unsearchable dir passes" Write "$tmp/wt/zebra-noexec/x/y.md" "$hit"; clean; ok $? "pretool: an unsearchable dir's cd error is not echoed"
+  chmod 755 "$tmp/wt/zebra-noexec"; fi
 pre 0 "missing dirs under a sibling pass" Write "$S/handoffs-old/a/b/x.md" "$hit"
 mv "$S/handoffs" "$S/handoffs.away"; pre 2 "handoff before handoffs/ exists blocked" Write "$S/handoffs/orca-1/x.md" "$hit"; mv "$S/handoffs.away" "$S/handoffs"
 # A leak-check that fails for any reason blocks, and its output is not echoed.
