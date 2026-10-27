@@ -15,15 +15,15 @@ Established facts:
 
 ## `--file` mode
 
-`leak-check --file <path>…`: for each path, it feeds the path itself as one line labelled `file path:1`, then every line of the file as `"file:<n>\t<line>"`, into `leak_scan`. No location carries the path, so a denylisted path is caught and never echoed. With several files, a hit's location doesn't say which file it was in; the caller reruns on one file to find it. Callers that scan text use `--stdin` with their own label instead. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A missing path goes through `usage` and exits 2, so a caller can tell a bad path from a hit, as decision 1 of `leak-check-command` sets (0 clean, 1 hits, 2 usage).
+`leak-check --file <path>…`: for each path, it feeds the path itself as one line labelled `file path:1`, then every line of the file as `"file:<n>\t<line>"`, into `leak_scan`. No location carries the path, so a denylisted path is caught and never echoed. With several files, a hit's location doesn't say which file it was in; the caller reruns on one file to find it. Callers that scan text use `--stdin` with their own label instead. With no denylist it exits 0 silently. On hits it prints `leak-check: denylisted terms found. Location, then the denylist line that matched:` and the sorted, unique hits to stderr, then exits 1. A denylist file that exists but cannot be read makes it print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, without the list's path, and exit 2, as in range mode. A missing path goes through `usage` and exits 2, so a caller can tell a bad path from a hit, as decision 1 of `leak-check-command` sets (0 clean, 1 hits, 2 usage).
 
 ## `--stdin` mode
 
-`leak-check --stdin <label>` feeds each stdin line as `"<label>:<n>\t<line>"` into `leak_scan`. It uses the same header, output and exit codes as `--file`; a missing label exits 2 through `usage`.
+`leak-check --stdin <label>` feeds each stdin line as `"<label>:<n>\t<line>"` into `leak_scan`. It uses the same header, output and exit codes as `--file`, including exit 2 on an unreadable denylist; a missing label exits 2 through `usage`.
 
 ## Callers
 
-A helper `leak_guard <where> <text>` returns 0 when `cfg '.leakCheck'` is not `true` or no denylist exists. Otherwise it feeds each line of `<text>` as `"<where>\t<line>"` into `leak_scan`. On hits it prints the hits plus `orca-lc: refused, nothing written` to stderr and returns 1. The callers exit 1 with nothing written.
+A helper `leak_guard <where> <text>` returns 0 when `cfg '.leakCheck'` is not `true` or no denylist exists. Otherwise it feeds each line of `<text>` as `"<where>\t<line>"` into `leak_scan`. On hits it prints the hits plus `orca-lc: refused, nothing written` to stderr and returns 1. When a denylist exists but cannot be read, it returns 2 after `leak_lists` printed `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, without the list's path. The callers exit with the guard's status, 1 on a hit and 2 on an unreadable list, with nothing written.
 
 | Command | Where it is called | `<where>` |
 |---|---|---|
@@ -45,9 +45,10 @@ In the `Edit|Write|MultiEdit` branch of `hooks/pretool.sh`, after the test-file 
   - the content (`content` for Write, `new_string` for Edit, every `edits[].new_string` for MultiEdit), through `orca-lc leak-check --stdin "<kind> body"`.
 - No label carries the file name, so no output line can echo a denylisted name. The session already knows which file it was writing.
 - On exit 1 from either scan it calls `block` with `<kind> write blocked: denylisted term` plus the location lines, so the write never happens. Locations are line numbers within the written text, not within the file.
-- Any other exit (no denylist, a usage error) lets the call through. A broken scan never stops a session from writing its handoff or discovery.
+- On exit 2 whose output is the unreadable-denylist line, `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, it calls `block` with `<kind> write blocked: leak-check: <global|project> denylist unreadable`, so the write never happens and no path is printed.
+- Any other exit (no denylist, a usage error, an installed `orca-lc` older than `--stdin`) lets the call through. A scan that cannot run never stops a session from writing its handoff or discovery.
 
-`discover set` and `discover archive` take no free text and are not scanned. `notify` reaches the inbox guard through `inbox send`; it gets no guard of its own. Today `cmd_notify` calls `cmd_inbox send` inside `$(…)` and prints `queued:` whatever the result, so a refusal would be swallowed. `cmd_notify` must check that call's exit status and exit 1 without printing `queued:`.
+`discover set` and `discover archive` take no free text and are not scanned. `notify` reaches the inbox guard through `inbox send`; it gets no guard of its own. Today `cmd_notify` calls `cmd_inbox send` inside `$(…)` and prints `queued:` whatever the result, so a refusal would be swallowed. `cmd_notify` must check that call's exit status and exit with it, 1 on a hit and 2 on an unreadable list, without printing `queued:`.
 
 ## Test
 
@@ -61,6 +62,7 @@ Added to `tests/leak-check.sh`:
 - With `leakCheck` absent, the same three commands write as before.
 - `--stdin <label>` reports `<label>:<n>`; with no label it exits 2.
 - pretool: a Write whose `content` carries a hit, aimed at `<shared>/handoffs/<t>/x.md`, exits 2 and the stderr carries no term. The same file reached through a linked `.orca` path is blocked too. An Edit and a MultiEdit with a hit are blocked. An Edit with a hit aimed at `<shared>/discoveries/<slug>.md` is blocked and labelled `discovery body:<n>`; a custom `discoveriesDir` is honoured, and an unset one falls back to `discoveries`. A Write whose file name carries a denylisted term and whose body is clean is blocked as `<kind> file name:1`, and stderr does not contain the term. A Write to a sibling `<shared>/handoffs-old/x.md` with a hit passes. A Write outside both directories and a clean Write pass. With `leakCheck` absent, everything passes.
+- For each list, `chmod 000` makes `--file`, `--stdin`, `discover`, `inbox send`, `notify` and `role start` exit 2 with the by-kind message, no path and no awk error, writing nothing, and makes pretool block a clean handoff Write and a clean discovery Edit. Skipped as root, like the unreadable-file case.
 - The pretool cases feed JSON to `hooks/pretool.sh` the way `tests/pretool-merge.sh` does, with this checkout's `bin/` first on `PATH`. The hook calls `orca-lc` from `PATH`, and an installed copy without `--stdin` would exit 2 and let every write through.
 
 ## Decisions
@@ -80,6 +82,7 @@ Added to `tests/leak-check.sh`:
 - `leak_guard` prints the `leak-check: denylisted terms found. Location, then the denylist line that matched:` header before the hits, then `orca-lc: refused, nothing written` — apply, accepted at review.
 - A missing `--file` path exits 2 through `usage`, not 1 — proposal review suggestion 6, taken.
 - `docs/daily-use.md` documents the refusals where it describes `notify`'s inbox fallback and `/discover` — proposal review suggestion 5, taken.
+- An existing but unreadable denylist makes `--file`, `--stdin`, `discover`, `role start`, `inbox send` and `notify` print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable` and exit 2 with nothing written, never the list's path, and pretool blocks the handoff or discovery write with `<kind> write blocked: leak-check: <kind> denylist unreadable`. Only that exit 2 blocks in pretool; any other exit but 1 still passes, so an installed `orca-lc` without `--stdin` does not block every write — PR #94 re-review by Excalimbito (2026-10-26), suggestion on `leak_lists`, carried into this change by apply.
 - This change shares a PR with `leak-check-command` only when their combined counted size is under `prShareLimit`. Otherwise it is stacked on it — user (recommended, accepted).
 
 ## Risks

@@ -9,7 +9,7 @@ Starts after `leak-check-command` is applied.
 ## 2. Callers
 - [x] 2.1 Add `leak_guard <where> <text>`, active only when `leakCheck` is true and a denylist exists
 - [x] 2.2 Guard `discover` (slug and rule), `role start` (body, before any herdr call) and `inbox send` (text), as the table in the design places them
-- [x] 2.3 Make `cmd_notify` exit 1 without printing `queued:` when its `inbox send` fallback is refused
+- [x] 2.3 Make `cmd_notify` exit with its `inbox send` fallback's status (1 on a hit, 2 on an unreadable denylist) without printing `queued:` when that fallback is refused
 
 - [x] 2.4 In `hooks/pretool.sh`, scan Write/Edit/MultiEdit content aimed at the shared `handoffs/` or discoveries directory when `leakCheck` is true, and block on a hit (design: Handoff and discovery bodies through pretool)
 

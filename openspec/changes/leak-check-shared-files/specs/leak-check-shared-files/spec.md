@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: File mode
-`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<list> denylist:<line>)` for a hit in the contents and `file path:1  (<list> denylist:<line>)` for a hit in the path, where `<list>` is `global` or `project`, never the path, the list's path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line.
+`orca-lc leak-check --file <path>…` SHALL scan each path, as one line, and every line of each file against the denylists of the `leak-check` capability. It SHALL print `file:<line>  (<list> denylist:<line>)` for a hit in the contents and `file path:1  (<list> denylist:<line>)` for a hit in the path, where `<list>` is `global` or `project`, never the path, the list's path or the matched text, and exit 1 on hits. It SHALL exit 0 when the files are clean or when no denylist exists. It SHALL exit 2 with `leak-check: no such file` when a path does not exist, and with `leak-check: unreadable file` when it cannot be read, in both cases without printing the path. A newline in a path SHALL be scanned as a space, within the one `file path:1` line. `--stdin <label>` SHALL use the same output and exit codes. When a denylist file exists but cannot be read, both modes SHALL print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, never the list's path, and exit 2.
 
 #### Scenario: Hit in a handoff file
 - **WHEN** `leak-check --file` runs on a handoff whose line 12 contains a denylisted term
@@ -19,12 +19,16 @@
 - **WHEN** `leak-check --file` is given a file it cannot read
 - **THEN** it prints `leak-check: unreadable file`, exits 2, and the output does not contain the path
 
+#### Scenario: Unreadable denylist in file and stdin mode
+- **WHEN** `leak-check --file` or `leak-check --stdin <label>` runs and a denylist file exists but cannot be read
+- **THEN** it prints `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, with no path and no awk error, and exits 2
+
 #### Scenario: Path holding `=` or a newline
 - **WHEN** `leak-check --file` is given a path containing `=` or a newline
 - **THEN** its contents are scanned, and the path is reported, if at all, only as `file path:1`
 
 ### Requirement: Shared files are refused before they are written
-When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When `leakCheck` is absent or false, they SHALL behave as before this change.
+When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `inbox send` SHALL scan the content they are about to write. On a hit they SHALL write nothing, print the location as `<command> <field>` with the denylist line, and exit 1. When a denylist file exists but cannot be read, they and `notify`'s inbox fallback SHALL write nothing, print `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable`, never the list's path, and exit 2. When `leakCheck` is absent or false, they SHALL behave as before this change.
 
 #### Scenario: Discovery with a denylisted rule
 - **WHEN** `orca-lc discover some-slug "<rule containing a denylisted term>"` runs with `leakCheck` true
@@ -38,12 +42,16 @@ When `leakCheck` is `true` and a denylist exists, `discover`, `role start` and `
 - **WHEN** `orca-lc notify <ticket> "<text containing a denylisted term>"` finds no live session and `leakCheck` is true
 - **THEN** nothing is queued and the command exits 1
 
+#### Scenario: Unreadable denylist in a caller
+- **WHEN** `discover`, `role start`, `inbox send` or `notify` falling back to the inbox runs with `leakCheck` true and a denylist file that exists but cannot be read
+- **THEN** nothing is written or queued, no herdr tab or agent is created, stderr carries `orca-lc: leak-check: global denylist unreadable` or `orca-lc: leak-check: project denylist unreadable` and no path, and the command exits 2
+
 #### Scenario: Key absent
 - **WHEN** `leakCheck` is not set and a discovery rule contains a denylisted term
 - **THEN** the discovery is written as before this change
 
 ### Requirement: Handoff and discovery writes are scanned before they happen
-When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory or the shared discoveries directory (`discoveriesDir`, default `discoveries`). It SHALL also scan the target's file name. On a hit in either it SHALL block the call with exit 2 and name the location and denylist line, never the term. A location SHALL be `<kind> file name:1` or `<kind> body:<line>`, never the file name itself, with `<kind>` `handoff` or `discovery`. The line number SHALL count within the written text (`content` or `new_string`), not within the file. A directory whose name only starts with that of a shared directory (`handoffs-old`) SHALL NOT match. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
+When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every Write, Edit and MultiEdit whose target resolves into the shared `handoffs/` directory or the shared discoveries directory (`discoveriesDir`, default `discoveries`). It SHALL also scan the target's file name. On a hit in either it SHALL block the call with exit 2 and name the location and denylist line, never the term. A location SHALL be `<kind> file name:1` or `<kind> body:<line>`, never the file name itself, with `<kind>` `handoff` or `discovery`. The line number SHALL count within the written text (`content` or `new_string`), not within the file. A directory whose name only starts with that of a shared directory (`handoffs-old`) SHALL NOT match. When the scan exits 2 because a denylist file exists but cannot be read, it SHALL block the call with `<kind> write blocked: leak-check: <global|project> denylist unreadable`, never the list's path. Any other scan exit but 1 SHALL let the call through. Writes elsewhere, and all writes when `leakCheck` is absent or false, SHALL pass as before.
 
 #### Scenario: Handoff body with a denylisted term
 - **WHEN** a session writes a handoff body containing a denylisted term with `leakCheck` true
@@ -56,6 +64,10 @@ When `leakCheck` is `true`, the PreToolUse hook SHALL scan the content of every 
 #### Scenario: Denylisted file name with a clean body
 - **WHEN** a session writes `<shared>/discoveries/<name containing a denylisted term>.md` with a clean body and `leakCheck` true
 - **THEN** the Write is blocked, stderr names `discovery file name:1` and the denylist line, and stderr does not contain the term
+
+#### Scenario: Unreadable denylist blocks a handoff write
+- **WHEN** a session writes a clean handoff body, or edits a discovery with a clean `new_string`, with `leakCheck` true and a denylist file that exists but cannot be read
+- **THEN** the call is blocked and stderr names `handoff write blocked: leak-check: <global|project> denylist unreadable` (or `discovery write blocked: …`), with no path
 
 #### Scenario: Sibling directory
 - **WHEN** a Write with a denylisted term targets `<shared>/handoffs-old/x.md`
