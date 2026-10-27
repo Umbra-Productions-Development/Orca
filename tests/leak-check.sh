@@ -67,6 +67,17 @@ c8=$(add "$(printf 'x\tzebra.txt')" "zebra"); lc
 has "commit $c8 path  (project denylist:1)"; ok $? "tab in a path: the path is still scanned"
 has "commit $c8 added line  (project denylist:1)"; ok $? "tab in a path: hit reported as added line"; clean; ok $? "tab in a path never prints the term"
 c9=$(add "$(printf 'q\tw.txt')" "zebra"); lc; has "commit $c9 q w.txt  (project denylist:1)"; ok $? "tab in a clean path reads unquoted, tab as space"
+# A binary or empty file has no +++ line; its path is still scanned. A deleted path is not.
+printf 'a\0b' > zebra.png; git add zebra.png; git commit -qm "add a binary"; c10=$(git rev-parse --short HEAD)
+lc "$c10~1..$c10"; ok $(( st == 1 ? 0 : 1 )) "binary file: denylisted path exits 1"; has "commit $c10 path  (project denylist:1)"; ok $? "binary file: path reported"; clean; ok $? "binary file never prints the term"
+: > zebra-empty.txt; git add zebra-empty.txt; git commit -qm "add an empty file"; c11=$(git rev-parse --short HEAD)
+lc "$c11~1..$c11"; ok $(( st == 1 ? 0 : 1 )) "empty file: denylisted path exits 1"; has "commit $c11 path  (project denylist:1)"; ok $? "empty file: path reported"; clean; ok $? "empty file never prints the term"
+git rm -q zebra.png zebra-empty.txt; git commit -qm "remove them"; c12=$(git rev-parse --short HEAD)
+lc "$c12~1..$c12"; ok $st "deleted denylisted paths: not scanned"
+# An added line starting with "++ " shows as "+++ ..." in the diff; it is content, not a file header.
+c13=$(printf '++ harmless\nzebra\n' > plus.txt; git add plus.txt; git commit -qm "plus lines"; git rev-parse --short HEAD)
+lc "$c13~1..$c13"; has "commit $c13 plus.txt  (project denylist:1)"; ok $? "++ line: next hit keeps its file"
+has "harmless"; ok $(( $? == 0 ? 1 : 0 )) "++ line: its text is never read as a path"
 git reset -q --hard "$(git rev-parse main)"
 
 # Matching: ! re-allows, the project list's later line beats the global one, case-insensitive, whole words only.
