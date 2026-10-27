@@ -298,6 +298,10 @@ mkdir -p "$tmp/wt/nl
 "; ln -s "$S/handoffs" "$tmp/wt/nl
 /h"; pre 2 "handoff through a dir whose name ends in a newline blocked" Write "$tmp/wt/nl
 /h/orca-9/x.md" "$hit"
+ln -s "$S/handoffs/orca-9" "$tmp/wt/l2
+"; pre 2 "handoff whose parent's name ends in a newline blocked" Write "$tmp/wt/l2
+/x.md" "$hit"
+pre 2 "handoff with a relative path blocked" Write ".orca/handoffs/orca-9/x.md" "$hit"
 if [ "$(id -u)" != 0 ]; then mkdir -p "$tmp/wt/zebra-noexec"; chmod 000 "$tmp/wt/zebra-noexec"
   pre 0 "unsearchable dir passes" Write "$tmp/wt/zebra-noexec/x/y.md" "$hit"; clean; ok $? "pretool: an unsearchable dir's cd error is not echoed"
   chmod 755 "$tmp/wt/zebra-noexec"; fi
