@@ -264,6 +264,7 @@ printf '{"gate":"true"}\n' > .orca/config.json
 out=$(bin/orca-lc discover set zebra-none hook 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "discover set unknown slug fails"; clean; ok $? "discover set never echoes the slug"
 out=$(bin/orca-lc discover archive zebra-none 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "discover archive unknown slug fails"; clean; ok $? "discover archive never echoes the slug"
 out=$(bin/orca-lc notify zebra-peer "hi" 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "notify to no target fails"; clean; ok $? "notify never echoes the target"
+out=$(bin/orca-lc notify ZEBRA-9 "clean" 2>&1); st=$?; ok $st "notify to a ticket queues"; clean; ok $? "notify never echoes the ticket"; rm -rf .orca/inbox/zebra-9
 out=$(bin/orca-lc inbox send zebra-9 "clean" 2>&1); st=$?; ok $st "inbox send queues"; clean; ok $? "inbox send never echoes the ticket"; rm -rf .orca/inbox/zebra-9
 
 # pretool: Write/Edit/MultiEdit into the shared handoffs/ and discoveries dirs.
@@ -292,6 +293,7 @@ pre 0 "clean handoff Write passes" Write "$S/handoffs/orca-9/x.md" '{"content":"
 # Missing directories under a shared dir are still inside it.
 pre 2 "handoff two missing levels deep blocked" Write "$S/handoffs/orca-9/new/sub/x.md" "$hit"
 pre 2 "handoff reached through a missing dir and .. blocked" Write "$S/notes/miss/../../handoffs/orca-9/x.md" "$hit"
+pre 2 "handoff through a missing dir, .. and a linked .orca blocked" Write "$tmp/wt/miss/../.orca/handoffs/orca-9/new/x.md" "$hit"
 pre 0 "missing dirs under a sibling pass" Write "$S/handoffs-old/a/b/x.md" "$hit"
 mv "$S/handoffs" "$S/handoffs.away"; pre 2 "handoff before handoffs/ exists blocked" Write "$S/handoffs/orca-1/x.md" "$hit"; mv "$S/handoffs.away" "$S/handoffs"
 # A leak-check that fails for any reason blocks, and its output is not echoed.
