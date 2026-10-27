@@ -107,8 +107,8 @@ case "$tool" in
       block "test file edit blocked ($f). Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
     fi
     # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
-    # file name, so no output line can echo a denylisted one. An unreadable denylist blocks; any other exit but 1
-    # lets the write through.
+    # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an
+    # unreadable denylist, an orca-lc without leak-check) blocks too, since the write was not checked.
     if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
       sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
       dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
@@ -119,9 +119,14 @@ case "$tool" in
       done
       if [ -n "$kind" ]; then
         hits=""
-        scan() { local o s; o=$(orca-lc leak-check --stdin "$1" 2>&1); s=$?
-          [ $s = 2 ] && grep -qE '^orca-lc: leak-check: (global|project) denylist unreadable$' <<<"$o" && block "$kind write blocked: ${o#orca-lc: }"
-          [ $s = 1 ] && hits+=$(grep -v '^leak-check:' <<<"$o")$'\n'; }
+        scan() { local o s r=""; o=$(orca-lc leak-check --stdin "$1" 2>&1); s=$?
+          case $s in
+            0) ;;
+            1) hits+=$(grep -v '^leak-check:' <<<"$o")$'\n';;
+            # Only the fixed unreadable-list line is echoed; any other output may carry a path.
+            *) grep -qE '^orca-lc: leak-check: (global|project) denylist unreadable$' <<<"$o" && r=" (${o#orca-lc: })"
+               block "$kind write blocked: leak scan failed (exit $s), write not checked$r";;
+          esac; }
         scan "$kind file name" <<<"$(basename "$f")"
         if [ "$tool" = MultiEdit ]; then
           n=$(jq '.tool_input.edits | length' <<<"$in")
