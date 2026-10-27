@@ -122,3 +122,4 @@ Added to `tests/leak-check.sh`:
 - With `leakCheck` on, a broken install (an `orca-lc` on `PATH` without `leak-check --stdin`) blocks every handoff and discovery write until it is fixed. This is intended: an unchecked write is refused, not passed.
 - The herdr agent name drops dashes from the ticket (`A-B` becomes `ab-<role>`), which can form a term the guard never saw, since it scanned `A-B`. This predates the change and applies only to a ticket whose worktree already exists, since `role start` refuses otherwise. Found by apply in round 4b.
 - The `discover` slug becomes a file name. Scanning it means a denylisted slug cannot be created even when the rule is clean. This is intended.
+- #48's `--as <name>` (on `role start` and `handoff write`) reaches the shared handoff unscanned, and `handoff write` is not guarded and echoes its ticket and role. Tracked in #114. Found by apply while rebasing onto #48.
