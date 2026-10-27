@@ -108,8 +108,9 @@ Added to `tests/leak-check.sh`:
 - Messages drop arguments that were not scanned: `discover set`/`archive`'s unknown slug, `notify`'s target and ticket, `inbox send`'s path (now only the file name), and the test-lock block's path — PR #95 re-review by Excalimbito (2026-10-26), suggestion on inputs outside the guard being echoed (earlier finding 4), fixed by apply.
 - Writes through Bash and `inbox send`'s ticket stay unscanned and are named in Risks — PR #95 re-review by Excalimbito (2026-10-26), same suggestion (earlier finding 3).
 - `role start` scans its ticket and role as `role start ticket` and `role start role` before the herdr and tty checks, since the role becomes the handoff file name and tab, and the ticket a path — PR #95 round 4 review, suggestion 1, fixed by apply.
-- `role start`'s tty error names its arguments by placeholder, `role start <ticket> <role>`, with `leakCheck` off too — PR #95 round 4 review, suggestion 2, fixed by apply.
-- In `--file`, `--stdin`, `--pre-push` and range modes a failed scan exits 2 with `orca-lc: leak-check: scan failed` and never prints awk's error, which names the list's path; README notes that a stale install blocks every shared write until `install.sh` is re-run — PR #95 round 4 review, suggestion 3, fixed by apply.
+- `role start`'s tty error names its arguments by placeholder, `role start <ticket> <role>`, with `leakCheck` off too — PR #95 round 4 review, suggestion 1, fixed by apply.
+- In `--file`, `--stdin`, `--pre-push` and range modes a failed scan exits 2 with `orca-lc: leak-check: scan failed` and never prints awk's error, which names the list's path — PR #95 round 4 review, suggestion 2, fixed by apply.
+- README notes that a stale install blocks every shared write until `install.sh` is re-run — PR #95 round 4 review, suggestion 3, fixed by apply.
 - This change shares a PR with `leak-check-command` only when their combined counted size is under `prShareLimit`. Otherwise it is stacked on it — user (recommended, accepted).
 
 ## Risks
@@ -119,5 +120,5 @@ Added to `tests/leak-check.sh`:
 - Writes through Bash (`cat > .orca/handoffs/… <<EOF`, `tee`, `cp`) are not scanned: pretool scans only Write, Edit and MultiEdit. A session that writes a handoff or discovery through the shell bypasses the check.
 - `inbox send`'s ticket argument is never scanned, yet it becomes a directory name under `inbox/`. It is not echoed, but a denylisted ticket lands in the shared tree.
 - With `leakCheck` on, a broken install (an `orca-lc` on `PATH` without `leak-check --stdin`) blocks every handoff and discovery write until it is fixed. This is intended: an unchecked write is refused, not passed.
-- The herdr agent name drops dashes from the ticket (`A-B` becomes `ab-<role>`), which can form a term the guard never saw, since it scanned `A-B`. This predates the change and applies only to a ticket whose worktree already exists, since `role start` refuses otherwise.
+- The herdr agent name drops dashes from the ticket (`A-B` becomes `ab-<role>`), which can form a term the guard never saw, since it scanned `A-B`. This predates the change and applies only to a ticket whose worktree already exists, since `role start` refuses otherwise. Found by apply in round 4b.
 - The `discover` slug becomes a file name. Scanning it means a denylisted slug cannot be created even when the rule is clean. This is intended.
