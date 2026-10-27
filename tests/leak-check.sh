@@ -262,4 +262,33 @@ pre 0 "leakCheck absent: discovery Edit hit passes" Edit "$S/discoveries/s.md" '
 printf '{"leakCheck":false}\n' > .orca/config.json
 pre 0 "leakCheck false: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
 
+# An unreadable list refuses everywhere with exit 2, named by kind, never by its path; nothing is written.
+if [ "$(id -u)" != 0 ]; then
+  printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json
+  for k in global project; do
+    if [ $k = global ]; then u="$gl"; printf 'zebra\n' > "$gl"; else u="$pl"; fi
+    chmod 000 "$u"; m="leak-check: $k denylist unreadable"
+    unr() { ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: $1 exits 2"; has "$m"; ok $? "unreadable $k list: $1 names it by kind"
+      has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: $1 never prints its path"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: $1 has no awk error"; }
+    lc --file "$tmp/c.md"; unr "--file"
+    out=$(printf 'zebra\n' | bin/orca-lc leak-check --stdin note 2>&1); st=$?; unr "--stdin"
+    out=$(bin/orca-lc discover unr-slug "clean" 2>&1); st=$?; unr "discover"
+    [ ! -e .orca/discoveries/unr-slug.md ]; ok $? "unreadable $k list: discover creates no file"
+    out=$(bin/orca-lc inbox send orca-9 "clean note" 2>&1); st=$?; unr "inbox send"
+    out=$(bin/orca-lc notify ORCA-9 "clean note" 2>&1); st=$?; unr "notify"
+    has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: notify does not print queued:"
+    ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "unreadable $k list: inbox send and notify queue nothing"
+    rm -f "$tmp/herdr.log"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; unr "role start"
+    [ ! -e "$tmp/herdr.log" ]; ok $? "unreadable $k list: role start makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "unreadable $k list: role start writes no handoff"
+    pre 2 "unreadable $k list: clean handoff Write blocked" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
+    has "handoff write blocked: $m"; ok $? "unreadable $k list: pretool names it by kind"
+    has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: pretool never prints its path"
+    pre 2 "unreadable $k list: clean discovery Edit blocked" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"fine"}'
+    chmod 644 "$u"
+  done
+  rm -f "$gl"
+fi
+
 exit $fail
