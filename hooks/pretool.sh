@@ -16,7 +16,8 @@ abspath() { local p="$1" c d
   while [ -n "$p" ]; do
     c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
     case "$c" in ""|.) ;; ..) d=${d%/*}; d=${d:-/};; *) d="${d%/}/$c";; esac
-    [ -d "$d" ] && { d=$(CDPATH='' cd -P -- "$d" && pwd -P) || return 1; }
+    # The trailing x keeps a name ending in a newline whole; $(...) would strip it. cd's error would echo the path.
+    [ -d "$d" ] && { d=$(CDPATH='' cd -P -- "$d" 2>/dev/null && pwd -P && echo x) || return 1; d=${d%$'\n'x}; }
   done
   echo "$d"
 }
