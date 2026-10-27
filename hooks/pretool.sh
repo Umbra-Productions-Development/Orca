@@ -11,7 +11,8 @@ advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventN
 # Absolute, symlink-free form of a path whose tail may not exist yet, walked left to right as mkdir -p would: each
 # existing directory is resolved through cd -P, so a symlink after a missing dir and ".." is still followed; a missing
 # one is kept as written, and ".." drops the last component. readlink -f fails past one missing part; BSD has no -m.
-abspath() { local p="$1" c d
+# The result goes to $ap, not stdout: $(...) would strip a trailing newline from the last name.
+abspath() { local p="$1" c d; ap=""
   case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
   while [ -n "$p" ]; do
     c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
@@ -19,7 +20,7 @@ abspath() { local p="$1" c d
     # The trailing x keeps a name ending in a newline whole; $(...) would strip it. cd's error would echo the path.
     [ -d "$d" ] && { d=$(CDPATH='' cd -P -- "$d" 2>/dev/null && pwd -P && echo x) || return 1; d=${d%$'\n'x}; }
   done
-  echo "$d"
+  ap=$d
 }
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
@@ -125,9 +126,10 @@ case "$tool" in
     if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
       sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
       dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
-      dir=$(abspath "$(dirname "$f")"); kind=""
+      case "$f" in */*) dir=${f%/*}; dir=${dir:-/};; *) dir=.;; esac # not dirname: $(...) strips a trailing newline
+      abspath "$dir" && dir=$ap || dir=""; kind=""
       for k in "handoff:$sh/handoffs" "discovery:$sh/$dd"; do
-        base=$(abspath "${k#*:}") || continue
+        abspath "${k#*:}" || continue; base=$ap
         [ -n "$dir" ] && [ -n "$base" ] && [[ "$dir/" == "$base/"* ]] && { kind=${k%%:*}; break; }
       done
       if [ -n "$kind" ]; then
