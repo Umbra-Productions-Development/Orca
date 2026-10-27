@@ -234,13 +234,13 @@ callers() { # <expect: refused|written> [label suffix]
   out=$(printf 'body with zebra\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?
   if [ "$1" = refused ]; then
     ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start hit makes no herdr call"
-    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
     has "role start handoff  (project denylist:1)"; ok $? "role start names the field"; refd "role start hit"
     # The role becomes the handoff file name and the tab, the ticket a path: both are scanned before anything else.
     rm -f "$tmp/herdr.log"
     out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 zebra 2>&1); st=$?
     ok $(( st == 1 ? 0 : 1 )) "role start denylisted role exits 1"; [ ! -e "$tmp/herdr.log" ]; ok $? "role start denylisted role makes no herdr call"
-    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "role start denylisted role writes no handoff"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start denylisted role writes no handoff"
     has "role start role  (project denylist:1)"; ok $? "role start names the role field"; clean; ok $? "role start never echoes the role"; refd "role start role hit"
     out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ZEBRA-9 apply 2>&1); st=$?
     ok $(( st == 1 ? 0 : 1 )) "role start denylisted ticket exits 1"; has "role start ticket  (project denylist:1)"; ok $? "role start names the ticket field"
@@ -266,7 +266,7 @@ out=$(PATH="$astub:$PATH" bin/orca-lc inbox send orca-9 "clean" 2>&1); st=$?; sf
 rm -f "$tmp/herdr.log"
 out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$astub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; sf "role start"
 [ ! -e "$tmp/herdr.log" ]; ok $? "failed scan: role start makes no herdr call"
-rm -rf .orca/discoveries/sf-slug.md .orca/inbox/orca-9 .orca/handoffs/ORCA-9 # so a failure here does not spill into later checks
+rm -rf .orca/discoveries/sf-slug.md .orca/inbox/orca-9 .orca/handoffs/orca-9 # so a failure here does not spill into later checks
 lsf() { ok $(( st == 2 ? 0 : 1 )) "failed scan: leak-check $1 exits 2"; has "orca-lc: leak-check: scan failed"; ok $? "failed scan: leak-check $1 says so"
   has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: leak-check $1 never prints the list's path"; }
 out=$(PATH="$astub:$PATH" bin/orca-lc leak-check --file "$tmp/c.md" 2>&1); st=$?; lsf "--file"
@@ -360,7 +360,7 @@ if [ "$(id -u)" != 0 ]; then
     rm -f "$tmp/herdr.log"
     out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; unr "role start"; ur "role start"
     [ ! -e "$tmp/herdr.log" ]; ok $? "unreadable $k list: role start makes no herdr call"
-    [ -z "$(ls -A .orca/handoffs/ORCA-9 2>/dev/null)" ]; ok $? "unreadable $k list: role start writes no handoff"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "unreadable $k list: role start writes no handoff"
     pre 2 "unreadable $k list: clean handoff Write blocked" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
     has "handoff write blocked: leak scan failed (exit 2), write not checked ($m)"; ok $? "unreadable $k list: pretool names it by kind"
     has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: pretool never prints its path"
