@@ -657,8 +657,10 @@ cmd_role() {
     start)
       need ticket "${1:-}"; need role "${2:-}"
       [ -z "${3:-}" ] || [ "$3" = --as ] || usage "role start <ticket> <role> [--as <name>]"
+      # The role names the shared handoff file and the tab; scanned first, so no later message echoes unscanned text.
+      leak_guard "role start ticket" "$1" "role start role" "$2" || exit $?
       inherdr || die "role start needs herdr"
-      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
+      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start <ticket> <role> <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       leak_guard "role start handoff" "$body" || exit $?
       local t r as="" dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
