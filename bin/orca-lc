@@ -8,6 +8,7 @@ USAGE='usage: orca-lc <command> [args]
   gate-fresh                       exit 0 when the marker matches the tree
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
+  leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   ticket                           ticket of this directory or its branch, empty when none
@@ -130,8 +131,119 @@ cmd_gate() {
   fi
   cd "$r" || exit 1; rm -f "$(marker)"; load_env
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  if bash -c "$g"; then tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0; fi
+  if bash -c "$g"; then
+    if [ "$(cfg '.leakCheck')" = true ]; then
+      # Subshell: no exit inside the scan may end the gate before it prints its last line.
+      echo "orca-lc: leak-check on commits not on any remote"
+      ( cmd_leak_check ) || { echo "ORCA_GATE_FAIL"; return 1; }
+    fi
+    tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0
+  fi
   echo "ORCA_GATE_FAIL"; return 1
+}
+
+# ---- leak check: denylists are untracked; a committed list would itself be the leak.
+# Syntax follows .gitignore: one pattern per line, `#` comments, `*` wildcard, `!` re-allows,
+# last matching line wins. Matching ignores case and only hits whole words.
+leak_global() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist"; }
+leak_lists() { # global first, then this clone's: the later list wins a tie
+  # An unreadable list is named by kind, never by its path, and fails closed with 2.
+  local f k; for k in global project; do
+    if [ $k = global ]; then f="$(leak_global)"; else f="$(root)/.orca/denylist"; fi
+    [ -f "$f" ] || continue
+    [ -r "$f" ] || { echo "orca-lc: leak-check: $k denylist unreadable" >&2; return 2; }
+    echo "$f"
+  done; return 0
+}
+leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per blocked hit
+  # A commit location whose path matches any deny pattern, re-allowed or not, is cut to "commit <sha> added line",
+  # so no line carries a term. Lists are named "global denylist" or "project denylist", never by their path.
+  G="$(leak_global)" awk -F'\t' '
+    function blocked(s,   i, h) { h = 0; for (i = 1; i <= n; i++) if (s ~ pat[i]) h = deny[i] ? i : 0; return h }
+    function denied(s,   i) { for (i = 1; i <= n; i++) if (deny[i] && s ~ pat[i]) return 1; return 0 }
+    FILENAME != "-" {
+      line = $0; sub(/\r$/, "", line)
+      if (line ~ /^[ \t]*(#|$)/) next
+      neg = (substr(line, 1, 1) == "!"); if (neg) line = substr(line, 2)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      re = tolower(line)
+      gsub(/[][\\.^$+?(){}|\/]/, "\\\\&", re)
+      gsub(/\*/, ".*", re)
+      n++; pat[n] = "(^|[^[:alnum:]])" re "([^[:alnum:]]|$)"; deny[n] = !neg
+      src[n] = (FILENAME == ENVIRON["G"] ? "global" : "project") " denylist:" FNR
+      next
+    }
+    {
+      where = $1; hit = blocked(tolower(substr($0, length($1) + 2)))
+      if (hit && where ~ /^commit /) {
+        split(where, w, " "); f = substr(where, length(w[1] w[2]) + 3)
+        if (f != "message" && f != "path" && denied(tolower(f))) where = w[1] " " w[2] " added line"
+      }
+      if (hit) print where "  (" src[hit] ")"
+    }
+  ' "$@" -
+}
+leak_commits() { # <branch> <git log args>...: the branch name, then per commit its people, message, paths and added lines
+  local b="$1" cs c p; shift
+  # A failed git log must not read as clean: exit 2, without echoing the range git would name.
+  cs=$(git log --format='%h' "$@" 2>/dev/null) || {
+    echo "orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)" >&2; exit 2; }
+  printf 'branch name\t%s\n' "$b"
+  [ -n "$cs" ] && while read -r c; do
+    git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
+    # Paths from --name-only, so a binary or empty file, which has no +++ line, is scanned too. -z leaves them
+    # unquoted; tabs and newlines become spaces. A deleted path is left out: refusing it would block removing it.
+    git show --format= --name-only -z --no-renames --diff-filter=d "$c" | while IFS= read -r -d '' p; do
+      [ -n "$p" ] && printf 'commit %s path\t%s\n' "$c" "${p//[$'\t\r\n']/ }"; done
+    # The +++ path only says which file an added line belongs to, and counts only in a file header (after
+    # diff --git and its --- line), so an added line that starts with "++ " is not read as one. It comes back
+    # unquoted (git C-quotes tabs, newlines, quotes and backslashes even with quotePath off), escapes as spaces.
+    git -c core.quotePath=false show --format= -p --no-renames --src-prefix=a/ --dst-prefix=b/ "$c" | awk -v c="$c" '
+      function unq(s,   o, i, ch) {
+        if (substr(s, 1, 1) != "\"") return s
+        s = substr(s, 2, length(s) - 2); o = ""
+        for (i = 1; i <= length(s); i++) {
+          ch = substr(s, i, 1)
+          if (ch == "\\") { ch = substr(s, ++i, 1); if (ch ~ /[0-7]/) { ch = " "; i += 2 } else if (ch ~ /[abfnrtv]/) ch = " " }
+          o = o ch
+        }
+        return o
+      }
+      /^diff --(git|cc|combined) / { h = 1; next }
+      h == 1 && /^--- / { h = 2; next }
+      h == 2 && /^\+\+\+ / { f = unq(substr($0, 5)); gsub(/[\t\r\n]/, " ", f); sub(/^b\//, "", f); h = 0; next }
+      h { if (/^@@/) h = 0; next }
+      /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
+  done <<<"$cs"
+  return 0
+}
+# Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
+cmd_leak_check() {
+  local prepush="" lists=() f l found head
+  [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
+  case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
+  [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
+  # A while-read loop, not mapfile: macOS ships bash 3.2, where a missing mapfile would leave no lists.
+  f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
+  if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
+  if [ -n "$prepush" ]; then
+    local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
+    found=$(while read -r lref lsha rref rsha; do
+      [ "$lsha" = "$zero" ] && continue
+      if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
+      else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
+    done | leak_scan "${lists[@]}") || return 2
+    head="pre-push: denylisted terms found, push refused."
+  else
+    # pipefail carries leak_commits' exit 2 out of the pipeline.
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}") || return 2
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}") || return 2; fi
+    head="leak-check: denylisted terms found."
+  fi
+  [ -z "$found" ] && return 0
+  echo "$head Location, then the denylist line that matched:" >&2
+  echo "$found" | sort -u >&2
+  return 1
 }
 
 base_ref() { local b; b=$(cfg '.baseBranch' main); git merge-base HEAD "$b" 2>/dev/null || git rev-parse HEAD~1; }
@@ -560,6 +672,7 @@ fi
 case "$cmd" in
   -h|--help|help|"") echo "$USAGE";;
   context) cmd_context;; gate) cmd_gate "$@";; gate-fresh) cmd_gate_fresh;; test-affected) cmd_test_affected;; evidence) cmd_evidence "$@";;
+  leak-check) cmd_leak_check "$@";;
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
