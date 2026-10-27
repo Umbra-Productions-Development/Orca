@@ -345,7 +345,7 @@ cmd_notify() {
   local tk; tk=$(tkey "$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1)")
   [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
   local q; q=$(cmd_inbox send "$tk" "$text") || exit $?
-  echo "no live session for $tk, queued: $q"
+  echo "no live session for the ticket, queued: $q"
 }
 
 cmd_inbox() {
