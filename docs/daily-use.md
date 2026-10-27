@@ -90,6 +90,7 @@ Apply fixes the findings. When the user approves, the review is posted to the PR
 - `orca-lc peers` lists every live session on any worktree of the project.
 - `orca-lc notify <target> "<text>"` sends a short message; the target can be a session id, a name, or a ticket with `--role`. A ticket with no live session gets the message queued in its inbox, delivered at its next session start.
 - Anything longer than a few lines goes in a handoff (`orca-lc handoff write`) and the message carries only its path.
+- A ticket and role hold one live handoff. `handoff write` refuses while another session's handoff for that role is unconsumed; the same session writing again replaces its own, archiving the old one. `--as <name>` writes anyway and archives the live one, for when taking it over is the point; `orca-lc role start` passes `--as` through.
 
 ## What persists between tickets
 
