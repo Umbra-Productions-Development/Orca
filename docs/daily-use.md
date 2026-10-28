@@ -69,7 +69,8 @@ Apply implements `tasks.md`, commit by commit. While it works:
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
 - Editing a test file is blocked. When a test is genuinely wrong, `orca-lc test-lock on`, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
-- `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. Any later edit makes the mark stale.
+- `orca-lc gate` runs the full gate and marks the exact tree. Any later edit makes the mark stale. The gate runs as a child of `orca-lc gate`, which returns its exit status as soon as it ends, however it ends; inside herdr a split pane follows its log (`.git/orca-gate.log`), closing on success. A gate still running after `gateTimeoutMin` is stopped with `ORCA_GATE_TIMEOUT` (exit 124).
+- An agent calls the gate in the foreground with a tool timeout above `gateTimeoutMin`. For Claude Code, raise `BASH_MAX_TIMEOUT_MS` in the `env` of the user's settings to match (for example `2400000` for a 30-minute gate), so the call is never moved to the background.
 - Each commit is reported to the orchestrator; the PreToolUse hook reminds it.
 - A ticket split into several changes gets one branch per change: `orca-lc stack add <change>` from the top branch cuts the next one on top of it, and `orca-lc stack list` shows the stack. Once the top branch has passed the gate, `orca-lc stack prs` pushes every branch and opens or retargets each PR on the branch below it. After the bottom PR is squash-merged, `orca-lc stack rebase` moves the rest onto the base and drops the merged branch.
 

@@ -74,6 +74,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `sharedDir` | Absolute path to the main checkout's `.orca`, shared by every worktree |
 | `baseBranch` | Branch new worktrees start from |
 | `gate` | Command that must pass before a push |
+| `gateTimeoutMin` | Minutes before a hung gate is stopped (`ORCA_GATE_TIMEOUT`, exit 124). Fractions allowed. Default `30` |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |

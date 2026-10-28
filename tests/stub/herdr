@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Fake herdr for tests: every call is appended to $HERDR_STUB/calls; `pane split` hands out pane p1.
+echo "$*" >> "$HERDR_STUB/calls"
+case "$1 ${2:-}" in
+  "pane split") echo '{"result":{"pane":{"pane_id":"p1"}}}';;
+esac
