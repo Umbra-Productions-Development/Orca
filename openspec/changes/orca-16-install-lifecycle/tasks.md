@@ -189,8 +189,8 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
   
   Makes 1.10, 1.10b, 1.11 and 1.11b pass.
 - [x] 2.8 Keep the closing line about `orca.example.json`. Print the copy-mode notice once.
-- [ ] 2.9 Under `orca-lc test-lock on`, make the one edit design.md, Test harness names to `tests/install-keep.sh` and to `tests/install-config-dir.sh` (stdin from `/dev/null` on every install run, `unset XDG_STATE_HOME`), say why in the commit body, then `orca-lc test-lock off`. No assertion changes.
-- [ ] 2.10 `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh` pass on this machine. Say in the report which modes ran: link mode is proven only where symlinks work, and on Git Bash without Developer Mode the link-mode cases print `SKIP`. Commit.
+- [x] 2.9 Under `orca-lc test-lock on`, make the one edit design.md, Test harness names to `tests/install-keep.sh` and to `tests/install-config-dir.sh` (stdin from `/dev/null` on every install run, `unset XDG_STATE_HOME`), say why in the commit body, then `orca-lc test-lock off`. No assertion changes.
+- [x] 2.10 `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh` pass on this machine. Say in the report which modes ran: link mode is proven only where symlinks work, and on Git Bash without Developer Mode the link-mode cases print `SKIP`. Commit.
 
 ## 3. Docs
 
