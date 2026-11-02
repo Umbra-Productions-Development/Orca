@@ -4,12 +4,12 @@
 set -uo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR
+export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR XDG_STATE_HOME
 sk="$HOME/.claude/skills"
 
 fail=0
 ok() { if [ "$1" = 0 ]; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
-run() { out=$(bash "$src/install.sh" "$@" 2>&1); st=$?; }
+run() { out=$(bash "$src/install.sh" "$@" </dev/null 2>&1); st=$?; }
 # ln -s copies in Git Bash without Developer Mode; the link cases need real links.
 mkdir "$tmp/probe-src"; ln -s "$tmp/probe-src" "$tmp/probe" 2>/dev/null; [ -L "$tmp/probe" ] && links=1 || links=0
 
@@ -56,7 +56,7 @@ export HOME="$tmp/home2"; mkdir -p "$HOME/.claude/skills"; sk="$HOME/.claude/ski
 cp -R "$repo/skills/nested" "$sk/nested"; echo '# older' > "$sk/nested/ref/notes.md"
 echo '# older' > "$repo/skills/nested/ref/notes.md"; git -C "$repo" -c user.name=t -c user.email=t@t commit -qam older
 echo ref > "$repo/skills/nested/ref/notes.md"; git -C "$repo" -c user.name=t -c user.email=t@t commit -qam current
-run2() { out=$(bash "$repo/install.sh" "$@" 2>&1); st=$?; }
+run2() { out=$(bash "$repo/install.sh" "$@" </dev/null 2>&1); st=$?; }
 run2; ok $st "install over a copy directory with a subdirectory exits 0"
 cmp -s "$sk/nested/ref/notes.md" "$repo/skills/nested/ref/notes.md"; ok $? "copy with a subdirectory recognised as Orca's and refreshed"
 rm -rf "$sk/nested"; cp -R "$repo/skills/nested" "$sk/nested"; rm -f "$sk/nested/ref/notes.md"; echo mine > "$sk/nested/ref/mine.md"
