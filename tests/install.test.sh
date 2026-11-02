@@ -569,3 +569,113 @@ t_symlink_created() {
   assert_eq "$(n_orca "$d/dotfiles/settings.json")" 0 "hooks of Orca's left in the target"
   inst; assert_status "$st" 0 "install after: $err"; }
 one t_symlink_created link
+
+# --- 5.x: behaviour apply built beyond the sections (design.md, Decisions) ---
+# no_rec <target>: the manifest holds no record naming <target>.
+no_rec() { [ ! -f "$M" ] || ! grep -qF "$TAB$1$TAB" "$M" || fail "manifest still names $1"; }
+gone_all() { local t; while IFS= read -r t; do [ ! -e "$t" ] && [ ! -L "$t" ] || fail "$t not removed"; done < <(targets "$C"); }
+
+# 5.2 targets Orca no longer ships
+t_orphan() { local v=$1 sk T s0
+  inst --no-optional; assert_status "$st" 0 "$err"
+  sk=$(cd "$SRC/skills" && ls | grep -vx grilling | head -n1); T=$C/skills/$sk
+  rm -r "$SRC/skills/$sk"
+  case $v in
+    kept) rm -rf "$T"; mkdir "$T"; echo mine > "$T/mine.txt";;
+    edited) echo edit >> "$(find "$T" -type f | LC_ALL=C sort | head -n1)";;
+    gone) rm -rf "$T";;
+  esac
+  s0=$(snapshot "$T")
+  inst --no-optional; assert_status "$st" 0 "$v: $err"; no_rec "$T"
+  case $v in
+    removed) assert_contains "$out" "removed $T, no longer shipped"; [ ! -e "$T" ] && [ ! -L "$T" ] || fail "$T still there";;
+    kept|edited)
+      assert_contains "$err" "install.sh: kept $T, which Orca no longer ships and did not install as it is now"
+      assert_eq "$(snapshot "$T")" "$s0" "$v: target changed"
+      inst --uninstall
+      assert_not_contains "$out" "removed $T" "$v: uninstall removed it"; assert_not_contains "$out" "left: $T" "$v: uninstall listed it"
+      assert_eq "$(snapshot "$T")" "$s0" "$v: uninstall changed it";;
+    gone) assert_not_contains "$out$err" "$T," "gone: a line names it"; assert_not_contains "$out$err" "$T " "gone: a line names it";;
+  esac; }
+both t_orphan removed; both t_orphan kept; one t_orphan copy edited; both t_orphan gone
+
+# 5.3 -h is --help
+t_h() {
+  inst -h; assert_status "$st" 0 "-h"; o=$out; assert_eq "$err" "" "-h wrote stderr"
+  inst --help; assert_eq "$o" "$out" "-h differs from --help"; [ -n "$o" ] || fail "-h printed nothing"; }
+one t_h copy
+
+# 5.4 uninstall needs only git and jq
+t_uninst_tools() { local t
+  inst --no-optional; assert_status "$st" 0 "$err"
+  mkdir "$d/away"; mv "$d/bin/claude" "$d/bin/gh" "$d/bin/herdr" "$d/away/"
+  inst --uninstall; assert_status "$st" 0 "uninstall without claude gh herdr: $out $err"; gone_all
+  mv "$d/away/"* "$d/bin/"
+  for t in jq git; do
+    inst --no-optional; assert_status "$st" 0 "reinstall: $err"
+    mv "$d/bin/$t" "$d/away/"; a=$(snapshot "$HOME")
+    inst --uninstall; assert_status "$st" 1 "uninstall without $t"
+    assert_contains "$err" "missing required tool: $t"; assert_eq "$(snapshot "$HOME")" "$a" "uninstall without $t changed \$HOME"
+    mv "$d/away/$t" "$d/bin/"
+  done; }
+one t_uninst_tools copy
+
+# 5.5 invalid settings.json stops install
+bad_json_run() {
+  printf '{' > "$C/settings.json"; a=$(snapshot "$HOME")
+  inst --no-optional; assert_status "$st" 1 "$1"
+  assert_contains "$err" "install.sh: $C/settings.json is not valid JSON:"; assert_contains "$err" "install.sh: nothing changed"
+  assert_eq "$(snapshot "$HOME")" "$a" "$1: changed \$HOME"; }
+t_badjson() {
+  mkdir -p "$C"; bad_json_run "no manifest"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"; bad_json_run "with manifest"; }
+both t_badjson
+
+# 5.6 uninstall with a dangling settings.json
+t_uninst_dangling() {
+  inst --no-optional; assert_status "$st" 0 "$err"
+  rm "$C/settings.json"; ln -s "$d/missing.json" "$C/settings.json"
+  inst --uninstall; assert_status "$st" 0 "$out $err"
+  assert_contains "$err" "install.sh: $C/settings.json is a dangling symlink; left it as it is"
+  assert_not_contains "$out" "left: $C/settings.json"
+  assert_eq "$(readlink "$C/settings.json")" "$d/missing.json"; gone_all
+  [ ! -e "$M" ] || fail "manifest still there"; }
+one t_uninst_dangling link
+
+# 5.7 a failing installer
+t_fail_installer() {
+  use_fixture_table; export ORCA_TEST_UNAME=Linux
+  stub npm "echo \"npm \$*\" >> '$d/calls'; exit 3"
+  inst --yes; assert_status "$st" 0 "$err"
+  assert_contains "$err" "install.sh: fix-a: 'npm i -g fix-a' failed with exit 3"
+  assert_contains "$err" "install.sh: fix-b: 'npm i -g fix-b' failed with exit 3"
+  assert_eq "$(cat "$d/calls" 2>/dev/null)" "npm i -g fix-a"$'\n'"npm i -g fix-b" "installer calls"
+  assert_eq "$(printf '%s\n' "$out" | tail -n2 | head -n1 | cut -c1-25)" "recommended tools present"
+  assert_contains "$(printf '%s\n' "$out" | tail -n1)" "per project:"
+  [ -f "$M" ] || fail "no manifest"; }
+one t_fail_installer copy
+
+# 5.8 an unknown platform
+t_unknown_platform() { local name en cmd
+  inst --yes; :  # warm-up with Linux rows is not needed; run under FreeBSD below
+  rm -rf "$HOME" "$d/calls"; mkdir "$HOME"
+  export ORCA_TEST_UNAME=FreeBSD
+  inst --yes; assert_status "$st" 0 "$err"
+  [ ! -e "$d/calls" ] || fail "unknown platform installed: $(cat "$d/calls")"
+  while IFS=$TAB read -r name en cmd; do
+    if [ "$name" = mattpocock-skills ]; then assert_contains "$out" "grilling: using Orca's skill"; continue; fi
+    assert_contains "$out" "$name: not installed ($en); see "
+  done < <(table_rows); }
+one t_unknown_platform copy
+
+# 5.9 uninstall with invalid settings.json
+t_uninst_badjson() {
+  inst --no-optional; assert_status "$st" 0 "$err"
+  printf '{' > "$C/settings.json"; a=$(snapshot "$HOME"); cp "$M" "$d/m.saved"
+  inst --uninstall; assert_status "$st" 1 "$out $err"
+  assert_contains "$err" "install.sh: $C/settings.json is not valid JSON:"; assert_contains "$err" "install.sh: nothing changed"
+  assert_not_contains "$out" "removed" "a removed line"
+  assert_eq "$(snapshot "$HOME")" "$a" "changed \$HOME"; cmp -s "$M" "$d/m.saved" || fail "manifest changed"
+  echo '{}' > "$C/settings.json"
+  inst --uninstall; assert_status "$st" 0 "after fix: $out $err"; gone_all; }
+both t_uninst_badjson
