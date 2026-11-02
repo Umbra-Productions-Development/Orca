@@ -217,6 +217,12 @@ in_list() { local x=$1 y; shift; for y in "$@"; do [ "$x" = "$y" ] && return 0; 
 if [ $uninst = 1 ]; then
   LEFT=()
   left() { LEFT+=("$1"); echo "left: $1 ($2)"; }
+  # settings.json is parsed before anything is removed, as install's preflight does (design.md, Uninstall).
+  S=$cfg/settings.json
+  if [ -e "$S" ]; then
+    settings_in
+    jq "$JQ_ORCA $JQ_SCAN" "$R" >/dev/null 2>"$work/jq.err" || { problems+=("$S is not valid JSON: $(cat "$work/jq.err")"); stop_if_problems; }
+  fi
   if [ ${#MREC[@]} -gt 0 ]; then
     for l in "${MREC[@]}"; do
       IFS=$TAB read -r -a f <<< "$l"
@@ -241,8 +247,10 @@ if [ $uninst = 1 ]; then
     done
   fi
 
-  S=$cfg/settings.json s_jq=
-  if [ -L "$S" ] && [ ! -e "$S" ]; then echo "install.sh: $S is a dangling symlink; left it as it is" >&2
+  # s_jq: a settings.json the dir rule below does not count as foreign (Orca's part of it is gone, or it is a dangling
+  # link that holds none of Orca's hooks).
+  s_jq=
+  if [ -L "$S" ] && [ ! -e "$S" ]; then s_jq=$S; echo "install.sh: $S is a dangling symlink; left it as it is" >&2
   elif [ -e "$S" ]; then
     settings_in
     r_post=$(recf settings-post 1 || true) r_orig=$(recf settings-orig 1 || true) r_created=$(recf settings-created 1 || true)
@@ -269,8 +277,8 @@ if [ $uninst = 1 ]; then
   fi
 
   rm -f "$M" "$ORIG"; rmdir "$state" 2>/dev/null || true
-  # A recorded dir is listed only when it directly holds something no left: line or kept recorded dir names. A
-  # settings.json that took the jq path is not left (Orca's part of it is gone), so it does not list its dir either.
+  # A recorded dir is listed only when it directly holds something no left: line or kept recorded dir names. The s_jq
+  # settings.json is not left, so it does not list its dir either.
   KEPTD=()
   while IFS= read -r d; do
     [ -n "$d" ] && [ -d "$d" ] && [ ! -L "$d" ] || continue
