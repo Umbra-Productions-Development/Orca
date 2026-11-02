@@ -37,7 +37,7 @@ This change builds on install.sh as #86 (#56) left it:
 The manifest records the config dir it installed into (`config` record). The record keeps one install in one config dir:
 - **Install** under a `<cfg>` other than the recorded one stops in preflight: `install.sh: installed into <recorded>, not <cfg>; run ./install.sh --uninstall with CLAUDE_CONFIG_DIR=<recorded> first`, then `nothing changed`, exit 1. Moving an install between config dirs is uninstall, then install. `--force` does not override this; it only moves an install between checkouts.
 - **Uninstall** works on the recorded config dir, whatever `CLAUDE_CONFIG_DIR` says now, and prints that dir as its `config dir:` line. Every target in the manifest is an absolute path already; the record also names the settings.json it restores or cleans.
-- **Comparing config dirs.** Both sides are normalised before they are compared: trailing slashes are stripped, and when the dir exists it is replaced by `cd "<dir>" && pwd -P`, so `~/.claude/`, a `..` component and a path through a symlinked HOME all name the same dir. The `config` record holds the normalised form. Only the comparison and the record use it: the `config dir:` line and every target path keep `<cfg>` as #86 computes it, since `tests/install-config-dir.sh` matches that line against the variable's own spelling.
+- **Comparing config dirs.** Both sides are normalised before they are compared: trailing slashes are stripped, and when the dir exists it is replaced by `cd "<dir>" && pwd -P`, so `~/.claude/`, a `..` component and a path through a symlinked HOME all name the same dir. Only the comparison uses the normalised form; it is computed each time and never stored. The `config` record holds `<cfg>` exactly as #86 computes it and install printed it, so uninstall's `config dir:` line and the stop message print the same path the install printed (on macOS, `pwd -P` would turn `/var/...` into `/private/var/...`). A later install whose `<cfg>` compares equal keeps the existing record as it is, so a second spelling of the same dir changes no byte of the manifest. The `config dir:` line and every target path keep `<cfg>` as #86 computes it, since `tests/install-config-dir.sh` matches that line against the variable's own spelling.
 - With no manifest (a legacy install), both use the current `<cfg>`, with one stop: when the normalised `<cfg>` is not the normalised `$HOME/.claude`, and `$HOME/.claude` holds an install of Orca's (a target the classifier calls Orca's, or a hook of Orca's in its settings.json), install stops in preflight: `install.sh: $HOME/.claude holds an Orca install with no manifest; run ./install.sh --uninstall with CLAUDE_CONFIG_DIR unset first`, then `nothing changed`, exit 1. Without the stop, the new install would write a manifest naming the new dir, so nothing would ever report or uninstall the old links and hooks, and those hooks would keep firing whenever Claude runs without the variable. A printed line would not do: once the new manifest exists, the uninstall it suggests works on the new dir, not on `$HOME/.claude`. The legacy uninstall with the variable unset has no manifest to follow, so it works on `$HOME/.claude` (Uninstall).
 
 ## Required tools
@@ -130,7 +130,7 @@ The format is one record per line, with tab-separated fields:
 | kind | fields | meaning |
 |---|---|---|
 | `checkout` | path | the checkout that installed (`$here`) |
-| `config` | path | the config dir it installed into (`<cfg>`, Config dir) |
+| `config` | path | the config dir it installed into, spelled as the first install printed it (`<cfg>`, Config dir) |
 | `mode` | `link` or `copy` | the mode used |
 | `link` | target, source | Orca made this symlink |
 | `copy` | target, source, hash | Orca made this copy; hash is its content when written |
@@ -402,5 +402,9 @@ Fourth review (orchestrator handoff of 2026-11-02, after #49 and #86 merged).
 Fifth review (orchestrator handoff of 2026-11-02, after the one-config-dir decision).
 
 - **R7** (a `--force` switch dropped the `config`, `hooks-key` and `edited` records): Classifying a target, `--force` against another checkout. `config` and `hooks-key` carry over, `edited` is rewritten for `$here` like `copy`, and every record kind sits in one of the two lists. The config-dir check runs before the switch. Task 1.15 checks the records after a switch, an install under another config dir after it, and the jq uninstall afterwards.
-- **S15** (path spelling in the config-dir comparison): taken. Config dir, Comparing config dirs: strip trailing slashes, then `pwd -P` when the dir exists, for the comparison and the record only. Task 1.5c.
+- **S15** (path spelling in the config-dir comparison): taken. Config dir, Comparing config dirs: strip trailing slashes, then `pwd -P` when the dir exists, for the comparison only (R8 below). Task 1.5c.
 - **S16** (a legacy install left behind under a new config dir): taken as a preflight stop, not a printed line, because after the new manifest exists the printed advice would uninstall the new dir. This follows the user's one-config-dir decision, with the legacy install counted as recorded at `$HOME/.claude`. Config dir; Migration. Task 1.5d.
+
+Sixth review (orchestrator handoff of 2026-11-02).
+
+- **R8** (the `pwd -P` form in the `config` record reached uninstall's `config dir:` line and the stop message, so 1.5b and 1.5c failed on macOS): taken as the review's option (a). The record holds `<cfg>` as printed; both sides are normalised only when compared, and an equal later spelling keeps the record unchanged. Config dir, Comparing config dirs; Ownership manifest table. Tasks 1.5b, 1.5c, 2.3.
