@@ -14,6 +14,7 @@
   "reviewChecks": [{ "do": "Open each changed screen on the ticket's stack and check it renders", "when": "\\.tsx$" }],
   "envFiles": [".env"],
   "linkPaths": [],
+  "claude": { "disabledMcpServers": ["playwright"] },
   "envCommand": "",
   "ports": ["web", "db"],
   "portScheme": { "base": 3000, "slots": 100, "step": 10 },

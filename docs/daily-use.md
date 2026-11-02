@@ -43,7 +43,7 @@ Open Claude Code in the project's main checkout, in a herdr tab labelled `orches
 orca-lc worktree up ABC-12 --stack
 ```
 
-That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
+That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing. MCP servers listed under `claude.disabledMcpServers` stay off in the worktree; a session opened there by hand can turn one back on with `/mcp`.
 
 The orchestrator never explores, writes specs or code, or reviews. It routes.
 
