@@ -6,17 +6,17 @@ Work top to bottom. Check a box only once its test passes, or for a task with no
 
 ## 0. Base
 
-- [ ] 0.1 `git fetch origin`, then check the one row in design.md, Test harness:
+- [x] 0.1 `git fetch origin`, then check the one row in design.md, Test harness:
   - `git merge-base --is-ancestor` succeeds against `origin/main` for `b387a59` (#46), `d863e74` (#57) and `233f913` (#86), and `tests/run.sh` and `tests/install-config-dir.sh` exist on `origin/main`: base `origin/main`, PR targets `main`.
   - Anything else: notify the orchestrator and stop.
-- [ ] 0.2 Confirm `orca-16/work` contains `origin/main` as 0.1 fetched it. If it does not, notify the orchestrator and stop: rebasing is the orchestrator's or propose's call, not apply's. #57's `pairs`/`todo`/`kept` loop and `link()` are replaced in task 2.3, keeping #46's, #57's and #86's behaviour (design.md, Relationship with #42; Config dir).
-- [ ] 0.3 Confirm `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh` pass on the base before any change.
+- [x] 0.2 Confirm `orca-16/work` contains `origin/main` as 0.1 fetched it. If it does not, notify the orchestrator and stop: rebasing is the orchestrator's or propose's call, not apply's. #57's `pairs`/`todo`/`kept` loop and `link()` are replaced in task 2.3, keeping #46's, #57's and #86's behaviour (design.md, Relationship with #42; Config dir).
+- [x] 0.3 Confirm `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh` pass on the base before any change.
 
 ## 1. Tests first (test-lock on)
 
 Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #16"). Write `tests/install.test.sh` using the helpers from `tests/lib.sh`. Every test runs in its own sandbox and cleans up with `trap`.
 
-- [ ] 1.1 Sandbox helper `sandbox [mode]` (design.md, Test isolation):
+- [x] 1.1 Sandbox helper `sandbox [mode]` (design.md, Test isolation):
   - `d=$(mktemp -d)` (under `lib.sh`'s `TMPDIR`), `HOME=$d/home`, `unset XDG_STATE_HOME CLAUDE_CONFIG_DIR`, `PATH=$d/bin` only.
   - Wrapper scripts (not symlinks) for the external commands listed in install.sh's header comment, plus real `jq`.
   - A wrapper for real `git` (install.sh reads history through `shipped`).
@@ -27,94 +27,94 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
   - `mode=link` first probes real symlink support (`ln -s` in a `mktemp -d`, then `[ -L ]`). Without it, the case prints `SKIP link mode: no symlinks`, returns without asserting, and is not counted as passed. Below, "both modes" means copy mode always and link mode when available.
   - `git clone -q` the checkout into `$d/src`, then copy the working tree's install.sh, bin/, hooks/, skills/ and agents/ over it, so tests run the code under test, `shipped` sees real history, and tests never write to the real checkout.
   - Every install run reads stdin from `/dev/null` unless the test drives prompts.
-- [ ] 1.1b Table helpers (design.md, Test isolation):
+- [x] 1.1b Table helpers (design.md, Test isolation):
   - `table_rows`: reads the block between `# BEGIN recommended-tools` and `# END recommended-tools` in `$d/src/install.sh` and prints, per row, the name, the enables text and the command for the platform `ORCA_TEST_UNAME` pins (`-` for none). It calls `fail` when either marker is missing, when the END marker comes before the BEGIN marker, or when the block holds no rows, so a test that reads the table can never pass on an empty one.
   - `use_fixture_table`: replaces that block in `$d/src/install.sh` with three rows: `fix-a` and `fix-b` with an `npm` command on every platform, `fix-c` link-only, each with a presence check that fails in the sandbox. The fixture always has two command rows, so no test needs a fewer-than-two SKIP.
-- [ ] 1.2 Helper `snapshot <dir>`: a sorted listing of every path under `<dir>` (tests snapshot `$HOME`, and `$d/cfg` too when they set `CLAUDE_CONFIG_DIR`), with type, link target and sha256 of content, plus each file's mode when the link-mode probe succeeded (design.md, Test isolation). Two snapshots compare with `assert_eq`.
-- [ ] 1.3 Guard: each test asserts that `$HOME`, and `$CLAUDE_CONFIG_DIR` when set, start with `$d/`, and that no run exits 127.
-- [ ] 1.4 **AC: twice is a no-op.** Run in both modes:
+- [x] 1.2 Helper `snapshot <dir>`: a sorted listing of every path under `<dir>` (tests snapshot `$HOME`, and `$d/cfg` too when they set `CLAUDE_CONFIG_DIR`), with type, link target and sha256 of content, plus each file's mode when the link-mode probe succeeded (design.md, Test isolation). Two snapshots compare with `assert_eq`.
+- [x] 1.3 Guard: each test asserts that `$HOME`, and `$CLAUDE_CONFIG_DIR` when set, start with `$d/`, and that no run exits 127.
+- [x] 1.4 **AC: twice is a no-op.** Run in both modes:
   - install with `--no-optional`, snapshot
   - install again, snapshot
   - snapshots are equal (manifest and settings.json included), and the second run exits 0
-- [ ] 1.5 **AC: settings byte-identical, other hooks kept.** Run in both modes:
+- [x] 1.5 **AC: settings byte-identical, other hooks kept.** Run in both modes:
   - Seed `settings.json` with non-default formatting and a foreign SessionStart hook plus another PreToolUse hook. Save its bytes.
   - Install, then assert all of the following:
     - all four Orca hooks are present
     - the foreign hooks are still present
   - Uninstall, then `cmp` the file against the saved bytes.
-- [ ] 1.5b **Config dir round** (design.md, Config dir). Both modes, `CLAUDE_CONFIG_DIR=$d/cfg`:
+- [x] 1.5b **Config dir round** (design.md, Config dir). Both modes, `CLAUDE_CONFIG_DIR=$d/cfg`:
   - Seed `$d/cfg/settings.json` with a foreign hook, save its bytes, snapshot `$HOME` and `$d/cfg`.
   - Install: the first output line is `config dir: $d/cfg`; the hooks, skills, agents and settings.json are under `$d/cfg`; `$HOME/.claude` does not exist; `orca-lc` is at `$HOME/.local/bin/orca-lc`; the manifest has a `config` record naming `$d/cfg`; settings.json holds #86's four commands.
   - Install again: both snapshots equal the ones after the first install.
   - Uninstall: `cmp` settings.json against the saved bytes, and both snapshots equal the pre-install ones.
-- [ ] 1.5c **Another config dir.** Both modes. Install with `CLAUDE_CONFIG_DIR=$d/cfg`, snapshot `$HOME` and `$d/cfg`, then:
+- [x] 1.5c **Another config dir.** Both modes. Install with `CLAUDE_CONFIG_DIR=$d/cfg`, snapshot `$HOME` and `$d/cfg`, then:
   - install with `CLAUDE_CONFIG_DIR` unset: exit 1, stderr names `$d/cfg` and `$HOME/.claude` and says `nothing changed`, both snapshots unchanged, `$HOME/.claude` does not exist
   - the same with `--force`: the same results
   - save the manifest's bytes; install with `CLAUDE_CONFIG_DIR="$d/cfg/"`, then with `CLAUDE_CONFIG_DIR="$d/cfg/../cfg"`: each exits 0, its first output line is `config dir: ` followed by that run's own spelling, `cmp` the manifest against the saved bytes, no output line after the first names a path with `$d/cfg//` or `$d/cfg/../`, and both snapshots are unchanged (the same dir, normalised; targets and records reuse the recorded spelling; design.md, Config dir)
   - uninstall with `CLAUDE_CONFIG_DIR` unset: the first output line is `config dir: $d/cfg`, the run exits 0, and both snapshots equal the pre-install ones
-- [ ] 1.5d **Legacy install, new config dir** (design.md, Config dir; Migration). Both modes. Pre-create the old layout in `$HOME/.claude` with no manifest, as in 1.14, with Orca's hooks in its settings.json. Snapshot `$HOME`, then:
+- [x] 1.5d **Legacy install, new config dir** (design.md, Config dir; Migration). Both modes. Pre-create the old layout in `$HOME/.claude` with no manifest, as in 1.14, with Orca's hooks in its settings.json. Snapshot `$HOME`, then:
   - install with `CLAUDE_CONFIG_DIR=$d/cfg`: exit 1, stderr names `$HOME/.claude` and says to run `--uninstall` with `CLAUDE_CONFIG_DIR` unset, and says `nothing changed`; the snapshot is unchanged and `$d/cfg` does not exist
   - uninstall with `CLAUDE_CONFIG_DIR` unset: no Orca target and no hook of Orca's is left in `$HOME/.claude`
   - install with `CLAUDE_CONFIG_DIR=$d/cfg`: exit 0
   - with no Orca install in `$HOME/.claude` (a fresh `$HOME`), install with `CLAUDE_CONFIG_DIR=$d/cfg` exits 0 at once
-- [ ] 1.6 settings.json absent before install: after install then uninstall, it is absent again.
-- [ ] 1.7 settings.json edited between install and uninstall (add a key):
+- [x] 1.6 settings.json absent before install: after install then uninstall, it is absent again.
+- [x] 1.7 settings.json edited between install and uninstall (add a key):
   - uninstall removes only Orca's hooks: no hook the matcher accepts is left
   - the added key and the foreign hooks remain
   - the output says the file was rewritten
-- [ ] 1.7b settings.json edited between two installs (design.md, settings.json, install step 4). Both modes:
+- [x] 1.7b settings.json edited between two installs (design.md, settings.json, install step 4). Both modes:
   - Seed settings.json with a foreign hook. Install.
   - Add a key, and delete one of Orca's four hooks. Install again: it re-adds that hook and prints that uninstall will remove Orca's hooks only. The manifest has no `settings-orig` record, and `settings.json.orig` is gone.
   - Simulate a pull that grows Orca's hook set, the path N1 broke: remove all four of Orca's hooks from settings.json, then, in the sandbox manifest only, set the `settings-post` record to the new file's hash. The file now matches `settings-post` (no drop fires) and holds no hook of Orca's, so only the "a `settings-post` record exists" half of the pristine check stops the save. Install a third time: it re-adds all four hooks, prints no "was edited" line, the manifest still has no `settings-orig` record, and `settings.json.orig` does not exist.
   - Uninstall: the added key and the foreign hook remain, and no hook of Orca's is left.
   - The other half of the pristine check (Orca's hooks present, no `settings-post` record) is 1.7c and 1.7d.
-- [ ] 1.7c Legacy variant (design.md, Migration, settings.json). Both modes:
+- [x] 1.7c Legacy variant (design.md, Migration, settings.json). Both modes:
   - Seed settings.json with a foreign hook and all four of Orca's hooks, and no manifest (the old layout, as in 1.14). Delete one of Orca's hooks.
   - Install: the hook is re-added, and the manifest has no `settings-orig` record.
   - Uninstall: the foreign hook remains, and no hook of Orca's is left.
-- [ ] 1.7d Pre-#86 variant (design.md, Migration, settings.json; review R6). Both modes, no manifest:
+- [x] 1.7d Pre-#86 variant (design.md, Migration, settings.json; review R6). Both modes, no manifest:
   - Seed settings.json with a foreign hook and Orca's hooks as installs before #86 wrote them: `bash "$HOME/.claude/hooks/orca/<x>.sh"` for `pretool`, `session-start` and `stop`, a Windows-path command (`bash "C:\Users\x\.claude\hooks\orca\post-read.sh"`) for `post-read`, and a duplicate `stop` entry in a second group. Add `stop.sh.disabled` as a foreign hook.
   - Install: exit 0; each event holds exactly one hook of Orca's, carrying #86's command; the manifest has no `settings-orig` record, and `settings.json.orig` does not exist.
   - Uninstall: no hook of Orca's is left, the foreign hook and `stop.sh.disabled` remain, and no hook points at a script uninstall removed.
-- [ ] 1.8 **AC: missing required tool.** For each of `claude git jq gh herdr`, remove its stub or wrapper, then:
+- [x] 1.8 **AC: missing required tool.** For each of `claude git jq gh herdr`, remove its stub or wrapper, then:
   - exit status is 1
   - stderr names the tool
   - the `$HOME` snapshot is unchanged from before the run
-- [ ] 1.9 Two missing tools are both named in one run.
-- [ ] 1.10 **AC: optional installs nothing.** Run each of these with every recommended tool missing and launchers stubbed:
+- [x] 1.9 Two missing tools are both named in one run.
+- [x] 1.10 **AC: optional installs nothing.** Run each of these with every recommended tool missing and launchers stubbed:
   - `--no-optional`
   - `ORCA_INSTALL_PROMPT_STDIN=1` with stdin `n` for every prompt: each prompt is printed, and each declined tool prints its `not installed (<enables>)` line (the `mattpocock-skills` row prints its `using Orca's skill` line instead and is not prompted)
   - stdin `</dev/null`, without the override: no prompt is printed
   - stdin piped from `yes y`, without the override: no prompt is printed (a non-terminal stdin declines even `y`)
   
   For all four, `$d/calls` does not exist, and none of the recommended tools' install targets exist.
-- [ ] 1.10b **Mixed answers.** `use_fixture_table`, `ORCA_TEST_UNAME=Linux`, `ORCA_INSTALL_PROMPT_STDIN=1`, `npm` stub present. Answer `y` to the `fix-a` prompt and `n` to the `fix-b` prompt:
+- [x] 1.10b **Mixed answers.** `use_fixture_table`, `ORCA_TEST_UNAME=Linux`, `ORCA_INSTALL_PROMPT_STDIN=1`, `npm` stub present. Answer `y` to the `fix-a` prompt and `n` to the `fix-b` prompt:
   - `$d/calls` holds exactly one line, `fix-a`'s command
   - stdout holds both prompts, each with its tool's `enables` text
   - `fix-b` prints its `not installed (<enables>); see <link>` line, and `fix-c` (link-only) prints its link with its `enables` text and no prompt
   - the exit status is 0
-- [ ] 1.11 `--yes`, for each of `ORCA_TEST_UNAME=Linux`, `Darwin` and `MINGW64_NT-10.0`:
+- [x] 1.11 `--yes`, for each of `ORCA_TEST_UNAME=Linux`, `Darwin` and `MINGW64_NT-10.0`:
   - Real table: with every launcher stub present, `$d/calls` holds exactly the commands `table_rows` lists for that platform, in table order, except the `mattpocock-skills` row (Orca's grilling is in place, so it is not offered; 1.11b), and nothing for a `-` row. `curl` never appears in `$d/calls`.
   - `use_fixture_table`, `npm` stub removed: nothing is called, and each of `fix-a`, `fix-b` and `fix-c` prints its link with its `enables` text.
-- [ ] 1.11b **Grilling fallback** (design.md, Grilling fallback). Real table, `ORCA_TEST_UNAME=Linux`, both modes. When 2.7 left the row link-only, the cases that expect a `claude plugin install` line expect its link line instead.
+- [x] 1.11b **Grilling fallback** (design.md, Grilling fallback). Real table, `ORCA_TEST_UNAME=Linux`, both modes. When 2.7 left the row link-only, the cases that expect a `claude plugin install` line expect its link line instead.
   - Default install with `--yes`: Orca's grilling is in place at `<cfg>/skills/grilling`; `$d/calls` has no `claude plugin install` line; stdout has `grilling: using Orca's skill; fallback not installed (./install.sh --grilling-fallback to offer it)`; the present summary does not name `mattpocock-skills`.
   - `--yes --grilling-fallback`: `$d/calls` has the row's `claude plugin install` line.
   - `--grilling-fallback` with `ORCA_INSTALL_PROMPT_STDIN=1` and stdin `n` for every prompt: the row's prompt is printed with its `enables` text, and nothing is called.
   - A third-party `<cfg>/skills/grilling` directory before install, then `--yes`: the directory is kept (#57's `kept` line), and `$d/calls` has the row's `claude plugin install` line.
   - `ORCA_TEST_PLUGINS` set to a `claude plugin list` output naming the plugin (in the form 2.7 confirms), `--yes --grilling-fallback`: nothing is called for the row, and the present summary names `mattpocock-skills`.
   - The same with `ORCA_TEST_PLUGIN_LIST_STATUS=1`: the plugin reads as absent, so `$d/calls` has the row's `claude plugin install` line, and stdout has no line about `claude plugin list`.
-- [ ] 1.12 **AC: existing file at a link target** (design.md, Classifying a target; #57's keep rule). Run in both modes with a regular file at `<cfg>/agents/orca-verifier.md`, then at `~/.local/bin/orca-lc`, then a directory holding a file Orca never shipped at `<cfg>/skills/orca`. For each:
+- [x] 1.12 **AC: existing file at a link target** (design.md, Classifying a target; #57's keep rule). Run in both modes with a regular file at `<cfg>/agents/orca-verifier.md`, then at `~/.local/bin/orca-lc`, then a directory holding a file Orca never shipped at `<cfg>/skills/orca`. For each:
   - exit status is 0
   - stderr has #57's line, `install.sh: kept <target>, which Orca did not install; ...`
   - the file is unchanged (`cmp`)
   - every other target is installed, and the manifest has no `link` or `copy` record for the kept one
-- [ ] 1.13 Same setup with `--force`: the same four results, and no `.orca-bak-*` path exists anywhere under `$HOME`.
-- [ ] 1.14 Legacy adoption, both modes:
+- [x] 1.13 Same setup with `--force`: the same four results, and no `.orca-bak-*` path exists anywhere under `$HOME`.
+- [x] 1.14 Legacy adoption, both modes:
   - Pre-create the old layout without a manifest: symlinks in link mode, identical copies in copy mode.
   - Install: nothing on disk changes except that the manifest appears.
   - Uninstall removes the adopted targets.
   - Stale copy, copy mode: pre-create `<cfg>/skills/orca/SKILL.md` from an older commit of that path (`git -C $d/src show <commit>:skills/orca/SKILL.md`, a commit where it differs from the working tree), no manifest. Install: the copy now equals the source, the run exits 0 and prints no `kept` line.
-- [ ] 1.15 Another checkout (#42), both modes:
+- [x] 1.15 Another checkout (#42), both modes:
   - Seed settings.json with a foreign hook, save its bytes, and snapshot `$HOME`.
   - Install from `$d/src`, then from a second copy `$d/src2`.
   - The second run exits 1, names the other checkout, and changes nothing.
@@ -124,33 +124,33 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
   - Records carried by the switch (review R7). Start with settings.json absent (`settings-created`, `hooks-key`), install from `$d/src` in copy mode, and edit a file in the installed `<cfg>/skills/orca`, then install again (an `edited` record). Then `--force` from `$d/src2`: the manifest has the `config`, `hooks-key` and `settings-created` records, and an `edited` record for `<cfg>/skills/orca` with its source under `$d/src2`; stderr has the `edited since install` line for it. Edit settings.json (add a key) so uninstall takes the jq path, then uninstall from `$d/src2`: settings.json has no `hooks` key, and stdout has `left: <cfg>/skills/orca (edited since install)`.
   - Link mode only: a #42-style link into `$d/src` with no manifest, then `--force` from `$d/src2`: the link now points into `$d/src2`, no `.orca-bak-*` path exists, and `$d/src` is untouched.
   - Link mode only, no `--force`: replace `<cfg>/skills/grilling` with a link to a directory outside any Orca checkout (no `bin/orca-lc` above it). Install exits 0, the link is unchanged, stderr has #57's `kept` line for it, and nothing refuses (design.md, Classifying a target).
-- [ ] 1.16 Copy-mode update:
+- [x] 1.16 Copy-mode update:
   - Install, edit a skill file in `$d/src`, install again: the copy is refreshed.
   - Then edit the installed copy and install again: stderr has `install.sh: kept <target>, edited since install; ...`, the copy is left as is, the manifest has an `edited` record and no `copy` record for it, and the run exits 0.
   - Install a third time: the same `edited since install` line (not #57's `which Orca did not install` line), the same `edited` record, exit 0.
   - Uninstall: stdout has `left: <target> (edited since install)`, and the target's parent directory is not listed.
   - Move the copy aside and install: Orca's copy is back, recorded `copy`, and no `edited` record is left.
-- [ ] 1.17a Clean uninstall, both modes, starting from an empty `$HOME`:
+- [x] 1.17a Clean uninstall, both modes, starting from an empty `$HOME`:
   - the run exits 0 and prints no `left:` line
   - `$HOME` matches the pre-install snapshot, with no manifest, no state dir and no directories Orca created
-- [ ] 1.17b Uninstall with a user file, both modes: after install, add a file inside `<cfg>/skills` (a directory Orca created and recorded):
+- [x] 1.17b Uninstall with a user file, both modes: after install, add a file inside `<cfg>/skills` (a directory Orca created and recorded):
   - the file survives byte for byte, and `<cfg>/skills` stays
   - stdout has exactly one `left:` line, `left: <cfg>/skills (not empty: holds files Orca did not create)`
   - the run exits 1
-- [ ] 1.18 Copy mode (design.md, Directories; Ownership manifest, Hash). After install, edit two files inside the installed copy `<cfg>/skills/orca` (one target, one `copy` record), and add one foreign file inside `<cfg>/agents`. Uninstall:
+- [x] 1.18 Copy mode (design.md, Directories; Ownership manifest, Hash). After install, edit two files inside the installed copy `<cfg>/skills/orca` (one target, one `copy` record), and add one foreign file inside `<cfg>/agents`. Uninstall:
   - stdout has exactly two `left:` lines: `left: <cfg>/skills/orca (edited since install)`, and `left: <cfg>/agents (not empty: holds files Orca did not create)`, since `<cfg>/agents` directly holds the foreign file, which no other `left:` line names
   - `<cfg>/skills/orca` stays whole, both edited files byte for byte
   - `<cfg>/skills` stays on disk but is not listed: it holds only a path another `left:` line already names
   - the run exits 1
-- [ ] 1.19 Flags:
+- [x] 1.19 Flags:
   - an unknown flag exits 2 and prints usage on stderr
   - `--yes --no-optional` exits 2
   - `--grilling-fallback --no-optional` exits 2
   - `--uninstall --force` exits 2
   - `--help` exits 0
-- [ ] 1.20 **macOS hash path.** Remove the `sha256sum` wrapper and add a `shasum` wrapper that accepts `-a 256` (it may exec the real `sha256sum` and fail on any other `-a`). Install, snapshot, install again, snapshot: the snapshots are equal, and the second run exits 0.
-- [ ] 1.21 State permissions, when the link-mode probe succeeded (modes are reliable): the state dir is `0700`, and the manifest and `settings.json.orig` are `0600`. A settings.json seeded with mode `0600` is still `0600` after install and after uninstall.
-- [ ] 1.22 Symlinked settings.json, link mode only (design.md, settings.json). Put the real file at `$d/dotfiles/settings.json` with a foreign hook, save its bytes, and make `<cfg>/settings.json` a symlink to it:
+- [x] 1.20 **macOS hash path.** Remove the `sha256sum` wrapper and add a `shasum` wrapper that accepts `-a 256` (it may exec the real `sha256sum` and fail on any other `-a`). Install, snapshot, install again, snapshot: the snapshots are equal, and the second run exits 0.
+- [x] 1.21 State permissions, when the link-mode probe succeeded (modes are reliable): the state dir is `0700`, and the manifest and `settings.json.orig` are `0600`. A settings.json seeded with mode `0600` is still `0600` after install and after uninstall.
+- [x] 1.22 Symlinked settings.json, link mode only (design.md, settings.json). Put the real file at `$d/dotfiles/settings.json` with a foreign hook, save its bytes, and make `<cfg>/settings.json` a symlink to it:
   - install: `<cfg>/settings.json` is still a symlink with the same target, and `$d/dotfiles/settings.json` holds the foreign hook and Orca's four
   - uninstall: the link is still there with the same target, and `cmp` the target against the saved bytes
   - dangling variant: point the link at a missing path; install exits 1, stderr says `settings.json is a dangling symlink`, and the `$HOME` snapshot is unchanged
@@ -161,7 +161,7 @@ Run `orca-lc test-lock on`, and say why in the commit body ("new test file for #
     - the link is still there with the same target, and the target still exists
     - the target holds no hook of Orca's
     - a following install exits 0 (no dangling-link conflict)
-- [ ] 1.23 Run `orca-lc test-lock off`. The new tests fail against the current install.sh; that is expected. Commit.
+- [x] 1.23 Run `orca-lc test-lock off`. The new tests fail against the current install.sh; that is expected. Commit.
 
 ## 2. install.sh
 
