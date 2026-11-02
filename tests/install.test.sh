@@ -595,7 +595,9 @@ t_orphan() { local v=$1 sk T s0
       inst --uninstall
       assert_not_contains "$out" "removed $T" "$v: uninstall removed it"; assert_not_contains "$out" "left: $T" "$v: uninstall listed it"
       assert_eq "$(snapshot "$T")" "$s0" "$v: uninstall changed it";;
-    gone) assert_not_contains "$out$err" "$T," "gone: a line names it"; assert_not_contains "$out$err" "$T " "gone: a line names it";;
+    gone) while IFS= read -r l; do
+            case $l in *"$T"|*"$T"[!A-Za-z0-9_.-]*) fail "gone: a line names it: $l";; esac
+          done <<< "$out"$'\n'"$err";;
   esac; }
 both t_orphan removed; both t_orphan kept; one t_orphan copy edited; both t_orphan gone
 
@@ -657,8 +659,6 @@ one t_fail_installer copy
 
 # 5.8 an unknown platform
 t_unknown_platform() { local name en cmd
-  inst --yes; :  # warm-up with Linux rows is not needed; run under FreeBSD below
-  rm -rf "$HOME" "$d/calls"; mkdir "$HOME"
   export ORCA_TEST_UNAME=FreeBSD
   inst --yes; assert_status "$st" 0 "$err"
   [ ! -e "$d/calls" ] || fail "unknown platform installed: $(cat "$d/calls")"
