@@ -218,7 +218,7 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 
 ## 5. Behaviour apply built beyond the sections (user decision, 2026-11-02)
 
-install.sh already does all of this (design.md, Decisions: Keep what apply built beyond the sections). These tasks add its tests; install.sh changes only if one of them fails, and a failure that means the design is wrong goes to the orchestrator.
+install.sh already does all of this (design.md, Decisions: Keep what apply built beyond the sections), except 5.9, which is new behaviour (design.md, Decisions: Uninstall checks settings.json's JSON first). These tasks add its tests; install.sh changes only if one of them fails, and a failure that means the design is wrong goes to the orchestrator.
 
 - [ ] 5.1 `orca-lc test-lock on`.
 - [ ] 5.2 **Targets Orca no longer ships** (design.md, Targets Orca no longer ships). Both modes. Install, then `rm -r` one shipped skill's directory from `$d/src`'s working tree (no commit, so its files stay in the clone's history for `shipped`; in link mode its target becomes a dangling link):
@@ -232,5 +232,6 @@ install.sh already does all of this (design.md, Decisions: Keep what apply built
 - [ ] 5.6 **Uninstall with a dangling settings.json** (design.md, Uninstall). Link mode only, like 1.22. Install, then replace `<cfg>/settings.json` with a symlink to a missing path, and uninstall: exit 0, stderr has `install.sh: <cfg>/settings.json is a dangling symlink; left it as it is`, no `left:` line names it, the link is still there with the same target, Orca's other targets are gone, and the manifest is gone.
 - [ ] 5.7 **A failing installer** (design.md, Recommended tools). `use_fixture_table`, `ORCA_TEST_UNAME=Linux`, an `npm` stub that records its call and exits 3, `--yes`: stderr has `install.sh: fix-a: 'npm i -g fix-a' failed with exit 3` and the same line for `fix-b`, `$d/calls` holds both commands in table order, stdout still ends with the `recommended tools present:` and `per project:` lines, the manifest exists, and the exit status is 0.
 - [ ] 5.8 **An unknown platform** (design.md, Recommended tools). Real table, `ORCA_TEST_UNAME=FreeBSD`, every launcher stub present, `--yes`: `$d/calls` does not exist, each row of the real table, by the names `table_rows` lists (except `mattpocock-skills`, which prints its `using Orca's skill` line) prints its `not installed (<enables>); see <link>` line, and the exit status is 0.
-- [ ] 5.9 `orca-lc test-lock off`. Run `bash tests/run.sh`; commit the tests.
-- [ ] 5.10 Run `orca-lc gate` and report. Not tested: `cygpath -u` (Git Bash only; design.md, Test isolation).
+- [ ] 5.9 **Uninstall with invalid settings.json** (design.md, Uninstall; a behaviour change, so this test fails until install.sh changes). Both modes. Install, write `{` to `<cfg>/settings.json`, snapshot `$HOME` and save the manifest's bytes, then `--uninstall`: exit 1, stderr has `install.sh: <cfg>/settings.json is not valid JSON:` and `install.sh: nothing changed`, no `removed` line is printed, the snapshot is unchanged and `cmp` the manifest against the saved bytes. Then fix the file to `{}` and uninstall again: exit 0, Orca's targets are gone. In install.sh, move uninstall's settings.json parse check before the target loop.
+- [ ] 5.10 `orca-lc test-lock off`. Run `bash tests/run.sh`; commit the tests.
+- [ ] 5.11 Run `orca-lc gate` and report. Not tested: `cygpath -u` (Git Bash only; design.md, Test isolation).
