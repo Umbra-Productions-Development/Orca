@@ -194,7 +194,7 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 
 ## 3. Docs
 
-- [ ] 3.1 README.md, "Install" section:
+- [x] 3.1 README.md, "Install" section:
   - required vs recommended tools
   - the flags
   - link mode vs copy mode and what each means for updates
@@ -204,10 +204,10 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
   - Keep #86's lines as they are: the config dir (`$CLAUDE_CONFIG_DIR`, else `~/.claude`, printed first), the hook commands that follow the variable, and `CLAUDE_CODE_GIT_BASH_PATH`. Add that one install lives in one config dir, and that moving it is uninstall, then install; an install made before this change is in `~/.claude`, so before setting `CLAUDE_CONFIG_DIR` the user runs `./install.sh --uninstall` with it unset.
   - Replace the "It is idempotent; run it again after pulling" sentence, keeping #86's "one entry per Orca hook" fact, and the #46 sentence.
   - Update any flags or commands table the README has (applyChecks).
-- [ ] 3.2 README.md: an "Update" paragraph (`git pull`, then `./install.sh`) and an "Uninstall" paragraph (`./install.sh --uninstall`, what it keeps, exit 1 when it leaves something).
-- [ ] 3.3 docs/daily-use.md: update the Orca-stable row and the take-a-new-release lines with pull + rerun, the copy-mode note and the uninstall command. Replace the #46 line.
-- [ ] 3.4 Check that #46's lines in `skills/orca/SKILL.md` and `agents/orca-verifier.md` still match the new behaviour; reword only what no longer does.
-- [ ] 3.5 Check that the docs say nothing install.sh does not do. Run `./install.sh --help` and compare. Commit.
+- [x] 3.2 README.md: an "Update" paragraph (`git pull`, then `./install.sh`) and an "Uninstall" paragraph (`./install.sh --uninstall`, what it keeps, exit 1 when it leaves something).
+- [x] 3.3 docs/daily-use.md: update the Orca-stable row and the take-a-new-release lines with pull + rerun, the copy-mode note and the uninstall command. Replace the #46 line.
+- [x] 3.4 Check that #46's lines in `skills/orca/SKILL.md` and `agents/orca-verifier.md` still match the new behaviour; reword only what no longer does.
+- [x] 3.5 Check that the docs say nothing install.sh does not do. Run `./install.sh --help` and compare. Commit.
 
 ## 4. Gate
 
