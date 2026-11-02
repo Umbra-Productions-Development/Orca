@@ -416,7 +416,7 @@ t_checkout() {
   seed_settings "$C/settings.json"; cp "$C/settings.json" "$d/saved"; h0=$(snapshot "$HOME"); mk_src2
   inst; assert_status "$st" 0 "$err"; a=$(snapshot "$HOME")
   SRC=$d/src2 inst; assert_status "$st" 1 "second checkout without --force"
-  assert_contains "$err" "$d/src"; assert_eq "$(snapshot "$HOME")" "$a" "refusal changed \$HOME"
+  assert_contains "$err" "checkout at $d/src, not this one"; assert_eq "$(snapshot "$HOME")" "$a" "refusal changed \$HOME"
   SRC=$d/src2 inst --force; assert_status "$st" 0 "--force: $err"
   if [ "$mode" = link ]; then
     for t in $(SRC=$d/src2 targets "$C"); do case $(readlink "$t") in "$d/src2/"*) ;; *) fail "$t does not point into src2";; esac; done
