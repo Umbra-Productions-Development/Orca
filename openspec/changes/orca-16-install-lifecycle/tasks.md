@@ -215,3 +215,22 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 - [x] 4.2 Run `orca-lc gate` and make it pass. Say in the report which of its checks were skipped on this machine (shellcheck, gitleaks) and why.
 - [x] 4.3 Run `orca-lc evidence`, dispatch `orca-verifier`, and report to the orchestrator.
 - [x] 4.4 Leave the Linux and WSL2 acceptance boxes in proposal.md unchecked; the user verifies them by hand, including `bash tests/run.sh` there, which is where link mode is proven. Name them in the report as not yet verified.
+
+## 5. Behaviour apply built beyond the sections (user decision, 2026-11-02)
+
+install.sh already does all of this (design.md, Decisions: Keep what apply built beyond the sections). These tasks add its tests; install.sh changes only if one of them fails, and a failure that means the design is wrong goes to the orchestrator.
+
+- [ ] 5.1 `orca-lc test-lock on`.
+- [ ] 5.2 **Targets Orca no longer ships** (design.md, Targets Orca no longer ships). Both modes. Install, then `rm -r` one shipped skill's directory from `$d/src`'s working tree (no commit, so its files stay in the clone's history for `shipped`; in link mode its target becomes a dangling link):
+  - rerun install: exit 0, stdout has `removed <cfg>/skills/<skill>, no longer shipped`, the target is gone, and the manifest has no record naming it
+  - kept variant: before the rerun, replace the target with a directory holding a file Orca never shipped; the rerun exits 0, stderr has `install.sh: kept <cfg>/skills/<skill>, which Orca no longer ships and did not install as it is now`, the target is unchanged, and the manifest has no record naming it; a following uninstall neither removes it nor prints a `left:` line for it
+  - copy mode, edited variant: edit a file inside the copy before the rerun; same results as the kept variant
+  - gone variant: delete the target before the rerun; exit 0, no line names it, and the manifest has no record naming it
+- [ ] 5.3 `-h` exits 0 and prints exactly what `--help` prints, on stdout.
+- [ ] 5.4 **Uninstall tools** (design.md, Required tools). After an install, remove the `claude`, `gh` and `herdr` stubs: `--uninstall` exits 0 and removes Orca's targets. Then reinstall, remove the `jq` wrapper, and run `--uninstall`: exit 1, stderr names `missing required tool: jq`, and the `$HOME` snapshot is unchanged. Same for `git`.
+- [ ] 5.5 **Invalid settings.json** (design.md, settings.json). Both modes. Write `{` to `<cfg>/settings.json`, snapshot `$HOME`, install: exit 1, stderr has `install.sh: <cfg>/settings.json is not valid JSON:` and `install.sh: nothing changed`, and the snapshot is unchanged. Repeat after a clean install (a manifest exists): same results.
+- [ ] 5.6 **Uninstall with a dangling settings.json** (design.md, Uninstall). Link mode only, like 1.22. Install, then replace `<cfg>/settings.json` with a symlink to a missing path, and uninstall: exit 0, stderr has `install.sh: <cfg>/settings.json is a dangling symlink; left it as it is`, no `left:` line names it, the link is still there with the same target, Orca's other targets are gone, and the manifest is gone.
+- [ ] 5.7 **A failing installer** (design.md, Recommended tools). `use_fixture_table`, `ORCA_TEST_UNAME=Linux`, an `npm` stub that records its call and exits 3, `--yes`: stderr has `install.sh: fix-a: 'npm i -g fix-a' failed with exit 3` and the same line for `fix-b`, `$d/calls` holds both commands in table order, stdout still ends with the `recommended tools present:` and `per project:` lines, the manifest exists, and the exit status is 0.
+- [ ] 5.8 **An unknown platform** (design.md, Recommended tools). Real table, `ORCA_TEST_UNAME=FreeBSD`, every launcher stub present, `--yes`: `$d/calls` does not exist, each row of the real table, by the names `table_rows` lists (except `mattpocock-skills`, which prints its `using Orca's skill` line) prints its `not installed (<enables>); see <link>` line, and the exit status is 0.
+- [ ] 5.9 `orca-lc test-lock off`. Run `bash tests/run.sh`; commit the tests.
+- [ ] 5.10 Run `orca-lc gate` and report. Not tested: `cygpath -u` (Git Bash only; design.md, Test isolation).
