@@ -40,7 +40,9 @@ case "$1 $2" in
 esac
 EOF
 chmod +x "$tmp/bin/herdr"
-export PATH="$tmp/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=orch ORCA_MEMINFO="$H/meminfo"
+# The orchestrator has a session id, as a real one does, so its rerun may replace the live handoff it wrote (#48).
+export PATH="$tmp/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=orch CLAUDE_SESSION_ID=orch-sid ORCA_MEMINFO="$H/meminfo"
+(cd "$main" && ORCA_PS_STOP=$$ "$lc" name --set >/dev/null 2>&1); : >"$H/log"
 
 fail=0
 run() { (cd "$main" && "$lc" "$@" <<<"do the job" >"$H/out" 2>&1); }
