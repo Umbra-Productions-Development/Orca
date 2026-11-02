@@ -44,7 +44,6 @@ Ticket: GitHub issue #16. Related: #42 (PR #46, relink guard), PR #49 (test harn
 - [ ] `--no-optional`, and declining every prompt, install nothing.
 - [ ] An existing file at a link target is reported, not removed (kept, exit 0, per #57).
 - [ ] Verified on Linux (manual, by the user, including `bash tests/run.sh`, which proves link mode).
-- [ ] Verified on WSL2 (manual, by the user, including `bash tests/run.sh`).
 
 ## Impact
 
