@@ -12,7 +12,7 @@ The script runs in three phases. Nothing is written before phase 3. Before phase
    - Check the required tools.
    - Detect link mode or copy mode.
    - Classify every target, and plan the settings.json change.
-   - Stop when any required tool is missing, when a target belongs to another Orca checkout and `--force` is not set, when the manifest records another config dir (Config dir), when settings.json is a dangling symlink, or when settings.json is not valid JSON (`install.sh: <cfg>/settings.json is not valid JSON: <jq's error>`, settings.json, below): print every problem, print `nothing changed`, exit 1.
+   - Stop when any required tool is missing, when a target belongs to another Orca checkout and `--force` is not set, when the manifest records another config dir (Config dir), when settings.json is a dangling symlink, or when settings.json is not valid JSON or not a Claude settings object (two messages, settings.json, below): print every problem, print `nothing changed`, exit 1.
    - A kept target (one Orca did not install) never stops the install.
 3. **Apply.**
    - Create or refresh the targets Orca owns, and write the manifest.
@@ -22,7 +22,7 @@ The script runs in three phases. Nothing is written before phase 3. Before phase
 
 Exit codes:
 - 0: success, including a second run that changes nothing, and a run that kept targets Orca did not install (#57).
-- 1: missing required tool, another Orca checkout without `--force`, another config dir than the recorded one, a dangling settings.json symlink, a settings.json that is not valid JSON, or an uninstall that left something in place.
+- 1: missing required tool, another Orca checkout without `--force`, another config dir than the recorded one, a dangling settings.json symlink, a settings.json that is not valid JSON or not a Claude settings object, or an uninstall that left something in place.
 - 2: usage error.
 
 Every message that reports a problem goes to stderr and names the path or tool it is about.
@@ -49,11 +49,11 @@ The `config` record keeps one install in one config dir:
 The required tools are `claude git jq gh herdr`. Each is checked with `command -v`. Every missing one is listed on its own line:
 
 ```
-install.sh: missing required tool: herdr (https://...)
+install.sh: missing required tool: herdr (https://herdr.dev/tui)
 ```
 
 Then the script exits 1 and changes nothing.
-- The URL for each tool comes from a table in the script.
+- The URL for each tool comes from a table in the script. herdr's is `https://herdr.dev/tui`, the terminal app Orca drives; `https://herdr.dev` is Herdr's desktop app, a different program that does not share agents with it (code review R11). README's required-tools line links the same URLs.
 - jq is checked before anything uses it.
 - `--uninstall` checks only `git` and `jq`: jq for settings.json, git for `shipped`. Removing Orca needs neither `claude`, `gh` nor `herdr`, so a user who removed one of them can still uninstall.
 
@@ -69,6 +69,10 @@ There is one table row per tool. Each row has:
 The table sits in install.sh as one block between the marker lines `# BEGIN recommended-tools` and `# END recommended-tools`, one tab-separated row per line: name, enables, presence check, link, then the Linux, Darwin and windows-gitbash commands (`-` for none). Tests read this block to know which commands to expect, and replace it in their sandbox copy of install.sh to drive the prompt path with a fixed fixture (Test isolation). No environment variable overrides the table.
 
 Install commands are package-manager commands only (`npm`, `brew`, `go install`, `pipx`, `uv tool`, and `claude plugin install`). A tool whose only installer is a downloaded script (`curl ... | sh`) stays link-only, because the script would run code the table cannot show.
+
+The rows, in this order (proposal, Recommended):
+- `codegraph`, `codebase-memory-mcp`, `direnv` (link-only) and `mattpocock-skills` (Grilling fallback), as apply verified them.
+- **`openspec`** (code review R10): enables `openspec CLI for the propose role's change proposals`, presence `cmd:openspec`, link `https://github.com/Fission-AI/OpenSpec`, and `npm install -g @fission-ai/openspec@latest` on Linux, Darwin and windows-gitbash. That is the npm command in OpenSpec's README (package `@fission-ai/openspec`, Node 22.12 or later). The README's other installers are `curl | sh` and PowerShell `irm | iex` scripts, which the package-manager rule excludes, and `brew install openspec`; npm is used on every platform, like the other npm rows, so one launcher covers all three. The row sits after `direnv`, before `mattpocock-skills`. README's recommended list names it.
 
 The platform comes from `uname -s`:
 - `Linux`
@@ -217,11 +221,14 @@ README's Update paragraph says this in one line: ones no longer shipped are remo
 - Uninstall removes a recorded `dir` only if it is empty, deepest first.
 - The config dir itself is recorded too if Orca created it.
 - A recorded `dir` kept because it still holds files Orca did not create counts as **left**: it gets its own `left: <dir> (not empty: holds files Orca did not create)` line and makes uninstall exit 1, like any other path left in place (Uninstall, below).
+- A dangling settings.json link counts as reported by its own stderr line (Uninstall): its directory, usually `<cfg>`, stays and gets no `not empty` line, and uninstall still exits 0 when nothing else is left.
 - A recorded `dir` is listed only when it directly holds something that is not itself a `left:` path or a kept recorded directory. A directory kept only because it contains paths already listed (an edited copy, a foreign file where Orca's target was expected, or a deeper kept directory) is not listed: the paths inside it already explain why it stays, and listing it too would name one reason twice. Uninstall still exits 1 because of those inner lines.
 
 ## settings.json
 
-A settings.json (or its link's target) that jq cannot parse stops the preflight: `install.sh: <cfg>/settings.json is not valid JSON: <jq's error>`, then `nothing changed`, exit 1 (Shape). The file is never rewritten or replaced to fix it.
+settings.json (or its link's target) is checked in two steps, and either failure stops the preflight with `nothing changed`, exit 1 (Shape). The file is never rewritten or replaced to fix it.
+1. `jq empty` cannot parse it: `install.sh: <cfg>/settings.json is not valid JSON: <jq's error>`.
+2. It parses, but Orca's filters (scan and ensure) fail on it, e.g. `{"hooks": []}` or a top-level array: `install.sh: <cfg>/settings.json is valid JSON but not a Claude settings object: <jq's error>` (code review S18). The shape is whatever those filters accept; no separate schema is written down.
 
 Orca's four hook entries are #86's, unchanged:
 - the same events and matchers, timeout 15
@@ -266,9 +273,9 @@ The byte-identical acceptance test is the first path. The second path keeps othe
   - Orca's hooks, as above
   - then the manifest, the saved settings bytes, and the state dir if it is empty
 - Leaves the checkout, the dependencies and per-project `.orca/` untouched.
-- A settings.json that is a dangling symlink is left as it is, with `install.sh: <cfg>/settings.json is a dangling symlink; left it as it is` on stderr. It is not a `left:` line and does not change the exit code: no file holds Orca's hooks there. The manifest and the saved bytes are still removed; if the link's target comes back, a rerun of `--uninstall` takes the no-manifest path and removes Orca's hooks through the matcher.
+- A settings.json that is a dangling symlink is left as it is, with `install.sh: <cfg>/settings.json is a dangling symlink; left it as it is` on stderr. It is not a `left:` line and does not change the exit code: no file holds Orca's hooks there. That stderr line is the report for its directory too: the link keeps `<cfg>` from being removed, and `<cfg>` gets no `not empty` line (Directories) (code review S17). The manifest and the saved bytes are still removed; if the link's target comes back, a rerun of `--uninstall` takes the no-manifest path and removes Orca's hooks through the matcher.
 - Needs only `git` and `jq` (Required tools).
-- Checks settings.json before it removes anything, as install's preflight does: when settings.json (or its link's target) exists and jq cannot parse it, uninstall prints `install.sh: <cfg>/settings.json is not valid JSON: <jq's error>`, then `install.sh: nothing changed`, and exits 1, with no target, record or saved byte touched. A dangling settings.json link is not parsed and takes the note above.
+- Checks settings.json before it removes anything, as install's preflight does: when settings.json (or its link's target) exists and fails either step of settings.json's check, uninstall prints that step's message (`not valid JSON`, or `valid JSON but not a Claude settings object`; the scan filter is the one uninstall runs), then `install.sh: nothing changed`, and exits 1, with no target, record or saved byte touched. A dangling settings.json link is not parsed and takes the note above.
 - Lists every path it left in place and why, one `left: <path> (<reason>)` line each. The reasons are `edited since install`, `not created by Orca` (a foreign file where the manifest expected Orca's) and `not empty: holds files Orca did not create` (a kept recorded directory that directly holds something no other `left:` line names, Directories above). Exits 1 if it left anything, 0 otherwise. A settings.json that took the jq path is not "left": Orca's part of it was removed.
 
 ## Update
@@ -363,6 +370,7 @@ Each test builds a sandbox with `d=$(mktemp -d)`:
 - **Legacy install under a new config dir stops (2026-11-02).** With no manifest, an Orca install in `$HOME/.claude` counts as recorded there, so installing under another config dir stops until it is uninstalled — propose, following the user's one-config-dir decision (fifth review S16).
 - **Keep what apply built beyond the sections (2026-11-02).** Targets Orca no longer ships, the `-h` alias, uninstall needing only `git` and `jq`, the invalid-JSON stop, uninstall's dangling settings.json note, the failed-installer line and the unknown-platform rule stay as install.sh does them, are described here and get tests (tasks 5.x) — user (via orchestrator).
 - **Uninstall checks settings.json's JSON first (2026-11-02).** An unparsable settings.json stops uninstall before anything is removed, with install's message, `nothing changed` and exit 1 (Uninstall), instead of aborting mid-run with jq's status — orchestrator, matching install's rule, on propose's report.
+- **Fix the code review's R10, R11, S17 and S18 in this change (2026-11-02).** The `openspec` row, herdr's `/tui` URL, the dangling-link dir rule written down, and a separate wrong-shape message; tasks 6.x — user (via orchestrator).
 - **Edited copies stay recorded (2026-11-02).** A kept edited copy gets an `edited` record, so later installs and uninstall name it the same way — propose, from the fourth review (S13).
 - A recorded copy the user edited is kept like any target Orca did not install, with its own `edited since install` line, and does not change the exit code — propose, following the keep-rule decision (#57's Risks already call a hand-edited Orca copy kept "intended").
 - `--uninstall` takes no other flag, `--force` included: with no backups, `--force` has nothing left to do on uninstall — propose, following the keep-rule decision.
@@ -440,3 +448,11 @@ Seventh review (orchestrator handoff of 2026-11-02).
 Amendment after apply (orchestrator handoff of 2026-11-02).
 
 - Apply built behaviour no section named. The user kept all of it (Decisions). Described in: Shape (`-h`, the invalid-JSON stop, exit 1), Required tools (uninstall's `git jq`), Recommended tools (unknown platform, the failed-installer line), Targets Orca no longer ships (new), settings.json (invalid JSON), Uninstall (dangling settings.json, tools), Update, Test isolation (`cygpath` untested). Tests: tasks 5.1 to 5.11. Uninstall's invalid-JSON check is a behaviour change (Decisions), tested by 5.9.
+
+Code review (orchestrator handoffs of 2026-11-02, pieces 1 to 3).
+
+- **R10** (proposal lists `openspec` as recommended; the table had no row): Recommended tools, the `openspec` row from OpenSpec's README; tasks 6.2, 6.6.
+- **R11** (herdr's URL pointed at Herdr's desktop app): Required tools, `https://herdr.dev/tui`; tasks 6.3, 6.7.
+- **S17** (a dangling settings.json leaves `<cfg>` with no `left:` line and exit 0, undocumented): Uninstall and Directories say the stderr line is the report; task 6.5.
+- **S18** (valid JSON of the wrong shape was called "not valid JSON"): settings.json, two-step check with its own message; tasks 6.4, 6.8.
+- The verifier's five test-gap suggestions are left to review's re-check (orchestrator).
