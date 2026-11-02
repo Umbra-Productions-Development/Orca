@@ -211,7 +211,7 @@ Follow design.md section by section. Keep `set -euo pipefail` and the header com
 
 ## 4. Gate
 
-- [ ] 4.1 Run `applyChecks` from `.orca/config.json`. Fix what they raise, or say in the commit body why it stays.
-- [ ] 4.2 Run `orca-lc gate` and make it pass. Say in the report which of its checks were skipped on this machine (shellcheck, gitleaks) and why.
-- [ ] 4.3 Run `orca-lc evidence`, dispatch `orca-verifier`, and report to the orchestrator.
-- [ ] 4.4 Leave the Linux and WSL2 acceptance boxes in proposal.md unchecked; the user verifies them by hand, including `bash tests/run.sh` there, which is where link mode is proven. Name them in the report as not yet verified.
+- [x] 4.1 Run `applyChecks` from `.orca/config.json`. Fix what they raise, or say in the commit body why it stays.
+- [x] 4.2 Run `orca-lc gate` and make it pass. Say in the report which of its checks were skipped on this machine (shellcheck, gitleaks) and why.
+- [x] 4.3 Run `orca-lc evidence`, dispatch `orca-verifier`, and report to the orchestrator.
+- [x] 4.4 Leave the Linux and WSL2 acceptance boxes in proposal.md unchecked; the user verifies them by hand, including `bash tests/run.sh` there, which is where link mode is proven. Name them in the report as not yet verified.
