@@ -208,7 +208,7 @@ settings_in() {
 # Orca's filters accept its shape. $1 is the filter run on it; its output goes to $2.
 settings_check() {
   if ! jq empty "$R" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
-  elif [ "$SDOCS" -gt 1 ]; then problems+=("$S holds $SDOCS JSON documents; Claude reads one")
+  elif [ "${SDOCS:-1}" -gt 1 ]; then problems+=("$S holds $SDOCS JSON documents; Claude reads one")
   elif ! jq "$JQ_ORCA $1" "$SIN" > "$2" 2>"$work/jq.err" \
        || ! jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan" 2>>"$work/jq.err"; then
     problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")")
