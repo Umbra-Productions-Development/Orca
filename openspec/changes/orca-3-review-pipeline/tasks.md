@@ -20,5 +20,5 @@
 
 ## 4. Verify
 
-- [ ] 4.1 Run the gate; it must pass.
-- [ ] 4.2 Manual runs on Linux per design.md "Verification": fixture branch with the ticket id, no openspec change, one issue two passes report, one blocker and a `.lock` file. Run 1 (`standardsFile` set, `reviewExcludes` `\.lock$`): one merged finding citing both, passes table, tiered list, verdict COMMENT, nothing in the `.lock` file, `orca-spec` against the ticket's criteria. Run 2 (`standardsFile` unset): `orca-standards` skipped. Record the results in the PR body; do not commit the fixture.
+- [x] 4.1 Run the gate; it must pass.
+- [x] 4.2 Manual runs on Linux per design.md "Verification": fixture branch with the ticket id, no openspec change, one issue two passes report, one blocker and a `.lock` file. Run 1 (`standardsFile` set, `reviewExcludes` `\.lock$`): one merged finding citing both, passes table, tiered list, verdict COMMENT, nothing in the `.lock` file, `orca-spec` against the ticket's criteria. Run 2 (`standardsFile` unset): `orca-standards` skipped. Record the results in the PR body; do not commit the fixture.
