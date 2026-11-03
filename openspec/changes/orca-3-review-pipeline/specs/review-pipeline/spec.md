@@ -2,7 +2,7 @@
 
 ### Requirement: Default review passes
 
-Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-spec` and `orca-standards`, and the review session SHALL run all three on every code review, whether or not `reviewPasses` is set. Entries in `reviewPasses` SHALL run in addition to them; an entry naming a default pass SHALL NOT run it a second time.
+Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-spec` and `orca-standards`, and the review session SHALL run all three on every code review, whether or not `reviewPasses` is set, except those `skipDefaultPasses` names. Entries in `reviewPasses` SHALL run in addition to them; an entry naming a default pass SHALL NOT run it a second time.
 
 #### Scenario: No reviewPasses configured
 - **WHEN** `.orca/config.json` has no `reviewPasses` key and review runs
@@ -30,7 +30,7 @@ Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-s
 
 ### Requirement: reviewExcludes
 
-Paths matching the `reviewExcludes` regex SHALL be removed from what every review pass and `reviewChecks` entry reads and from the paths their `when` patterns match. `applyChecks`, the gate and `orca-verifier` SHALL still see the whole diff.
+Paths matching the `reviewExcludes` regex SHALL be removed from what every review pass and `reviewChecks` entry reads and from the paths their `when` patterns match. `applyChecks`, the gate and `orca-verifier` SHALL still see the whole diff, except that the verifier SHALL NOT report a change at an excluded path as an unasked change.
 
 #### Scenario: Generated file excluded
 - **WHEN** `reviewExcludes` is `\.lock$` and the diff changes `package.lock` and `src/a.sh`

@@ -4,7 +4,7 @@
 
 ## What Changes
 
-- Three report-only pass agents ship in `agents/`: `orca-complexity`, `orca-spec` (diff against the branch's openspec change, or the ticket's acceptance criteria), and `orca-standards` (diff against the file `standardsFile` names). They always run; `reviewPasses` adds to them.
+- Three report-only pass agents ship in `agents/`: `orca-complexity`, `orca-spec` (diff against the branch's openspec change, or the ticket's acceptance criteria), and `orca-standards` (diff against the file `standardsFile` names). They run on every code review unless `skipDefaultPasses` names them; `reviewPasses` adds to them.
 - Every default pass, and `orca-verifier`, ends its report with findings in one shape: location, claim, evidence, suggested tier. A failing gate is a suggested blocker.
 - One reconcile step, done by the review session after every pass, check and the verifier finish: drop claims the code does not show, merge findings at the same location with the same root cause (citing every source), and tier each as **Blocker**, **Should fix** or **Suggestion**.
 - The findings file is `<gitdir>/orca-findings.md`: header with reviewed sha and base, the passes table (result or `skipped` and why), then the tiered list.
