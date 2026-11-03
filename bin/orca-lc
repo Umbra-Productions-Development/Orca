@@ -591,7 +591,8 @@ init_testcmd() { local m="$1" d
     || cat "$m"/requirements*.txt 2>/dev/null | grep -qiE '^[[:space:]]*pytest([^[:alnum:]_]|$)'; then echo pytest; fi; }
 # Whole-suite commands: a Makefile test target, else what is present joined with &&, else $2 (the answered testCommand).
 init_gate() { local m="$1" g=() s pm o i
-  grep -qE '^test[[:space:]]*:' "$m/Makefile" 2>/dev/null && { echo "make test"; return; }
+  # A rule, not a `test :=` / `test ::=` variable.
+  grep -qE '^test[[:space:]]*:([^=:]|:([^=]|$)|$)' "$m/Makefile" 2>/dev/null && { echo "make test"; return; }
   if [ -f "$m/package.json" ]; then
     if [ -f "$m/pnpm-lock.yaml" ]; then pm="pnpm run"; elif [ -f "$m/yarn.lock" ]; then pm=yarn; else pm="npm run"; fi
     for s in lint typecheck test; do jq -e --arg s "$s" '.scripts[$s] // empty' "$m/package.json" >/dev/null 2>&1 || continue
@@ -601,6 +602,8 @@ init_gate() { local m="$1" g=() s pm o i
   [ -f "$m/tests/run.sh" ] && g+=("bash tests/run.sh")
   [ ${#g[@]} -gt 0 ] || { echo "$2"; return; }
   o="${g[0]}"; for ((i = 1; i < ${#g[@]}; i++)); do o+=" && ${g[i]}"; done; echo "$o"; }
+# A stack script, when present: as itself when executable (stack_check and stack_run need that), else through bash.
+init_stack() { if [ -x "$1/$2" ]; then echo "$2"; elif [ -f "$1/$2" ]; then echo "bash $2"; fi; }
 # The proposal for a key the existing config lacks, as JSON. $3 the config built so far (earlier answers).
 init_detect() { local m="$1" v
   case "$2" in
@@ -610,8 +613,7 @@ init_detect() { local m="$1" v
     tracker) v=$(init_tracker "$m" "$(jq -r '.ticketPattern // ""' <<<"$3")");;
     testCommand) v=$(init_testcmd "$m");;
     gate) v=$(init_gate "$m" "$(jq -r '.testCommand // ""' <<<"$3")");;
-    stackUp) v=""; [ -f "$m/scripts/stack-up.sh" ] && v=scripts/stack-up.sh;;
-    stackDown) v=""; [ -f "$m/scripts/stack-down.sh" ] && v=scripts/stack-down.sh;;
+    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr 'A-Z' 'a-z').sh");;
     ports) echo '[]'; return;;
   esac
   jq -n --arg v "$v" '$v'; }

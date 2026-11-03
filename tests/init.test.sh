@@ -132,11 +132,18 @@ assert_eq "$(cfgv "$r" sourceGlob)" '\.go\b|\.rs\b'
 
 # 10. a Makefile test target wins the gate; stack scripts are proposed when present
 r=$(fresh); printf 'test:\n\ttrue\n' > "$r/Makefile"; mkdir "$r/tests" "$r/scripts"; echo 'exit 0' > "$r/tests/run.sh"
-touch "$r/scripts/stack-up.sh" "$r/scripts/stack-down.sh"
+touch "$r/scripts/stack-up.sh" "$r/scripts/stack-down.sh"; chmod +x "$r/scripts/stack-up.sh"
 yes_init "$r" >/dev/null 2>&1
 assert_eq "$(cfgv "$r" gate)" "make test"
 assert_eq "$(cfgv "$r" stackUp)" "scripts/stack-up.sh"
-assert_eq "$(cfgv "$r" stackDown)" "scripts/stack-down.sh"
+assert_eq "$(cfgv "$r" stackDown)" "bash scripts/stack-down.sh" "a non-executable stack script proposed as a bare command"
+# a Makefile variable named test is not a test target; a double-colon rule is
+for v in 'test := 1' 'test ::= 1' 'test:=1'; do
+  r=$(fresh); printf '%s\n' "$v" > "$r/Makefile"; mkdir "$r/tests"; echo 'exit 0' > "$r/tests/run.sh"
+  yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" gate)" "bash tests/run.sh" "Makefile '$v' read as a test target"; done
+for v in 'test:: unit' 'test::' 'test:'; do
+  r=$(fresh); printf '%s\n\ttrue\n' "$v" > "$r/Makefile"; yes_init "$r" >/dev/null 2>&1
+  assert_eq "$(cfgv "$r" gate)" "make test" "Makefile rule '$v' missed"; done
 
 # 11. tracker: GitHub issues (with the ticket mapping), gh failing, MCP servers
 r=$(fresh); git -C "$r" remote set-url origin git@github.com:o/r.git; git -C "$r" branch orca-1/x; git -C "$r" branch orca-2/y
