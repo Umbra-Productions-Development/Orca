@@ -197,10 +197,22 @@ swrite() { local tmp m
   tmp=$(mktemp "$R.XXXXXX")
   if [ -e "$R" ]; then cp -p "$R" "$tmp"; else m=$(umask); chmod "$(printf '%o' $(( 0666 & ~(8#$m) )))" "$tmp"; fi
   cat "$1" > "$tmp"; mv "$tmp" "$R"; }
-# settings_in: R (the file to read and write), sexists, and the scan of its current content (SCAN lines).
+# settings_in: R (the file to write), sexists, SDOCS (its JSON document count; empty when it does not parse) and SIN
+# (the content to read). An absent file and one with 0 documents are read as {} (design.md, settings.json).
 settings_in() {
   R=$S; if [ -L "$S" ]; then R=$(resolve "$S"); fi
-  if [ -e "$R" ]; then sexists=1; SIN=$R; else sexists=0; SIN=$work/empty.json; echo '{}' > "$SIN"; fi; }
+  SIN=$R SDOCS=1
+  if [ -e "$R" ]; then sexists=1; SDOCS=$(jq -s length "$R" 2>/dev/null || true); else sexists=0; fi
+  if [ $sexists = 0 ] || [ "$SDOCS" = 0 ]; then SIN=$work/empty.json; echo '{}' > "$SIN"; fi; }
+# settings_check: the preflight's steps (design.md, settings.json): it parses, holds one document (or none), and
+# Orca's filters accept its shape. $1 is the filter run on it; its output goes to $2.
+settings_check() {
+  if ! jq empty "$R" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
+  elif [ "$SDOCS" -gt 1 ]; then problems+=("$S holds $SDOCS JSON documents; Claude reads one")
+  elif ! jq "$JQ_ORCA $1" "$SIN" > "$2" 2>"$work/jq.err" \
+       || ! jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan" 2>>"$work/jq.err"; then
+    problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")")
+  fi; }
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 
 # Directories Orca creates are recorded, so uninstall can remove them when empty. mkparents <dir> [private] creates
@@ -220,10 +232,7 @@ if [ $uninst = 1 ]; then
   # settings.json is parsed before anything is removed, as install's preflight does (design.md, Uninstall).
   S=$cfg/settings.json
   if [ -e "$S" ]; then
-    settings_in
-    if ! jq empty "$R" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
-    elif ! jq "$JQ_ORCA $JQ_SCAN" "$R" >/dev/null 2>"$work/jq.err"; then
-      problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")"); fi
+    settings_in; settings_check "$JQ_SCAN" /dev/null
     stop_if_problems
   fi
   if [ ${#MREC[@]} -gt 0 ]; then
@@ -270,8 +279,8 @@ if [ $uninst = 1 ]; then
       newev=$(for l in ${MREC[@]+"${MREC[@]}"}; do IFS=$TAB read -r -a f <<< "$l"
         if [ "${f[0]}" = hook ] && [ "${f[3]:-0}" = 1 ]; then printf '%s\n' "${f[1]}"; fi; done | jq -R . | jq -s -c .)
       if rec hooks-key >/dev/null; then hk=true; else hk=false; fi
-      jq --argjson newev "$newev" --argjson hk "$hk" "$JQ_ORCA $JQ_STRIP" "$R" > "$work/strip.json"
-      if [ "$(jq -S . "$R")" != "$(jq -S . "$work/strip.json")" ]; then
+      jq --argjson newev "$newev" --argjson hk "$hk" "$JQ_ORCA $JQ_STRIP" "$SIN" > "$work/strip.json"
+      if [ "$(jq -S . "$SIN")" != "$(jq -S . "$work/strip.json")" ]; then
         swrite "$work/strip.json"
         if [ $untouched = 1 ]; then echo "settings.json is a symlink; removed Orca's hooks only, kept the link and its target"
         else echo "settings.json was edited after install; removed Orca's hooks only (formatting may differ)"; fi
@@ -334,12 +343,8 @@ S=$cfg/settings.json
 if [ -L "$S" ] && [ ! -e "$S" ]; then problems+=("$S: settings.json is a dangling symlink"); fi
 stop_if_problems
 settings_in
-# Two steps (design.md, settings.json): it parses, then Orca's filters accept its shape.
-if ! jq empty "$SIN" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
-elif ! jq "$JQ_ORCA $JQ_ENSURE" "$SIN" > "$work/merged.json" 2>"$work/jq.err" \
-     || ! jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan" 2>>"$work/jq.err"; then
-  problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")")
-fi
+if [ $sexists = 1 ]; then settings_check "$JQ_ENSURE" "$work/merged.json"
+else jq "$JQ_ORCA $JQ_ENSURE" "$SIN" > "$work/merged.json"; jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan"; fi
 stop_if_problems
 
 # --- install: apply --------------------------------------------------------------------------------------------------
@@ -383,7 +388,7 @@ while IFS=$TAB read -r ev sc matched existed; do
   [ "$matched" = 0 ] || { had_orca=1; continue; }
   rec hook "$ev" >/dev/null || HOOKS+=("hook$TAB$ev$TAB$sc$TAB$((1 - existed))")
 done < "$work/scan"
-if [ $sexists = 1 ] && [ "$(jq -S . "$R")" = "$(jq -S . "$work/merged.json")" ]; then :
+if [ $sexists = 1 ] && [ "$(jq -S . "$SIN")" = "$(jq -S . "$work/merged.json")" ]; then :
 else
   if [ -n "$r_post" ] && { [ $sexists = 0 ] || [ "$(hstream < "$R")" != "$r_post" ]; }; then
     r_orig="" r_created=""; rm -f "$ORIG"
