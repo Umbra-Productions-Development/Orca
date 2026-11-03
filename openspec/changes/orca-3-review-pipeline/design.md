@@ -13,22 +13,24 @@ Established facts:
 
 ## Pipeline
 
+This is the code review. Proposal review keeps its current form; it may write its findings to the same file, which the later code review overwrites.
+
 The review session, after `orca-lc evidence`:
 
 1. Computes the review paths: the diff's paths (since the merge-base with the base) minus those matching `reviewExcludes`. `when` patterns match against these paths.
-2. Dispatches, giving each the evidence path, the base and the excluded-path regex: `orca-complexity`, `orca-spec`, `orca-standards`, then every `reviewPasses` entry; runs every `reviewChecks` entry.
-3. Runs `orca-lc gate` from the ticket worktree, then dispatches `orca-verifier`. Neither applies `reviewExcludes`.
+2. Dispatches, giving each the evidence path, the base and the excluded-path regex: `orca-complexity`, `orca-spec`, `orca-standards`, then every `reviewPasses` entry; a `reviewPasses` entry naming a default pass is not run again. Runs every `reviewChecks` entry.
+3. Dispatches `orca-verifier` from the ticket worktree. Its `orca-lc gate --inline` is the review's gate run, on the ticket's stack; the session runs no gate of its own. The verifier does not apply `reviewExcludes`.
 4. Reconciles (below) and writes the findings file.
 
 ## Finding shape
 
-Each default pass ends its report with a `## Findings` list, one entry per finding:
+Each default pass, and `orca-verifier`, ends its report with a `## Findings` list, one entry per finding:
 
 ```
 - `path:line[-line]` — <claim> — <evidence: what in the code shows it> — suggested: blocker|should fix|suggestion
 ```
 
-A finding with no single location uses the closest file, or `—` for the whole change. Each pass writes `none` when it finds nothing, and `skipped: <reason>` when it does not apply. The skill asks that other `reviewPasses` and `reviewChecks` be read in the same terms; when they report differently the review session restates their findings in this shape.
+A finding with no single location uses the closest file, or `—` for the whole change. `orca-verifier` keeps its numbered report and adds this list after it: a failing gate is one finding at `—`, suggested blocker, with the failing command's output as evidence; each task marked done that the diff does not show and each change no task asked for is a finding, suggested should fix. Each pass writes `none` when it finds nothing, and `skipped: <reason>` when it does not apply. The skill asks that other `reviewPasses` and `reviewChecks` be read in the same terms; when they report differently the review session restates their findings in this shape.
 
 ## Default passes
 
@@ -42,7 +44,7 @@ All three: `tools: Bash, Read, Grep, Glob`; read only the review paths; never ed
 
 Done by the review session, in this order:
 
-1. Collect findings from every pass, check and the verifier report (gate failure is a finding of the verifier).
+1. Collect findings from every pass, check and the verifier report. A failing gate is always tiered Blocker.
 2. Check each against the code; drop any claim the code does not show (existing rule).
 3. Merge: two findings are one when they point at the same file with overlapping or adjacent line ranges and the review session judges the claim the same root cause. The merged finding cites every source and takes the highest suggested tier.
 4. Tier each finding, starting from its suggested tier:
@@ -78,12 +80,17 @@ An empty tier says `none`. Verdict for posting: APPROVE when Blocker and Should 
 ## Config
 
 - `standardsFile`: path, relative to the repository root, to the project's coding standards. Absent: the standards pass is skipped.
-- `reviewExcludes`: regex; matching paths are removed from what every pass and `reviewChecks` entry reads and from what `when` matches. The gate and `orca-verifier` still see the whole diff.
+- `reviewExcludes`: regex; matching paths are removed from what every pass and `reviewChecks` entry reads and from what review-side `when` patterns (`reviewPasses`, `reviewChecks`) match. `applyChecks`, the gate and `orca-verifier` still see the whole diff.
 - `orca.example.json` gains `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`.
 
 ## Verification
 
-No shell code changes, so no `tests/` change. Verification is one manual review run on Linux over a throwaway fixture branch whose diff holds one issue both `orca-complexity` and `orca-standards` report (e.g. duplicated logic that a fixture standards file forbids), plus a blocking issue: the findings file shows one merged finding citing both passes, the passes table, a tiered list, and a COMMENT verdict. The fixture is not committed.
+No shell code changes, so no `tests/` change. Verification is a manual review on Linux over a throwaway fixture branch carrying the ticket id and no openspec change, whose diff holds one issue both `orca-complexity` and `orca-standards` report (e.g. duplicated logic that a fixture standards file forbids), a blocking issue, and a `.lock` file.
+
+- Run 1, `standardsFile` set and `reviewExcludes` `\.lock$`: one merged finding citing both passes, the passes table, a tiered list, verdict COMMENT; no finding in the `.lock` file; `orca-spec` reports against the ticket's acceptance criteria.
+- Run 2, `standardsFile` unset: `orca-standards` is `skipped: no standardsFile`.
+
+The fixture is not committed.
 
 ## Decisions
 
@@ -100,4 +107,8 @@ No shell code changes, so no `tests/` change. Verification is one manual review 
 - The verifier's report enters reconcile as one more source — user (recommended, accepted).
 - Merge rule: same file, overlapping or adjacent lines, same root cause; cites every source, highest tier wins — user (recommended, accepted).
 - Complexity pass is judgment-based with no thresholds in config — user (recommended, accepted).
-- No shell tests; verification is one manual Linux run on a fixture branch — user (recommended, accepted).
+- No shell tests; verification is a manual Linux run on a fixture branch, extended to two runs to cover `reviewExcludes`, the standards skip and the spec fallback per proposal review suggestion 6 — user (recommended, accepted); extension by propose.
+- `orca-verifier` adopts the finding shape and a failing gate is a Blocker, per proposal review should-fix 1 — propose (follows from the accepted verifier-as-source decision).
+- The verifier's gate run is review's gate run; the session runs none, per proposal review should-fix 2 — propose (same rule as the accepted gate decision, one run instead of two).
+- A `reviewPasses` entry naming a default pass is not run again, per proposal review suggestion 5 — propose.
+- The pipeline is the code review; what proposal review runs is unchanged and left as a follow-up, per proposal review suggestion 3 — propose.

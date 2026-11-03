@@ -2,7 +2,7 @@
 
 ### Requirement: Default review passes
 
-Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-spec` and `orca-standards`, and the review session SHALL run all three on every code review, whether or not `reviewPasses` is set. Entries in `reviewPasses` SHALL run in addition to them.
+Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-spec` and `orca-standards`, and the review session SHALL run all three on every code review, whether or not `reviewPasses` is set. Entries in `reviewPasses` SHALL run in addition to them; an entry naming a default pass SHALL NOT run it a second time.
 
 #### Scenario: No reviewPasses configured
 - **WHEN** `.orca/config.json` has no `reviewPasses` key and review runs
@@ -30,7 +30,7 @@ Orca SHALL ship three report-only review pass agents, `orca-complexity`, `orca-s
 
 ### Requirement: reviewExcludes
 
-Paths matching the `reviewExcludes` regex SHALL be removed from what every review pass and `reviewChecks` entry reads and from the paths `when` patterns match. The gate and `orca-verifier` SHALL still see the whole diff.
+Paths matching the `reviewExcludes` regex SHALL be removed from what every review pass and `reviewChecks` entry reads and from the paths their `when` patterns match. `applyChecks`, the gate and `orca-verifier` SHALL still see the whole diff.
 
 #### Scenario: Generated file excluded
 - **WHEN** `reviewExcludes` is `\.lock$` and the diff changes `package.lock` and `src/a.sh`
@@ -62,8 +62,20 @@ A review SHALL be posted as APPROVE only when its Blocker and Should fix tiers a
 
 ### Requirement: Gate on the ticket's stack
 
-The review session SHALL run `orca-lc gate` from the ticket's worktree, so the gate uses that ticket's stack.
+The review session SHALL dispatch `orca-verifier` from the ticket's worktree, and the verifier's gate run SHALL be the review's only gate run, on that ticket's stack. A failing gate SHALL be a Blocker.
 
 #### Scenario: Review gate
-- **WHEN** review runs the gate
-- **THEN** it runs in the ticket's worktree and the verifier's report shows that run's result
+- **WHEN** review dispatches the verifier
+- **THEN** the gate runs once, in the ticket's worktree, and its result is in the verifier's report
+
+#### Scenario: Gate fails
+- **WHEN** the verifier's gate run fails
+- **THEN** the findings file lists a Blocker citing `orca-verifier` and the verdict is COMMENT
+
+### Requirement: Verifier reports in the finding shape
+
+`orca-verifier` SHALL end its report with a `## Findings` list in the shared finding shape: a failing gate as a suggested blocker, and each task marked done that the diff does not show and each change no task asked for as a suggested should fix.
+
+#### Scenario: Unshown task
+- **WHEN** `tasks.md` marks a task done that the diff does not show
+- **THEN** the verifier's `## Findings` list carries it as a suggested should fix
