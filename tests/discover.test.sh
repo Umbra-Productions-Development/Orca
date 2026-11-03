@@ -1,9 +1,11 @@
 # orca-lc discover create/set/archive and orca-lc triage
+# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 r=$(new_repo); cd "$r" || exit 1
 dd="$r/.orca/discoveries"
 
 out=$(orca-lc discover some-rule "a rule" 2>&1); assert_status $? 0
-assert_eq "$out" "$dd/some-rule.md"
+assert_eq "$out" "$(native "$dd")/some-rule.md"
 f="$dd/some-rule.md"
 grep -qx 'rule: a rule' "$f" || fail "no rule line in $f"
 grep -qx 'enforced-by: none' "$f" || fail "enforced-by not defaulted to none"
@@ -26,7 +28,7 @@ assert_contains "$out" "still enforced by nothing"
 
 assert_eq "$(orca-lc discover set some-rule hook)" "enforced-by: hook"
 out=$(orca-lc discover archive some-rule 2>&1); assert_status $? 0
-assert_eq "$out" "$dd/archive/some-rule.md"
+assert_eq "$out" "$(native "$dd")/archive/some-rule.md"
 [ ! -e "$f" ] || fail "archive left the live file"
 grep -qE '^archived: [0-9]{4}-[0-9]{2}-[0-9]{2}$' "$dd/archive/some-rule.md" || fail "no archived: line"
 assert_not_contains "$(orca-lc triage)" "some-rule.md"

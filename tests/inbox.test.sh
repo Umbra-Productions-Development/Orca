@@ -1,11 +1,13 @@
 # orca-lc notify without a live session queues to the ticket's inbox; inbox read prints once and archives
+# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 r=$(new_repo); cd "$r" || exit 1
 ib="$r/.orca/inbox"
 
 out=$(orca-lc notify ABC-5 --role orchestrator "hi" 2>&1); assert_status $? 0
 assert_contains "$out" "no live session for abc-5, queued: "
 f=${out##*queued: }
-case "$f" in "$ib/abc-5/"*) ;; *) fail "queued outside $ib/abc-5/: $f";; esac
+case "$f" in "$(native "$ib")/abc-5/"*) ;; *) fail "queued outside $ib/abc-5/: $f";; esac
 [ -f "$f" ] || fail "queued file missing: $f"
 assert_contains "$(cat "$f")" "hi"
 grep -q '^from: ' "$f" || fail "no from: line in $f"
