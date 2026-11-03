@@ -34,11 +34,12 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 ## Requirements
 
-Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.github.com), [herdr](https://herdr.dev). `install.sh` checks for each one before it changes anything, and stops naming every missing tool with where to get it.
+Required: Claude Code, git, bash, [jq](https://jqlang.org), [gh](https://cli.github.com), [herdr](https://herdr.dev/tui). `install.sh` checks for each one before it changes anything, and stops naming every missing tool with where to get it.
 
 Recommended (`install.sh` offers the ones it has a command for, and lists the others with a link):
 - codegraph and codebase-memory-mcp, for `orca-lc evidence` and `orca-lc test-affected`
 - [direnv](https://direnv.net), for a per-repository GitHub account
+- [openspec](https://github.com/Fission-AI/OpenSpec), the CLI the propose role writes change proposals with
 - the mattpocock-skills Claude Code plugin, only as a fallback for Orca's `grilling` skill (see Install)
 
 Optional: util-linux `flock`, to lock handoff writes; without it `orca-lc` falls back to a mkdir lock. The two locks do not exclude each other, so use one `sharedDir` from one kind of host (not WSL2 and Git Bash on the same checkout).

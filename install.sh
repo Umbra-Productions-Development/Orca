@@ -84,7 +84,7 @@ REQUIRED="claude git jq gh herdr"
 tool_url() {
   case $1 in
     claude) echo https://docs.claude.com/en/docs/claude-code/setup;; git) echo https://git-scm.com/downloads;;
-    jq) echo https://jqlang.org/download/;; gh) echo https://cli.github.com;; herdr) echo https://herdr.dev;;
+    jq) echo https://jqlang.org/download/;; gh) echo https://cli.github.com;; herdr) echo https://herdr.dev/tui;;
   esac; }
 need=$REQUIRED; [ $uninst = 0 ] || need="git jq"
 for t in $need; do command -v "$t" >/dev/null || problems+=("missing required tool: $t ($(tool_url "$t"))"); done
@@ -221,7 +221,10 @@ if [ $uninst = 1 ]; then
   S=$cfg/settings.json
   if [ -e "$S" ]; then
     settings_in
-    jq "$JQ_ORCA $JQ_SCAN" "$R" >/dev/null 2>"$work/jq.err" || { problems+=("$S is not valid JSON: $(cat "$work/jq.err")"); stop_if_problems; }
+    if ! jq empty "$R" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
+    elif ! jq "$JQ_ORCA $JQ_SCAN" "$R" >/dev/null 2>"$work/jq.err"; then
+      problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")"); fi
+    stop_if_problems
   fi
   if [ ${#MREC[@]} -gt 0 ]; then
     for l in "${MREC[@]}"; do
@@ -331,10 +334,13 @@ S=$cfg/settings.json
 if [ -L "$S" ] && [ ! -e "$S" ]; then problems+=("$S: settings.json is a dangling symlink"); fi
 stop_if_problems
 settings_in
-if ! jq "$JQ_ORCA $JQ_ENSURE" "$SIN" > "$work/merged.json" 2>"$work/jq.err" \
-   || ! jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan" 2>>"$work/jq.err"; then
-  problems+=("$S is not valid JSON: $(cat "$work/jq.err")"); stop_if_problems
+# Two steps (design.md, settings.json): it parses, then Orca's filters accept its shape.
+if ! jq empty "$SIN" 2>"$work/jq.err"; then problems+=("$S is not valid JSON: $(cat "$work/jq.err")")
+elif ! jq "$JQ_ORCA $JQ_ENSURE" "$SIN" > "$work/merged.json" 2>"$work/jq.err" \
+     || ! jq -r "$JQ_ORCA $JQ_SCAN" "$SIN" > "$work/scan" 2>>"$work/jq.err"; then
+  problems+=("$S is valid JSON but not a Claude settings object: $(cat "$work/jq.err")")
 fi
+stop_if_problems
 
 # --- install: apply --------------------------------------------------------------------------------------------------
 chmod +x "$here"/bin/orca-lc "$here"/hooks/*.sh
@@ -422,6 +428,10 @@ codegraph	affected tests for orca-lc test-affected and evidence	cmd:codegraph	ht
 codebase-memory-mcp	blast radius for orca-lc evidence	cmd:codebase-memory-mcp	https://github.com/DeusData/codebase-memory-mcp	npm install -g codebase-memory-mcp@latest	npm install -g codebase-memory-mcp@latest	npm install -g codebase-memory-mcp@latest
 # direnv: https://direnv.net/docs/installation.html gives only package links and a curl | bash installer: link-only.
 direnv	a per-repository GitHub account	cmd:direnv	https://direnv.net/docs/installation.html	-	-	-
+# openspec: `npm install -g @fission-ai/openspec@latest`, https://github.com/Fission-AI/OpenSpec (README, npm; package
+# @fission-ai/openspec, Node 22.12 or later). Its curl | sh and PowerShell irm | iex installers are scripts, so excluded;
+# npm on every platform, like the rows above.
+openspec	openspec CLI for the propose role's change proposals	cmd:openspec	https://github.com/Fission-AI/OpenSpec	npm install -g @fission-ai/openspec@latest	npm install -g @fission-ai/openspec@latest	npm install -g @fission-ai/openspec@latest
 # mattpocock-skills: source https://github.com/mattpocock/skills, skills/productivity/grilling (MIT). Command from
 # `claude plugin install --help` (plugin@marketplace) and the claude-plugins-official marketplace entry; `claude plugin
 # list` prints an installed plugin as its plugin@marketplace id. The plugin's .claude-plugin/plugin.json lists its whole
