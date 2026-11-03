@@ -16,4 +16,4 @@
 
 - [x] 3.1 For each file, break the behaviour it covers once in `bin/orca-lc` or `hooks/pretool.sh`, run the file, see it fail, revert. Record each break and the failing assert for the PR body.
 - [x] 3.2 `bash tests/run.sh`: all files pass. Run on Linux; this satisfies the issue's Linux and WSL2 boxes.
-- [ ] 3.3 `orca-lc test-lock off`; `orca-lc gate` passes.
+- [x] 3.3 `orca-lc test-lock off`; `orca-lc gate` passes.
