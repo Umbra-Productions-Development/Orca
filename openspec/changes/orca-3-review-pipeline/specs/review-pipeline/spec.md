@@ -74,8 +74,28 @@ The review session SHALL dispatch `orca-verifier` from the ticket's worktree, an
 
 ### Requirement: Verifier reports in the finding shape
 
-`orca-verifier` SHALL end its report with a `## Findings` list in the shared finding shape: a failing gate as a suggested blocker, and each task marked done that the diff does not show and each change no task asked for as a suggested should fix.
+`orca-verifier` SHALL end its report with a `## Findings` list in the shared finding shape: a failing gate as a suggested blocker, and each task marked done that the diff does not show and each change no task asked for as a suggested should fix. A change at a path matching `reviewExcludes` SHALL NOT be an unasked-change finding.
+
+#### Scenario: Excluded lockfile change
+- **WHEN** `reviewExcludes` is `\.lock$`, no task mentions `package.lock`, and the diff changes it
+- **THEN** the verifier's `## Findings` list has no finding for `package.lock`, and the review can still be APPROVE
 
 #### Scenario: Unshown task
 - **WHEN** `tasks.md` marks a task done that the diff does not show
 - **THEN** the verifier's `## Findings` list carries it as a suggested should fix
+
+### Requirement: skipDefaultPasses
+
+Default passes named in the `skipDefaultPasses` array SHALL NOT run, including when `reviewPasses` also names them, and SHALL stay in the passes table as `skipped: off in skipDefaultPasses`. A name in the array that is not a default pass SHALL be ignored and named in the findings file header. With the key absent, all three default passes SHALL run.
+
+#### Scenario: One default skipped
+- **WHEN** `skipDefaultPasses` is `["orca-complexity"]`
+- **THEN** `orca-complexity` does not run, its row reads `skipped: off in skipDefaultPasses`, and `orca-spec` and `orca-standards` run
+
+#### Scenario: Skipped and listed
+- **WHEN** `skipDefaultPasses` is `["orca-standards"]` and `reviewPasses` is `["orca-standards"]`
+- **THEN** `orca-standards` does not run and its row notes it is also in `reviewPasses`
+
+#### Scenario: Unknown name
+- **WHEN** `skipDefaultPasses` is `["orca-verifer"]`
+- **THEN** all three default passes and the verifier run, and the findings file header names `orca-verifer` as an unknown pass, ignored

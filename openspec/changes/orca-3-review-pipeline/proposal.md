@@ -10,7 +10,7 @@
 - The findings file is `<gitdir>/orca-findings.md`: header with reviewed sha and base, the passes table (result or `skipped` and why), then the tiered list.
 - Posting: inline comments may open **Blocker —**; APPROVE only when nothing is blocker or should-fix.
 - Review's gate is the one `orca-verifier` runs, dispatched from the ticket's worktree, so it runs on the ticket's stack (stated in the skill; the code already does this). The session does not run a second gate.
-- New config keys: `standardsFile` (path to the project's standards; absent → standards pass skipped) and `reviewExcludes` (regex of paths no pass or review check reads).
+- New config keys: `standardsFile` (path to the project's standards; absent → standards pass skipped), `reviewExcludes` (regex of paths no pass or review check reads, and that the verifier never reports as an unasked change), and `skipDefaultPasses` (default passes a project turns off).
 - The skill's `review-changes` reference is replaced by this pipeline.
 
 ## Capabilities

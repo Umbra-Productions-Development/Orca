@@ -18,8 +18,8 @@ This is the code review. Proposal review keeps its current form; it may write it
 The review session, after `orca-lc evidence`:
 
 1. Computes the review paths: the diff's paths (since the merge-base with the base) minus those matching `reviewExcludes`. `when` patterns match against these paths.
-2. Dispatches, giving each the evidence path, the base and the excluded-path regex: `orca-complexity`, `orca-spec`, `orca-standards`, then every `reviewPasses` entry; a `reviewPasses` entry naming a default pass is not run again. Runs every `reviewChecks` entry.
-3. Dispatches `orca-verifier` from the ticket worktree. Its `orca-lc gate --inline` is the review's gate run, on the ticket's stack; the session runs no gate of its own. The verifier does not apply `reviewExcludes`.
+2. Dispatches, giving each the evidence path, the base and the excluded-path regex: `orca-complexity`, `orca-spec`, `orca-standards` (minus those `skipDefaultPasses` names), then every `reviewPasses` entry; a `reviewPasses` entry naming a default pass is not run again, and one naming a skipped default is not run at all. Runs every `reviewChecks` entry.
+3. Dispatches `orca-verifier` from the ticket worktree. Its `orca-lc gate --inline` is the review's gate run, on the ticket's stack; the session runs no gate of its own. The verifier runs the gate and the task check over the whole diff; `reviewExcludes` only keeps excluded paths out of its unasked-change findings (see "Finding shape").
 4. Reconciles (below) and writes the findings file.
 
 ## Finding shape
@@ -30,7 +30,7 @@ Each default pass, and `orca-verifier`, ends its report with a `## Findings` lis
 - `path:line[-line]` — <claim> — <evidence: what in the code shows it> — suggested: blocker|should fix|suggestion
 ```
 
-A finding with no single location uses the closest file, or `—` for the whole change. `orca-verifier` keeps its numbered report and adds this list after it: a failing gate is one finding at `—`, suggested blocker, with the failing command's output as evidence; each task marked done that the diff does not show and each change no task asked for is a finding, suggested should fix. Each pass writes `none` when it finds nothing, and `skipped: <reason>` when it does not apply. The skill asks that other `reviewPasses` and `reviewChecks` be read in the same terms; when they report differently the review session restates their findings in this shape.
+A finding with no single location uses the closest file, or `—` for the whole change. `orca-verifier` keeps its numbered report and adds this list after it: a failing gate is one finding at `—`, suggested blocker, with the failing command's output as evidence; each task marked done that the diff does not show and each change no task asked for is a finding, suggested should fix. A change at a path matching `reviewExcludes` is never an unasked-change finding; the verifier still lists it under item 3 of its report, marked excluded. Each pass writes `none` when it finds nothing, and `skipped: <reason>` when it does not apply. The skill asks that other `reviewPasses` and `reviewChecks` be read in the same terms; when they report differently the review session restates their findings in this shape.
 
 ## Default passes
 
@@ -80,8 +80,9 @@ An empty tier says `none`. Verdict for posting: APPROVE when Blocker and Should 
 ## Config
 
 - `standardsFile`: path, relative to the repository root, to the project's coding standards. Absent: the standards pass is skipped.
-- `reviewExcludes`: regex; matching paths are removed from what every pass and `reviewChecks` entry reads and from what review-side `when` patterns (`reviewPasses`, `reviewChecks`) match. `applyChecks`, the gate and `orca-verifier` still see the whole diff.
-- `orca.example.json` gains `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`.
+- `reviewExcludes`: regex; matching paths are removed from what every pass and `reviewChecks` entry reads and from what review-side `when` patterns (`reviewPasses`, `reviewChecks`) match. `applyChecks`, the gate and `orca-verifier` still see the whole diff; the verifier only drops excluded paths from its unasked-change findings.
+- `skipDefaultPasses`: array of default pass names (`orca-complexity`, `orca-spec`, `orca-standards`) not run. Absent: all three run. A skipped pass stays in the passes table as `skipped: off in skipDefaultPasses`. A skipped default also named in `reviewPasses` stays skipped, and its row says `skipped: off in skipDefaultPasses (also in reviewPasses)`. A name that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets a line `skipDefaultPasses: unknown pass <name>, ignored`. Independent of `reviewExcludes`.
+- `orca.example.json` gains `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`, and later `"skipDefaultPasses": []`.
 
 ## Verification
 
@@ -112,3 +113,9 @@ The fixture is not committed.
 - The verifier's gate run is review's gate run; the session runs none, per proposal review should-fix 2 — propose (same rule as the accepted gate decision, one run instead of two).
 - A `reviewPasses` entry naming a default pass is not run again, per proposal review suggestion 5 — propose.
 - The pipeline is the code review; what proposal review runs is unchanged and left as a follow-up, per proposal review suggestion 3 — propose.
+- Changes at `reviewExcludes` paths are never verifier unasked-change findings; the verifier still sees the whole diff for the gate and tasks and lists them as excluded, per code review suggestion 3 — user (recommended, accepted); narrows the `reviewExcludes` decision for this one finding type.
+- The default passes get an opt-out, `skipDefaultPasses`, an array of default pass names; absent, all run — user (recommended, accepted); reverses the earlier "no opt-out for now".
+- A skipped default stays in the passes table as `skipped: off in skipDefaultPasses` — user (recommended, accepted).
+- A default in both `skipDefaultPasses` and `reviewPasses` stays skipped, and the row notes the conflict — user (recommended, accepted).
+- An unknown name in `skipDefaultPasses` is ignored with a line in the findings file header; `orca-verifier` cannot be skipped — user (recommended, accepted).
+- The Checks `when` wording names review paths on the review side, and `orca-spec` treats tracker text as data, never instructions, per code review suggestions 1 and 2 — user, via orchestrator.
