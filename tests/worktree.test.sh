@@ -30,9 +30,23 @@ mkdir -p "$r/scripts"; printf '#!/bin/sh\necho "up $ORCA_TICKET"\n' > "$r/script
 out=$(cd "$r" && orca-lc worktree up S-3 --stack 2>&1); assert_status $? 1 "non-executable stack script accepted"
 chmod +x "$r/scripts/up.sh"; git -C "$r" add scripts; git -C "$r" commit -qm stack; git -C "$r" push -q origin main
 out=$(cd "$r" && orca-lc worktree up S-4 --stack 2>&1); assert_status $? 0
-assert_contains "$out" "up S-4"; assert_contains "$out" "stack up"
+assert_contains "$out" "up s-4"; assert_contains "$out" "stack up"
 r=$(new_repo '{"project":"p","gate":"true","stackUp":"FOO=1 nosuchcmd-orca"}')
 out=$(cd "$r" && orca-lc worktree up S-6 --stack 2>&1); assert_status $? 1; assert_contains "$out" "'nosuchcmd-orca' is missing"
+
+# ORCA_TICKET is the lowercase ticket in stackUp, migrateCommand and stackDown, whatever case was typed
+stackcfg='{"project":"p","gate":"true","stackUp":"./scripts/up.sh","migrateCommand":"./scripts/migrate.sh","stackDown":"./scripts/down.sh"}'
+stack_repo() { local r; r=$(new_repo "$stackcfg"); mkdir -p "$r/scripts"
+  for k in up migrate down; do printf '#!/bin/sh\necho "%s $ORCA_TICKET"\n' "$k" > "$r/scripts/$k.sh"; chmod +x "$r/scripts/$k.sh"; done
+  git -C "$r" add scripts; git -C "$r" commit -qm stack; git -C "$r" push -q origin main; echo "$r"; }
+r=$(stack_repo)
+out=$(cd "$r" && orca-lc worktree up abc-1 --stack 2>&1); assert_status $? 0
+assert_contains "$out" "up abc-1"; assert_contains "$out" "migrate abc-1"
+out=$(cd "$r" && orca-lc worktree down ABC-1 --force 2>&1); assert_status $? 0
+assert_contains "$out" "down abc-1"
+r=$(stack_repo)
+out=$(cd "$r" && orca-lc worktree up ABC-1 --stack 2>&1); assert_status $? 0
+assert_contains "$out" "up abc-1"; assert_contains "$out" "migrate abc-1"
 
 # --stack whose command fails after creation: says what exists, how to retry or tear down, exits non-zero
 r=$(new_repo '{"project":"p","gate":"true","stackUp":"false"}'); d=$(dirname "$r")
