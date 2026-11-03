@@ -2,7 +2,7 @@
 
 Orchestrated agent lifecycle for [Claude Code](https://claude.com/claude-code). CLI: `orca-lc`.
 
-Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, one agent and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
+Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, four agents and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
 
 It knows nothing about any particular project. Everything project-specific lives in one untracked file per repository: `.orca/config.json`.
 
@@ -80,9 +80,11 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |
 | `roles` | Map of tab labels to role names |
-| `reviewPasses` | Extra review passes (see the entry format below) |
+| `reviewPasses` | Review passes run in addition to the three default passes `orca-complexity`, `orca-spec` and `orca-standards` (see the entry format below); naming a default pass does not run it twice |
 | `applyChecks` | Checks the apply session runs before the gate |
 | `reviewChecks` | Checks the review session runs on its own stack |
+| `standardsFile` | Path, relative to the repository root, to the project's coding standards, read by the `orca-standards` pass. Absent: that pass is skipped |
+| `reviewExcludes` | Regex of paths removed from what every review pass and `reviewChecks` entry reads, and from what the `when` patterns of `reviewPasses` and `reviewChecks` match. `applyChecks`, the gate and `orca-verifier` still see the whole diff |
 | `envFiles` | Env files copied into each new worktree |
 | `linkPaths` | Untracked paths each worktree links back to the main checkout |
 | `envCommand` | Command printing the worktree stack's env vars for the gate |

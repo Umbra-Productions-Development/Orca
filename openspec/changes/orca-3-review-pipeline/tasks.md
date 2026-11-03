@@ -14,9 +14,9 @@
 
 ## 3. Docs and config
 
-- [ ] 3.1 `README.md`: config table rows for `standardsFile` and `reviewExcludes` (the latter naming review-side `when` only, not `applyChecks`); `reviewPasses` row says it adds to the three default passes; intro's agent count ("one agent") updated to four.
-- [ ] 3.2 `orca.example.json`: add `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`; `jq empty` passes.
-- [ ] 3.3 `docs/daily-use.md`, "4. Review": default passes, reconcile, tiered findings file, the APPROVE rule.
+- [x] 3.1 `README.md`: config table rows for `standardsFile` and `reviewExcludes` (the latter naming review-side `when` only, not `applyChecks`); `reviewPasses` row says it adds to the three default passes; intro's agent count ("one agent") updated to four.
+- [x] 3.2 `orca.example.json`: add `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`; `jq empty` passes.
+- [x] 3.3 `docs/daily-use.md`, "4. Review": default passes, reconcile, tiered findings file, the APPROVE rule.
 
 ## 4. Verify
 

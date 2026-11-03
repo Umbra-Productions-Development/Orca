@@ -75,9 +75,11 @@ Apply implements `tasks.md`, commit by commit. While it works:
 
 ### 4. Review
 
-The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), the review passes and `reviewChecks`, then dispatches the `orca-verifier` agent: a clean-context pass that runs the gate and reads the diff against `tasks.md`. Findings go to a file and to the orchestrator; review never fixes what it finds.
+The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), then the three default passes, `orca-complexity` (needless complexity), `orca-spec` (the diff against the openspec change, or the ticket's acceptance criteria) and `orca-standards` (the diff against `standardsFile`), then any extra `reviewPasses` and the `reviewChecks`. Paths matching `reviewExcludes` are left out of all of these. Last it dispatches the `orca-verifier` agent from the ticket's worktree: a clean-context pass that runs the gate, the review's only gate run, and reads the whole diff against `tasks.md`.
 
-Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`.
+Review then reconciles: it drops any claim the code does not show, merges findings at the same place with the same root cause, and tiers each as **Blocker** (a failing gate always is), **Should fix** or **Suggestion**. The result goes to `<gitdir>/orca-findings.md`, headed with the reviewed sha and base and a table of every pass and its result, and to the orchestrator. Review never fixes what it finds.
+
+Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding, opening with its tier: APPROVE when nothing is Blocker or Should fix, otherwise COMMENT. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`; a Blocker is closed only by a fix.
 
 ### 5. Push, merge, clean up
 
