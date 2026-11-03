@@ -274,4 +274,4 @@ design.md, Decisions: Empty and multi-document settings.json.
 - [x] 7.7 install.sh: after `jq empty`, count documents with `jq -s length` in install's preflight and in uninstall, before anything is written or removed. 0: read `{}` wherever the file's content is read (the filters, the scan and the unchanged comparison), keeping `R` as the file to write and `settings-orig` as its bytes. More than 1: the message, `nothing changed`, exit 1. Makes 7.2 and 7.3 pass; 7.4 to 7.6 need no code change.
 - [x] 7.8 `orca-lc test-lock off`. Commit the tests.
 - [x] 7.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
-- [ ] 7.10 Run `orca-lc gate` and report.
+- [x] 7.10 Run `orca-lc gate` and report.
