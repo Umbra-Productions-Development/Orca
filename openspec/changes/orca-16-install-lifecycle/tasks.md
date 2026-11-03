@@ -259,19 +259,19 @@ design.md, Decisions: Fix the code review's R10, R11, S17 and S18 in this change
 
 design.md, Decisions: Empty and multi-document settings.json.
 
-- [ ] 7.1 `orca-lc test-lock on`.
-- [ ] 7.2 **Empty settings.json** (design.md, settings.json; R12). Both modes, for an empty file and for one holding only spaces and newlines:
+- [x] 7.1 `orca-lc test-lock on`.
+- [x] 7.2 **Empty settings.json** (design.md, settings.json; R12). Both modes, for an empty file and for one holding only spaces and newlines:
   - install exits 0, stdout has `hooks registered in <cfg>/settings.json`, and the file now holds one hook of Orca's per event (`n_orca` is 4) and parses as one object
   - a second install changes no byte (settings.json and the manifest)
   - uninstall exits 0 and `cmp`s settings.json against the original bytes
   - with an empty file written after a clean install (Orca's hooks gone by hand), uninstall exits 0 and leaves the file as it is.
-- [ ] 7.3 **Multi-document settings.json** (design.md, settings.json; R12). Both modes, for `{} {}` and for `{"a":1}` then `{}` on two lines:
+- [x] 7.3 **Multi-document settings.json** (design.md, settings.json; R12). Both modes, for `{} {}` and for `{"a":1}` then `{}` on two lines:
   - install: exit 1, stderr has `install.sh: <cfg>/settings.json holds 2 JSON documents; Claude reads one` and `install.sh: nothing changed`, and the `$HOME` snapshot is unchanged
   - after a clean install, write the same content, save the manifest's bytes, then `--uninstall`: the same two lines, exit 1, no `removed` line, the snapshot unchanged, and `cmp` the manifest against the saved bytes.
-- [ ] 7.4 **1.15, config dir.** After each other-config-dir run in 1.15, assert `[ ! -e "$d/cfg" ]` besides the exit code and the snapshot.
-- [ ] 7.5 **1.15, copy records.** Copy mode: after the switch, assert that a `copy` record whose source starts with `$d/src2/` exists (`has_rec`), besides the existing check that none comes from outside it.
-- [ ] 7.6 **1.7b, foreign hooks.** After uninstall, assert that `other-pretool` is still in settings.json, as `echo foreign-start` is.
-- [ ] 7.7 install.sh: after `jq empty`, count documents with `jq -s length` in install's preflight and in uninstall, before anything is written or removed. 0: read `{}` wherever the file's content is read (the filters, the scan and the unchanged comparison), keeping `R` as the file to write and `settings-orig` as its bytes. More than 1: the message, `nothing changed`, exit 1. Makes 7.2 and 7.3 pass; 7.4 to 7.6 need no code change.
-- [ ] 7.8 `orca-lc test-lock off`. Commit the tests.
-- [ ] 7.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
+- [x] 7.4 **1.15, config dir.** After each other-config-dir run in 1.15, assert `[ ! -e "$d/cfg" ]` besides the exit code and the snapshot.
+- [x] 7.5 **1.15, copy records.** Copy mode: after the switch, assert that a `copy` record whose source starts with `$d/src2/` exists (`has_rec`), besides the existing check that none comes from outside it.
+- [x] 7.6 **1.7b, foreign hooks.** After uninstall, assert that `other-pretool` is still in settings.json, as `echo foreign-start` is.
+- [x] 7.7 install.sh: after `jq empty`, count documents with `jq -s length` in install's preflight and in uninstall, before anything is written or removed. 0: read `{}` wherever the file's content is read (the filters, the scan and the unchanged comparison), keeping `R` as the file to write and `settings-orig` as its bytes. More than 1: the message, `nothing changed`, exit 1. Makes 7.2 and 7.3 pass; 7.4 to 7.6 need no code change.
+- [x] 7.8 `orca-lc test-lock off`. Commit the tests.
+- [x] 7.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
 - [ ] 7.10 Run `orca-lc gate` and report.
