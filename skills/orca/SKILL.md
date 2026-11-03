@@ -83,8 +83,8 @@ Never: fixes what it finds; findings go to the orchestrator.
 This is the review of the code after apply; proposal review keeps its own form and may write to the same findings file, which the code review overwrites. After `orca-lc evidence`, the review session:
 
 1. Computes the review paths: the diff's paths since the merge-base with the base, minus those matching `reviewExcludes` from `.orca/config.json`. The `when` patterns of `reviewPasses` and `reviewChecks` match against these paths.
-2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex; a `reviewPasses` entry naming a default pass is not run again. Then runs every `reviewChecks` entry over the review paths.
-3. Dispatches `orca-verifier` from the ticket's worktree. Its gate run is the review's only gate run, on the ticket's stack; the session runs no gate of its own. The verifier sees the whole diff, not the review paths.
+2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. A `reviewPasses` entry naming a default pass is not run again, and one naming a skipped default is not run at all. A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too. A name in `skipDefaultPasses` that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets the line `skipDefaultPasses: unknown pass <name>, ignored`. Then runs every `reviewChecks` entry over the review paths.
+3. Dispatches `orca-verifier` from the ticket's worktree. Its gate run is the review's only gate run, on the ticket's stack; the session runs no gate of its own. The verifier runs the gate and the task check over the whole diff, not the review paths; a change at a path matching `reviewExcludes` is never one of its unasked-change findings, only listed as excluded.
 4. Reconciles and writes the findings file.
 
 ### Reconcile
@@ -109,6 +109,7 @@ The findings file is `<gitdir>/orca-findings.md` (`git rev-parse --git-dir`), ov
 
 ```
 # Review — <branch> @ <sha> vs <base>
+skipDefaultPasses: unknown pass <name>, ignored   (only when there is one)
 
 ## Passes
 | Pass | Result |
@@ -134,7 +135,7 @@ An empty tier reads `none`. The verdict is APPROVE when Blocker and Should fix a
 - A name with a colon or no matching agent type is a skill, dispatched as a `general-purpose` agent told to invoke it. Words after the name are the skill's arguments.
 - A name matching an agent type is dispatched as that agent.
 - `{"do": "<instruction>"}` is carried out by the session itself, as written.
-- Any entry written as an object may add `"when": "<regex>"`: it runs only when a path in the diff matches.
+- Any entry written as an object may add `"when": "<regex>"`: it runs only when a path matches. For `reviewPasses` and `reviewChecks` that is a review path (the diff's paths minus `reviewExcludes`, see Code review); for `applyChecks` it is any path in the diff.
 
 Each entry's result goes in the findings file's passes table (see Reconcile).
 
