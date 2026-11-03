@@ -11,7 +11,7 @@ Two checkouts of Orca:
 | `Orca` | `main` and feature branches | Developing Orca |
 | `Orca-stable` (a `git worktree` of the same clone) | `stable` | The install everyday work runs on |
 
-`install.sh` runs from `Orca-stable` only. It symlinks `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: pull `stable` in `Orca-stable`, run `install.sh` again. An install that points at another checkout is left alone; run `./install.sh --force` from `Orca-stable` to move it there.
+`install.sh` runs from `Orca-stable` only. It links `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: `git pull` on `stable` in `Orca-stable`, then `./install.sh` again. On Git Bash without Developer Mode, install copies instead of linking and says so; there the rerun after every pull is what updates the copies. An install made from another Orca checkout stops install and changes nothing; run `./install.sh --force` from `Orca-stable` to move it there. To remove Orca: `./install.sh --uninstall` from `Orca-stable`; it lists every path it leaves in place and exits 1 when it leaves any.
 
 ```bash
 git -C Orca worktree add --track -b stable ../Orca-stable origin/stable
