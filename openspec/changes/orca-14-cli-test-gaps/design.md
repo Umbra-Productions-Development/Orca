@@ -13,7 +13,7 @@ Established facts (main at ac0c846):
 - `test-lock` (bin/orca-lc:291) toggles `<git-dir>/orca-allow-test-edits`. `hooks/pretool.sh:102` blocks (exit 2) an Edit/Write/MultiEdit whose `file_path` matches `testGlob` while that file is absent.
 - `discover` (bin/orca-lc:261) writes `<shared>/discoveries/<slug>.md` with `rule`, `enforced-by` (default `none`), `since`; refuses an existing slug and an `enforced-by` outside `hook|skill|memory|reference|none` (exit 2). `archive` refuses while `enforced-by: none`, otherwise adds `archived:` and moves the file to `archive/`. `triage` lists `none` and untagged files only.
 - `ports_for` (bin/orca-lc:303) gives `base + (n % slots) * step + i` per name in `.ports`, defaults 3000/100/10. Only the defaults are tested today (tests/worktree.test.sh:6-15).
-- Open PRs #106 and #107 edit `tests/gate.test.sh` and `tests/worktree.test.sh`.
+- Open PR #106 creates `tests/gate.test.sh` (gate exit status, marker, timeout, pane; not staleness, so no overlap with `gate-fresh.test.sh`), and #107 edits `tests/worktree.test.sh`.
 
 ## Tests
 
@@ -41,7 +41,7 @@ Each file follows the existing style: a header comment naming the behaviour, `ne
 
 ### test-lock.test.sh
 - Fresh repo: `test-lock status` prints `locked`; `on` then `status` prints `unlocked`; `off` then `locked`.
-- With `"testGlob":"[/\\\\]tests[/\\\\]"`: an Edit payload for `<repo>/tests/x.test.sh` exits 2 with "test file edit blocked" while locked, 0 after `test-lock on`, 2 again after `off`. A Write payload behaves the same.
+- With `"testGlob":"[/\\\\]tests[/\\\\]"`: an Edit payload for `<repo>/tests/x.test.sh` exits 2 with "test file edit blocked" while locked, 0 after `test-lock on`, 2 again after `off`. Write and MultiEdit payloads behave the same.
 - A non-test path (`<repo>/src/a.sh`) exits 0 while locked.
 - No `testGlob` in config: a test path exits 0.
 
