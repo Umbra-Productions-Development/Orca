@@ -228,7 +228,12 @@ README's Update paragraph says this in one line: ones no longer shipped are remo
 
 settings.json (or its link's target) is checked in two steps, and either failure stops the preflight with `nothing changed`, exit 1 (Shape). The file is never rewritten or replaced to fix it.
 1. `jq empty` cannot parse it: `install.sh: <cfg>/settings.json is not valid JSON: <jq's error>`.
-2. It parses, but Orca's filters (scan and ensure) fail on it, e.g. `{"hooks": []}` or a top-level array: `install.sh: <cfg>/settings.json is valid JSON but not a Claude settings object: <jq's error>` (code review S18). The shape is whatever those filters accept; no separate schema is written down.
+2. It parses, but Orca's filters (scan and ensure) fail on it, e.g. `{"hooks": []}` or a top-level array: `install.sh: <cfg>/settings.json is valid JSON but not a Claude settings object: <jq's error>` (code review S18). The shape is whatever those filters accept, for one document; no separate schema is written down.
+
+The number of JSON documents is counted (`jq -s length`) once step 1 passes (code review R12):
+- **0 documents** (an empty or whitespace-only file) is read as `{}`, as an absent file is: in the filters, the scan and the unchanged comparison. Install writes Orca's hooks into it and saves the original bytes (`settings-orig`, the empty file), so uninstall restores those exact bytes. Why read it as absent and not stop: Claude Code can create these files empty, an empty file holds no settings to lose, and stopping would make the user delete a file Claude may recreate; without this rule, ensure emits nothing for no input, nothing is written, and install still prints `hooks registered`.
+- **More than 1** stops the preflight like step 1: `install.sh: <cfg>/settings.json holds <n> JSON documents; Claude reads one`, then `nothing changed`, exit 1. Why stop and not merge: each document would be merged on its own and written back as several objects, which Claude cannot read either, and choosing one would drop the user's others. The file is left for the user to fix.
+- Uninstall applies the same count before it removes anything: 0 is read as `{}` (no hook of Orca's to remove; a pristine file is restored to its bytes), more than 1 stops with the same message and exit 1.
 
 Orca's four hook entries are #86's, unchanged:
 - the same events and matchers, timeout 15
@@ -371,6 +376,7 @@ Each test builds a sandbox with `d=$(mktemp -d)`:
 - **Keep what apply built beyond the sections (2026-11-02).** Targets Orca no longer ships, the `-h` alias, uninstall needing only `git` and `jq`, the invalid-JSON stop, uninstall's dangling settings.json note, the failed-installer line and the unknown-platform rule stay as install.sh does them, are described here and get tests (tasks 5.x) — user (via orchestrator).
 - **Uninstall checks settings.json's JSON first (2026-11-02).** An unparsable settings.json stops uninstall before anything is removed, with install's message, `nothing changed` and exit 1 (Uninstall), instead of aborting mid-run with jq's status — orchestrator, matching install's rule, on propose's report.
 - **Fix the code review's R10, R11, S17 and S18 in this change (2026-11-02).** The `openspec` row, herdr's `/tui` URL, the dangling-link dir rule written down, and a separate wrong-shape message; tasks 6.x — user (via orchestrator).
+- **Empty and multi-document settings.json (2026-11-02).** 0 documents is read as `{}`, as an absent file is; more than 1 stops with its own message on install and uninstall (settings.json) — orchestrator, closing review R12.
 - **Edited copies stay recorded (2026-11-02).** A kept edited copy gets an `edited` record, so later installs and uninstall name it the same way — propose, from the fourth review (S13).
 - A recorded copy the user edited is kept like any target Orca did not install, with its own `edited since install` line, and does not change the exit code — propose, following the keep-rule decision (#57's Risks already call a hand-edited Orca copy kept "intended").
 - `--uninstall` takes no other flag, `--force` included: with no backups, `--force` has nothing left to do on uninstall — propose, following the keep-rule decision.
@@ -456,3 +462,8 @@ Code review (orchestrator handoffs of 2026-11-02, pieces 1 to 3).
 - **S17** (a dangling settings.json leaves `<cfg>` with no `left:` line and exit 0, undocumented): Uninstall and Directories say the stderr line is the report; task 6.5.
 - **S18** (valid JSON of the wrong shape was called "not valid JSON"): settings.json, two-step check with its own message; tasks 6.4, 6.8.
 - The verifier's five test-gap suggestions are left to review's re-check (orchestrator).
+
+Re-review at the code review fixes (orchestrator handoff of 2026-11-02).
+
+- **R12** (an empty settings.json passed both checks, nothing was written, and install printed `hooks registered`): settings.json, the document count; 0 read as `{}`, more than 1 stops. Multi-document taken here, not as a follow-up, since the same count closes it. Tasks 7.2, 7.3, 7.7.
+- Verifier test gaps review confirmed: 1.18's wording fixed in tasks.md (skills/orca ships one file); 1.15 `$d/cfg` and copy records, and 1.7b's `other-pretool`, get tasks 7.4 to 7.6.
