@@ -29,7 +29,7 @@ mkdir -p .orca && cp ~/path/to/Orca-stable/orca.example.json .orca/config.json
 echo '.orca/' >> .gitignore
 ```
 
-Fill in at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database), and `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
+Fill in at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database); `examples/stack/` has docker compose scripts to copy for them. Add `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
 
 `.orca/` holds the config and the state shared by every session of the project: handoffs, inbox, ticket owners, discoveries. It is never committed.
 
