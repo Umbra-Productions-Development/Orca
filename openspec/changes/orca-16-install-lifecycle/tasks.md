@@ -253,4 +253,4 @@ design.md, Decisions: Fix the code review's R10, R11, S17 and S18 in this change
 - [x] 6.8 install.sh: split the settings.json check in install's preflight and in uninstall into `jq empty` (the `not valid JSON` message) and the filters (the `valid JSON but not a Claude settings object` message), both before anything is written or removed. Makes 6.4 pass; 6.5 needs no code change.
 - [x] 6.9 `orca-lc test-lock off`. Commit the tests.
 - [x] 6.10 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
-- [ ] 6.11 Run `orca-lc gate` and report.
+- [x] 6.11 Run `orca-lc gate` and report.
