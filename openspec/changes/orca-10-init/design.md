@@ -47,7 +47,7 @@ Detection runs only for keys the existing config lacks (Rerun). It reads the mai
 
 - **project**: basename of `main_root`.
 - **baseBranch**: `git symbolic-ref --short refs/remotes/origin/HEAD`, minus `origin/`; else `main`.
-- **ticketPattern**: local and remote-tracking branch names (`git for-each-ref refs/heads refs/remotes`, `origin/` stripped, `HEAD` skipped). Take the leading or `/`-separated token matching `[A-Za-z]+-?[0-9]+`, and count each distinct branch once per prefix (letters, uppercased). The most common prefix found on at least 2 branches gives `<PREFIX>-[0-9]+`; a tie goes to the alphabetically first. Otherwise, the default.
+- **ticketPattern**: local and remote-tracking branch names (`git for-each-ref refs/heads refs/remotes`, `origin/` stripped, `HEAD` skipped). Split each name on `/`; a segment yields a ticket when it starts with `[A-Za-z]+-[0-9]+` (dash required) and the digits are followed by the segment's end, `-` or `_`. So `orca-10`, `feature/abc-12-login` and `abc-3_fix` count; `abc1-x` (no dash) and `release-1.0` (digits followed by `.`) do not. Count each distinct branch once per prefix (letters, uppercased). The most common prefix found on at least 2 branches gives `<PREFIX>-[0-9]+`; a tie goes to the alphabetically first. Otherwise, the default.
 - **tracker**, first that applies:
   1. `origin` is a GitHub URL (`github.com[:/]<o>/<r>(.git)?`) and `gh api repos/<o>/<r> -q .has_issues` (through `ghx`) prints `true` → `GitHub Issues on <o>/<r>`, followed by `; ticket <P>-N is issue #N (gh issue view N)` when the settled `ticketPattern` is exactly `<P>-[0-9]+` with `<P>` a literal prefix, not the default. A gh failure (offline, logged out) skips this step silently.
   2. An MCP server whose name matches `jira|atlassian|linear` (case-insensitive), in `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json` (top-level `mcpServers`, and `projects["<main_root>"].mcpServers`) or `<main_root>/.mcp.json` (`mcpServers`) → `Jira via MCP server <name>` or `Linear via MCP server <name>`. With several, the first by name. Plugin-provided servers are not read.
@@ -56,11 +56,11 @@ Detection runs only for keys the existing config lacks (Rerun). It reads the mai
 - **testCommand**: only runners that take test file paths, first that applies:
   1. `package.json` lists `vitest` in dependencies or devDependencies → `npx vitest run`; else `jest` → `npx jest`.
   2. `pytest.ini`, `conftest.py`, a `[tool.pytest` table in `pyproject.toml`, or `pytest` in `requirements*.txt` → `pytest`.
-  3. `tests/run.sh` exists → `bash tests/run.sh`.
-  4. Else `""`.
+  3. Else `""`.
+  A project's own script (`tests/run.sh`, say) is not proposed: nothing shows it takes file paths. The user types it at the prompt when it does.
 - **gate**: whole-suite commands, first that applies:
   1. `Makefile` with a `test:` target → `make test`.
-  2. Otherwise, join what is present with ` && `: the `package.json` scripts `lint`, `typecheck` and `test`, in that order, run with the package manager its lockfile names (`pnpm-lock.yaml` → `pnpm run <s>`, `yarn.lock` → `yarn <s>`, else `npm run <s>`, with `npm test` for `test`); `cargo test` when `Cargo.toml` exists; `go test ./...` when `go.mod` exists.
+  2. Otherwise, join what is present with ` && `: the `package.json` scripts `lint`, `typecheck` and `test`, in that order, run with the package manager its lockfile names (`pnpm-lock.yaml` → `pnpm run <s>`, `yarn.lock` → `yarn <s>`, else `npm run <s>`, with `npm test` for `test`); `cargo test` when `Cargo.toml` exists; `go test ./...` when `go.mod` exists; `bash tests/run.sh` when `tests/run.sh` exists.
   3. Nothing from 1–2 → the detected `testCommand` (it runs the whole suite with no files).
   4. Else `""`.
   `testCommand` is prompted before `gate`, so step 3 uses the answered value.
@@ -90,15 +90,16 @@ Order: `project`, `baseBranch`, `ticketPattern`, `tracker`, `testCommand`, `gate
 - Input, trimmed: empty accepts the proposal; `-` sets `""` (`[]` for `ports`); anything else replaces it.
 - EOF at a key prompt accepts the proposal.
 - Prompts are read only when stdin is a terminal (`[ -t 0 ]`). **Test-only:** `ORCA_INIT_PROMPT_STDIN=1` reads answers from stdin even when it is not a terminal. It is named in a comment by `cmd_init` as test-only, and not in help, README or daily-use.md.
-- With no terminal, no override and no `--yes`: no prompt is printed, every key takes its proposal, the confirmation is declined, and init exits 1 with `orca-lc: not a terminal; nothing written (orca-lc init --yes accepts every proposal)` on stderr.
+- With no terminal, no override and no `--yes`: no prompt is printed, every key takes its proposal. When that changes nothing, `no changes` (Output). Otherwise nothing goes to stdout (no config printout), and init exits 1 with `orca-lc: not a terminal; nothing written (orca-lc init --yes accepts every proposal)` on stderr.
 
 ## Output and confirmation
 
-- The new config is the existing one (or `{}`) with the prompted keys set, then the missing keys from Defaults appended in the example's order. It is formatted with `jq --indent 2 .` and ends in a newline.
+- The new config is built as: the existing config (or `{}`), plus the keys from Defaults it lacks, appended in the example's order; then the answers are set into that object. A key keeps its slot, so a fresh config has exactly the example's key order, and a rerun keeps the existing order. It is formatted with `jq --indent 2 .` and ends in a newline.
 - `.gitignore` (in `main_root`) needs a change unless it holds a line that is exactly `.orca` or `/.orca`, whitespace trimmed. A `.orca/` line does not count; the new `.orca` line goes after it, and the existing line stays. The file is created when missing, and a missing final newline is added before appending. This replaces a `git check-ignore` test: on the main checkout, check-ignore reports the real `.orca` directory ignored under `.orca/`, which still misses the worktree symlinks (Context).
-- Nothing changes (the config bytes are equal and `.gitignore` needs nothing): print `no changes`, exit 0, ask nothing, write nothing.
+- Nothing changes (`jq -c` of the old and new config are equal, and `.gitignore` needs nothing): print `no changes`, exit 0, ask nothing, write nothing. Comparing `jq -c` rather than bytes means a hand-formatted config (`roles` on one line, say) that changes in no value is left as it is, not reformatted. This check runs before the non-terminal refusal (Prompts), so a complete config with no terminal prints `no changes` and exits 0.
 - Otherwise print the new config on stdout, plus `.gitignore: add .orca` when that applies, then ask `Write <path>? [y/N] `. Only `y` or `yes` (any case) writes; anything else, or EOF, prints `nothing written` and exits 1. `--yes` skips the question and writes.
 - Writes: the config through a temp file in the same dir, then `mv`; `.gitignore` appended. Exit 0 with `wrote <path>`.
+- Run from a linked worktree (`root` ≠ `main_root`) with a `.gitignore` change: also print `note: .gitignore changed in <main_root> on branch <b>; commit it there. This worktree shows ?? .orca until its branch has the line.`
 - An existing config that is not valid JSON: `die` naming the file, before any prompt; nothing written.
 
 ## Rerun
@@ -108,21 +109,21 @@ Order: `project`, `baseBranch`, `ticketPattern`, `tracker`, `testCommand`, `gate
 
 ## Tests
 
-`tests/init.test.sh`, on `new_repo` (its `.orca/config.json` removed where a test needs a fresh repo). Answers come through `ORCA_INIT_PROMPT_STDIN=1` with a here-string; every other run reads `/dev/null`. `HOME` is the harness's temp dir, so no real `~/.claude.json` is read.
+`tests/init.test.sh`, on `new_repo` (its `.orca/config.json` removed where a test needs a fresh repo). Answers come through `ORCA_INIT_PROMPT_STDIN=1` with a here-string; every other run reads `/dev/null`. `HOME` is the harness's temp dir, and the file starts with `unset CLAUDE_CONFIG_DIR`, since tests/lib.sh does not unset it and MCP detection reads `${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json`. No real Claude config is read.
 
 1. Fresh repo, `--yes`: exit 0; the file passes `jq empty`; its keys equal `orca.example.json`'s keys in the same order; `sharedDir` = `<repo>/.orca`; `project` = repo dir name; `.gitignore` has `.orca`; no sample value from the example appears.
 2. Interactive, Enter at every prompt and `y` → bytes equal to a `--yes` run on the same repo (config removed and `.gitignore` restored between the two).
 3. Two `--yes` runs: the second prints `no changes`, and the file and `.gitignore` are byte-identical.
 4. `-` at `ticketPattern`, with detection proposing a value → `""`. Typed input replaces the proposal.
-5. stdin `/dev/null`, no `--yes`, no override: exit 1, no config file, `.gitignore` untouched, no prompt text on stdout.
+5. stdin `/dev/null`, no `--yes`, no override: exit 1, no config file, `.gitignore` untouched, stdout empty. The same after a `--yes` run: `no changes`, exit 0.
 6. `n` at the confirmation: exit 1, nothing written.
-7. ticketPattern: branches `abc-1/x` and `abc-2/y` → `ABC-[0-9]+`; one such branch → `[A-Z]+-[0-9]+`.
+7. ticketPattern: branches `abc-1/x` and `feature/abc-2-y` → `ABC-[0-9]+`; one such branch → `[A-Z]+-[0-9]+`; `abc1-x` with `abc2-y`, and `release-1.0` with `release-2.0` → `[A-Z]+-[0-9]+`.
 8. JS/TS repo: `package.json` with `vitest` and scripts `lint`, `test`, plus `tsconfig.json` → `testCommand` `npx vitest run`, `gate` `npm run lint && npm test`, and the TypeScript globs. With `pnpm-lock.yaml` → `pnpm run lint && pnpm run test`.
-9. `tests/run.sh` only → `testCommand` and `gate` both `bash tests/run.sh`; no-language `testGlob`, `sourceGlob` `""`.
+9. `tests/run.sh` only → `testCommand` `""`, `gate` `bash tests/run.sh`; no-language `testGlob`, `sourceGlob` `""`.
 10. `Makefile` with `test:` → `gate` `make test`.
 11. Tracker: origin `git@github.com:o/r.git`, the gh stub answering `has_issues: true`, branches giving `ORCA-[0-9]+` → `GitHub Issues on o/r; ticket ORCA-N is issue #N (gh issue view N)`. The stub failing → `""`. A `.mcp.json` with a server `linear` → `Linear via MCP server linear`.
-12. Run from a worktree made by `worktree up` → writes the main checkout's `.orca/config.json`.
-13. Rerun keeps an unknown key, a hand-edited unprompted value and the key order. An older config missing `testGlob` gets it appended.
+12. Run from a worktree made by `worktree up` → writes the main checkout's `.orca/config.json`, and prints the `.gitignore` note.
+13. Rerun keeps an unknown key, a hand-edited unprompted value and the key order. An older config missing `testGlob` gets it appended. A complete config written by hand with `roles` on one line → `no changes`, bytes untouched.
 14. `.gitignore` holding `.orca/` → `.orca` added below it; holding `/.orca` → unchanged.
 15. `origin/HEAD` set to `develop` → `baseBranch` `develop`.
 16. An invalid JSON config → non-zero exit, file unchanged.
@@ -145,6 +146,13 @@ Order: `project`, `baseBranch`, `ticketPattern`, `tracker`, `testCommand`, `gate
 - Docs in this change: `orca-lc help`, README, daily-use.md; install.sh's closing line waits for #116 — user (recommended, accepted).
 - A rerun proposes current values even when empty and detects only missing keys, so reruns are deterministic — propose, from #10's "re-running proposes the current values" and its byte-identical criterion.
 - EOF at a key prompt accepts the proposal; EOF at the confirmation declines — propose, consistent with the user's `[y/N]` decision.
+- Answers are set into `existing + missing defaults`, so a fresh file has the example's key order — proposal review, should-fix 1.
+- Tests unset `CLAUDE_CONFIG_DIR` in tests/init.test.sh, not in lib.sh, so no other test file changes — proposal review, should-fix 2.
+- ticketPattern requires the dash and a segment-start match ending at `-`, `_` or the segment end — proposal review, suggestion 3 (taken).
+- `tests/run.sh` is not proposed as `testCommand`, only added to `gate` — proposal review, suggestion 4 (taken); it narrows the user's file-path decision, not changes it.
+- The `no changes` check runs before the non-terminal refusal, which prints nothing on stdout — proposal review, suggestion 5 (taken).
+- `.gitignore` stays in the main checkout per the user's decision; a run from a worktree prints a note — proposal review, suggestion 6 (taken as a note and a Risk).
+- `no changes` compares `jq -c`, so a hand-formatted config with equal values is not rewritten — proposal review, suggestion 7 (taken).
 
 ## Follow-ups (sent to the orchestrator)
 
@@ -155,4 +163,7 @@ Order: `project`, `baseBranch`, `ticketPattern`, `tracker`, `testCommand`, `gate
 ## Risks
 
 - Detection reads the network once (`gh api`) when origin is on GitHub. It is skipped silently on failure, so an offline `--yes` writes an empty `tracker`, and a later rerun keeps it empty (Rerun). The user types the value or edits the file.
+- Run from a worktree, the `.gitignore` edit lands uncommitted on whatever branch the main checkout has, and the worktree keeps showing `?? .orca` until its own branch carries the line. The note says so; the user commits it.
+- `gh` missing makes `ghx` print `gh: command not found`; detection guards with `has gh` and sends gh's stderr to `/dev/null`, so the skip stays silent.
+- The `[/\\]` separators in the glob regexes must be JSON-escaped when written (`[/\\\\]` in the file), as the existing configs show; built with `jq --arg`, escaping is automatic.
 - Language globs are heuristics; a monorepo with several languages gets the union. They are printed before the confirmation, and a rerun never overwrites a hand-edited value.

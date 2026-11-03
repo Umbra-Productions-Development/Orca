@@ -1,7 +1,7 @@
 ## 1. Tests first
 
 - [ ] 1.1 `tests/stub/gh`: answer `api repos/<o>/<r>` from `$GH_STUB/repo.json` (filtered by `-q`), exit 1 when it is missing (`orca-lc test-lock on`, reason in the commit body, `test-lock off`).
-- [ ] 1.2 Add `tests/init.test.sh` with cases 1–17 from design.md "Tests"; run it and see them fail.
+- [ ] 1.2 Add `tests/init.test.sh` (opening with `unset CLAUDE_CONFIG_DIR`) with cases 1–17 from design.md "Tests"; run it and see them fail.
 
 ## 2. orca-lc
 
