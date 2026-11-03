@@ -64,7 +64,7 @@ Detection runs only for keys the existing config lacks (Rerun). It reads the mai
   3. Nothing from 1–2 → the detected `testCommand` (it runs the whole suite with no files).
   4. Else `""`.
   `testCommand` is prompted before `gate`, so step 3 uses the answered value.
-- **stackUp/stackDown**: `scripts/stack-up.sh` / `scripts/stack-down.sh` when the file exists; else `""`.
+- **stackUp/stackDown**: when `scripts/stack-up.sh` / `scripts/stack-down.sh` exists, its bare path if it is executable, else `bash scripts/stack-*.sh`; else `""`. Init never changes a script's mode.
 - **ports**: no detection; `[]`.
 
 ### Languages (testGlob, sourceGlob)
@@ -153,6 +153,7 @@ Order: `project`, `baseBranch`, `ticketPattern`, `tracker`, `testCommand`, `gate
 - The `no changes` check runs before the non-terminal refusal, which prints nothing on stdout — proposal review, suggestion 5 (taken).
 - `.gitignore` stays in the main checkout per the user's decision; a run from a worktree prints a note — proposal review, suggestion 6 (taken as a note and a Risk).
 - `no changes` compares `jq -c`, so a hand-formatted config with equal values is not rewritten — proposal review, suggestion 7 (taken).
+- A stack script is proposed as its bare path only when executable, else as `bash scripts/stack-*.sh`; init never chmods — code review, suggestion 2 (taken by apply, approved by review).
 
 ## Follow-ups (sent to the orchestrator)
 
