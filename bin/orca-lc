@@ -3,6 +3,7 @@
 set -uo pipefail
 
 USAGE='usage: orca-lc <command> [args]
+  init [--yes]                     set up .orca/config.json (prompts; --yes accepts every proposal)
   context                          state for this session (SessionStart runs it)
   gate [--inline]                  run the project gate, write the marker
   gate-fresh                       exit 0 when the marker matches the tree
@@ -540,6 +541,119 @@ cmd_role() {
   esac
 }
 
+# ---- init: <main checkout>/.orca/config.json from proposals detected in the repository (#10)
+# Every key of orca.example.json, in its order, with values that work in any project (none of the
+# example's samples). $1 main checkout, $2 the {testGlob, sourceGlob} object from init_langs.
+init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson l "$2" '{project: $p, sharedDir: $s,
+  baseBranch: "main", gate: "", testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
+  ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
+  roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
+  reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [], envFiles: [".env"], linkPaths: [],
+  envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
+  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
+# testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
+init_langs() { local m="$1" t=() s=() IFS='|'
+  [ -f "$m/tsconfig.json" ] && { t+=('\.test\.tsx?$'); s+=('src/|\.tsx?\b'); }
+  [ -f "$m/package.json" ] && [ ! -f "$m/tsconfig.json" ] && { t+=('\.(test|spec)\.[cm]?jsx?$'); s+=('\.[cm]?jsx?\b'); }
+  { [ -f "$m/pyproject.toml" ] || [ -f "$m/setup.py" ] || compgen -G "$m/requirements*.txt" >/dev/null; } \
+    && { t+=('(^|[/\\])test_[^/\\]*\.py$|_test\.py$'); s+=('\.py\b'); }
+  [ -f "$m/go.mod" ] && { t+=('_test\.go$'); s+=('\.go\b'); }
+  [ -f "$m/Cargo.toml" ] && { t+=('(^|[/\\])tests[/\\].*\.rs$'); s+=('\.rs\b'); }
+  [ ${#t[@]} -gt 0 ] || { t=('(^|[/\\])(tests?|__tests__|spec)[/\\]|[._-](test|spec)\.[^/\\]*$|(^|[/\\])test_[^/\\]*$'); s=(''); }
+  jq -n --arg t "${t[*]}" --arg s "${s[*]}" '{testGlob: $t, sourceGlob: $s}'; }
+# The most common ticket prefix on at least 2 distinct branches (local and remote-tracking, origin/
+# stripped): a /-segment counts when it starts with <letters>-<digits> followed by its end, - or _.
+init_ticket() { local p
+  p=$(git -C "$1" for-each-ref --format='%(refname)' refs/heads refs/remotes \
+    | sed -E 's#^refs/heads/##; s#^refs/remotes/origin/##; s#^refs/remotes/##' | grep -vxE '(.*/)?HEAD' | LC_ALL=C sort -u \
+    | awk -F/ '{ delete seen; for (i = 1; i <= NF; i++) if ($i ~ /^[A-Za-z]+-[0-9]+$/ || $i ~ /^[A-Za-z]+-[0-9]+[-_]/) {
+        k = toupper(substr($i, 1, index($i, "-") - 1)); if (!(k in seen)) { seen[k] = 1; n[k]++ } } }
+      END { for (k in n) if (n[k] >= 2) print n[k], k }' | LC_ALL=C sort -k1,1nr -k2,2 | head -1 | cut -d' ' -f2)
+  if [ -n "$p" ]; then echo "$p-[0-9]+"; else echo '[A-Z]+-[0-9]+'; fi; }
+# GitHub issues when origin is on GitHub with issues on (gh failing is skipped silently), else a
+# jira|atlassian|linear MCP server from the Claude config or .mcp.json, else empty. $2 the answered ticketPattern.
+init_tracker() { local m="$1" pat="$2" u o s n re='github\.com[:/]([^/]+)/([^/]+)$' lit='^([A-Za-z]+)-\[0-9\]\+$'
+  u=$(git -C "$m" remote get-url origin 2>/dev/null)
+  if [[ $u =~ $re ]] && has gh; then o="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+    if [ "$(ghx api "repos/$o" -q .has_issues 2>/dev/null)" = true ]; then s="GitHub Issues on $o"
+      [[ $pat =~ $lit ]] && s+="; ticket ${BASH_REMATCH[1]}-N is issue #N (gh issue view N)"
+      echo "$s"; return; fi; fi
+  n=$( { jq -r --arg m "$m" '(.mcpServers // {} | keys[]), (.projects[$m].mcpServers // {} | keys[])' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+    jq -r '.mcpServers // {} | keys[]' "$m/.mcp.json"; } 2>/dev/null | grep -iE 'jira|atlassian|linear' | LC_ALL=C sort | head -1)
+  [ -n "$n" ] || return 0
+  if grep -qi linear <<<"$n"; then echo "Linear via MCP server $n"; else echo "Jira via MCP server $n"; fi; }
+# Only runners that take test file paths: test-affected appends the files to testCommand.
+init_testcmd() { local m="$1" d
+  if [ -f "$m/package.json" ]; then d=$(jq -r '(.dependencies // {}) + (.devDependencies // {}) | keys[]' "$m/package.json" 2>/dev/null)
+    grep -qx vitest <<<"$d" && { echo "npx vitest run"; return; }
+    grep -qx jest <<<"$d" && { echo "npx jest"; return; }; fi
+  if [ -f "$m/pytest.ini" ] || [ -f "$m/conftest.py" ] || grep -q '^\[tool\.pytest' "$m/pyproject.toml" 2>/dev/null \
+    || cat "$m"/requirements*.txt 2>/dev/null | grep -qiE '^[[:space:]]*pytest([^[:alnum:]_]|$)'; then echo pytest; fi; }
+# Whole-suite commands: a Makefile test target, else what is present joined with &&, else $2 (the answered testCommand).
+init_gate() { local m="$1" g=() s pm o i
+  grep -qE '^test[[:space:]]*:' "$m/Makefile" 2>/dev/null && { echo "make test"; return; }
+  if [ -f "$m/package.json" ]; then
+    if [ -f "$m/pnpm-lock.yaml" ]; then pm="pnpm run"; elif [ -f "$m/yarn.lock" ]; then pm=yarn; else pm="npm run"; fi
+    for s in lint typecheck test; do jq -e --arg s "$s" '.scripts[$s] // empty' "$m/package.json" >/dev/null 2>&1 || continue
+      if [ "$s" = test ] && [ "$pm" = "npm run" ]; then g+=("npm test"); else g+=("$pm $s"); fi; done; fi
+  [ -f "$m/Cargo.toml" ] && g+=("cargo test")
+  [ -f "$m/go.mod" ] && g+=("go test ./...")
+  [ -f "$m/tests/run.sh" ] && g+=("bash tests/run.sh")
+  [ ${#g[@]} -gt 0 ] || { echo "$2"; return; }
+  o="${g[0]}"; for ((i = 1; i < ${#g[@]}; i++)); do o+=" && ${g[i]}"; done; echo "$o"; }
+# The proposal for a key the existing config lacks, as JSON. $3 the config built so far (earlier answers).
+init_detect() { local m="$1" v
+  case "$2" in
+    project) v=$(basename "$m");;
+    baseBranch) v=$(git -C "$m" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) && v="${v#origin/}" || v=main;;
+    ticketPattern) v=$(init_ticket "$m");;
+    tracker) v=$(init_tracker "$m" "$(jq -r '.ticketPattern // ""' <<<"$3")");;
+    testCommand) v=$(init_testcmd "$m");;
+    gate) v=$(init_gate "$m" "$(jq -r '.testCommand // ""' <<<"$3")");;
+    stackUp) v=""; [ -f "$m/scripts/stack-up.sh" ] && v=scripts/stack-up.sh;;
+    stackDown) v=""; [ -f "$m/scripts/stack-down.sh" ] && v=scripts/stack-down.sh;;
+    ports) echo '[]'; return;;
+  esac
+  jq -n --arg v "$v" '$v'; }
+cmd_init() {
+  local yes=0 a; for a in "$@"; do case "$a" in --yes) yes=1;; *) usage "init: unknown argument '$a'";; esac; done
+  local r m; r=$(root) || die "not in a repo"; m=$(main_root) || die "not in a repo"
+  local f="$m/.orca/config.json" was='{}'
+  if [ -f "$f" ]; then was=$(jq -sc 'if length == 1 and (.[0] | type) == "object" then .[0] else error("") end' "$f" 2>/dev/null) \
+    || die "$f is not a valid JSON object; fix or remove it (nothing written)"; fi
+  # Prompts read stdin only from a terminal. ORCA_INIT_PROMPT_STDIN=1 is test-only: tests/init.test.sh
+  # feeds answers through a pipe with it. It is not documented anywhere else.
+  local ask=0; [ $yes = 0 ] && { [ -t 0 ] || [ "${ORCA_INIT_PROMPT_STDIN:-}" = 1 ]; } && ask=1
+  # The existing config plus the defaults it lacks, appended in the example's order; answers keep each key's slot.
+  local cur k p ans; cur=$(jq -c --argjson d "$(init_defaults "$m" "$(init_langs "$m")")" '. as $o | $o + ($d | with_entries(select(.key as $k | $o | has($k) | not)))' <<<"$was")
+  for k in project baseBranch ticketPattern tracker testCommand gate stackUp stackDown ports; do
+    # A key already in the config proposes its value, even empty; detection runs only for missing keys.
+    if jq -e --arg k "$k" 'has($k)' <<<"$was" >/dev/null; then p=$(jq -c --arg k "$k" '.[$k]' <<<"$was"); else p=$(init_detect "$m" "$k" "$cur"); fi
+    if [ $ask = 1 ]; then
+      printf '%s [%s]: ' "$k" "$(jq -r 'if type == "string" then . elif type == "array" then map(tostring) | join(" ") else tojson end' <<<"$p")" >&2
+      ans=""; read -r ans || true   # EOF accepts the proposal
+      if [ "$ans" = - ]; then if [ "$k" = ports ]; then p='[]'; else p='""'; fi
+      elif [ -n "$ans" ]; then if [ "$k" = ports ]; then p=$(jq -nc --arg v "$ans" '[$v | splits("[ ,]+") | select(length > 0)]'); else p=$(jq -n --arg v "$ans" '$v'); fi; fi
+    fi
+    cur=$(jq -c --arg k "$k" --argjson v "$p" '.[$k] = $v' <<<"$cur")
+  done
+  # .gitignore needs a .orca line: .orca/ matches directories only and misses the worktrees' .orca symlinks.
+  local gi="$m/.gitignore" gich=1
+  [ -f "$gi" ] && sed 's/^[[:space:]]*//; s/[[:space:]]*$//' "$gi" | grep -qxE '/?\.orca' && gich=0
+  if [ "$(jq -c . <<<"$was")" = "$cur" ] && [ $gich = 0 ]; then echo "no changes"; return 0; fi
+  [ $yes = 1 ] || [ $ask = 1 ] || die "not a terminal; nothing written (orca-lc init --yes accepts every proposal)"
+  local new; new=$(jq --indent 2 . <<<"$cur")
+  echo "$new"; [ $gich = 1 ] && echo ".gitignore: add .orca"
+  if [ $yes = 0 ]; then local c=""; printf 'Write %s? [y/N] ' "$f" >&2; read -r c || c=""
+    case "$(echo "$c" | tr 'A-Z' 'a-z')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
+  mkdir -p "$m/.orca" || die "could not create $m/.orca"
+  local tmp="$f.tmp.$$"; { printf '%s\n' "$new" > "$tmp" && mv "$tmp" "$f"; } || { rm -f "$tmp"; die "could not write $f"; }
+  if [ $gich = 1 ]; then { [ -s "$gi" ] && [ -n "$(tail -c1 "$gi")" ] && echo; echo .orca; } >> "$gi" || die "could not write $gi"; fi
+  echo "wrote $f"
+  if [ "$r" != "$m" ] && [ $gich = 1 ]; then
+    echo "note: .gitignore changed in $m on branch $(git -C "$m" branch --show-current); commit it there. This worktree shows ?? .orca until its branch has the line."; fi
+}
+
 cmd_context() {
   echo "orca-lc: project=$(cfg '.project') session=$(me id | cut -c1-8) name=$(me name) ticket=$(me ticket) role=$(me role) gate=$(cmd_gate_fresh && echo fresh || echo stale) test-edits=$(cmd_test_lock status)"
   local p; p=$(cmd_peers); [ -n "$p" ] && { echo "peers (this repo, all worktrees; first column is the notify target):"; echo "$p"; }
@@ -563,6 +677,6 @@ case "$cmd" in
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
-  stack) cmd_stack "$@";; ticket) ticket;;
+  stack) cmd_stack "$@";; ticket) ticket;; init) cmd_init "$@";;
   *) usage "unknown command '$cmd'";;
 esac
