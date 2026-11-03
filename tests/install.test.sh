@@ -750,8 +750,9 @@ t_empty() { local c a
 both t_empty
 
 # 7.3 multi-document settings.json stops
-multi_run() {
-  printf '%s' "$2" > "$C/settings.json"; a=$(snapshot "$HOME"); [ ! -f "$M" ] || cp "$M" "$d/m.saved"
+multi_run() { local a
+  printf '%s' "$2" > "$C/settings.json"; a=$(snapshot "$HOME")
+  if [ "$3" = --uninstall ]; then [ -f "$M" ] || fail "$1: setup: no manifest"; cp "$M" "$d/m.saved"; fi
   inst $3; assert_status "$st" 1 "$1"
   assert_contains "$err" "install.sh: $C/settings.json holds 2 JSON documents; Claude reads one" "$1"
   assert_contains "$err" "install.sh: nothing changed" "$1"
