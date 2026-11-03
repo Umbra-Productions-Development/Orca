@@ -4,7 +4,7 @@
 
 ## 2. Docs
 
-- [ ] 2.1 README `stackUp` / `stackDown` row: say `ORCA_TICKET` is the lowercase ticket id, safe for compose project, container and volume names.
+- [ ] 2.1 README `stackUp` / `stackDown` row: say `ORCA_TICKET` is the lowercase ticket id, safe for compose project, container and volume names. The `migrateCommand` row (README.md:92) says it runs with the same `ORCA_TICKET`, `ORCA_WORKTREE` and ports exported.
 
 ## 3. Tests (`orca-lc test-lock on`, reason in the commit body, `test-lock off`)
 

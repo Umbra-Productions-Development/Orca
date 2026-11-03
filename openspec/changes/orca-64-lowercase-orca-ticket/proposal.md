@@ -6,7 +6,7 @@
 
 - `stack_run` in `bin/orca-lc` exports `ORCA_TICKET` as `tkey` of the ticket it is given: lowercase, the same form `ticket()` returns. `stackUp`, `migrateCommand` and `stackDown` all get it, whatever case the ticket was typed in.
 - Uppercase stays where it is today: the worktree directory, herdr labels, and the retry, teardown and `torn down` messages.
-- README `stackUp` / `stackDown` row: `ORCA_TICKET` is the lowercase ticket id, safe for compose project, container and volume names.
+- README `stackUp` / `stackDown` row: `ORCA_TICKET` is the lowercase ticket id, safe for compose project, container and volume names. The `migrateCommand` row says it runs with the same env.
 - `tests/worktree.test.sh`: cases for `ORCA_TICKET` in each of the three commands, typed in either case; the existing `up S-4` assertion becomes `up s-4`.
 
 ## Impact

@@ -26,7 +26,7 @@ In `tests/worktree.test.sh` (test edit: `orca-lc test-lock on`, reason in the co
 
 ## Overlap
 
-- Open PR #107 (MCP servers off in worktrees) edits `cmd_worktree` in other hunks and appends cases to the end of `tests/worktree.test.sh`. The overlap is textual only; whichever merges second rebases.
+- Open PR #107 (MCP servers off in worktrees) edits `cmd_worktree` in other hunks, adds a `README.md` config row near the `stackUp` / `stackDown` row (around line 87), and appends cases to the end of `tests/worktree.test.sh`. The overlap is textual only; whichever merges second rebases.
 
 ## Decisions
 
