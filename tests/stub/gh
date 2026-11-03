@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Fake gh for tests. PRs live in $GH_STUB/prs.json, installed extensions in $GH_STUB/extensions,
+# the repo that `gh api repos/<o>/<r>` answers in $GH_STUB/repo.json (exit 1 when it is missing),
 # and every call is appended to $GH_STUB/calls.
 s="$GH_STUB"; f="$s/prs.json"; echo "$*" >> "$s/calls"; [ -f "$f" ] || echo '[]' > "$f"
 arg() { local k="$1"; shift; while [ $# -gt 0 ]; do [ "$1" = "$k" ] && { echo "$2"; return; }; shift; done; }
@@ -21,5 +22,6 @@ case "$1 ${2:-}" in
   "stack add") git checkout -q -b "$3";;
   "stack top") [ -f "$s/top" ] && git checkout -q "$(cat "$s/top")"; :;;
   stack\ *) ;;
+  api\ repos/*) [ -f "$s/repo.json" ] || exit 1; q=$(arg -q "$@"); jq -r "${q:-.}" "$s/repo.json";;
   *) echo "gh stub: unhandled: $*" >&2; exit 1;;
 esac
