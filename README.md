@@ -80,11 +80,12 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |
 | `roles` | Map of tab labels to role names |
-| `reviewPasses` | Review passes run in addition to the three default passes `orca-complexity`, `orca-spec` and `orca-standards` (see the entry format below); naming a default pass does not run it twice |
+| `reviewPasses` | Review passes run in addition to the three default passes `orca-complexity`, `orca-spec` and `orca-standards` (see the entry format below); naming a default pass does not run it twice, and a default `skipDefaultPasses` names stays off |
 | `applyChecks` | Checks the apply session runs before the gate |
 | `reviewChecks` | Checks the review session runs on its own stack |
 | `standardsFile` | Path, relative to the repository root, to the project's coding standards, read by the `orca-standards` pass. Absent: that pass is skipped |
-| `reviewExcludes` | Regex of paths removed from what every review pass and `reviewChecks` entry reads, and from what the `when` patterns of `reviewPasses` and `reviewChecks` match. `applyChecks`, the gate and `orca-verifier` still see the whole diff |
+| `reviewExcludes` | Regex of paths removed from what every review pass and `reviewChecks` entry reads, and from what the `when` patterns of `reviewPasses` and `reviewChecks` match. `applyChecks`, the gate and `orca-verifier` still see the whole diff; the verifier only drops excluded paths from its unasked-change findings |
+| `skipDefaultPasses` | Array of default passes (`orca-complexity`, `orca-spec`, `orca-standards`) not run; each stays in the findings file's passes table as `skipped: off in skipDefaultPasses`, also when `reviewPasses` names it. A name that is not a default pass is ignored and noted in the findings file header. Absent: all three run |
 | `envFiles` | Env files copied into each new worktree |
 | `linkPaths` | Untracked paths each worktree links back to the main checkout |
 | `envCommand` | Command printing the worktree stack's env vars for the gate |
@@ -97,7 +98,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
 
-Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an agent name, or `{"do": "<instruction>"}`. Any object entry may add `"when": "<regex>"` to run only when a changed path matches.
+Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an agent name, or `{"do": "<instruction>"}`. Any object entry may add `"when": "<regex>"` to run only when a path matches: a review path (the diff's paths minus `reviewExcludes`) for `reviewPasses` and `reviewChecks`, any path in the diff for `applyChecks`.
 
 ## Contributing
 
