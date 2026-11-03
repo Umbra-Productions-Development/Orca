@@ -130,6 +130,19 @@ down
 assert_status "$st" 0 "down failed: $out"
 assert_eq "$(cat "$log")" "compose -p my-proj-abc-1 down -v --remove-orphans"
 
+# Linked worktree (where worktree up --stack runs): the override lands under .git/worktrees/<name>/
+wt="$(dirname "$r")/wt-abc-1"
+git -C "$r" worktree add -q -b abc-1/work "$wt"
+printf 'WEB_PORT=3010\nAPI_PORT=3011\n' > "$wt/.env.local"
+wover="$(realpath "$r/.git")/worktrees/wt-abc-1/orca-compose.override.yaml"
+: > "$log"
+out=$(env -u COMPOSE_FILE -u COMPOSE_PATH_SEPARATOR -u SEED_VOLUME -u SEED_TARGET -u ORCA_PORT_MAP \
+  ORCA_TICKET=abc-1 ORCA_WORKTREE="$wt" WEB_PORT=3010 API_PORT=3011 "$ex/stack-up.sh" 2>&1); st=$?
+assert_status "$st" 0 "up in a linked worktree failed: $out"
+assert_contains "$(cat "$log")" "-f $wt/compose.yaml -f $wover up -d --wait"
+[ -f "$wover" ] || fail "no override at $wover"
+assert_eq "$(git -C "$wt" status --porcelain)" "" "up left the linked worktree dirty"
+
 # project unset: both fail naming it, nothing reaches docker
 echo '{"gate":"true"}' > "$r/.orca/config.json"
 up
