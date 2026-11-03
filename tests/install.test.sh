@@ -285,6 +285,11 @@ t_missing() {
   for t in claude git jq gh herdr; do
     mv "$d/bin/$t" "$d/away"; a=$(snapshot "$HOME")
     inst; assert_status "$st" 1 "missing $t"; assert_contains "$err" "$t"
+    if [ "$t" = herdr ]; then
+      assert_contains "$err" "install.sh: missing required tool: herdr (https://herdr.dev/tui)"
+      x=$out$'\n'$err; x=${x//https:\/\/herdr.dev\/tui/}
+      assert_not_contains "$x" "https://herdr.dev" "a herdr.dev URL other than /tui"
+    fi
     assert_eq "$(snapshot "$HOME")" "$a" "missing $t changed \$HOME"
     mv "$d/away" "$d/bin/$t"
   done
@@ -641,7 +646,9 @@ t_uninst_dangling() {
   assert_contains "$err" "install.sh: $C/settings.json is a dangling symlink; left it as it is"
   assert_not_contains "$out" "left: $C/settings.json"
   assert_eq "$(readlink "$C/settings.json")" "$d/missing.json"; gone_all
-  [ ! -e "$M" ] || fail "manifest still there"; }
+  [ ! -e "$M" ] || fail "manifest still there"
+  assert_eq "$(cd "$C" && ls -A)" settings.json "<cfg> holds only the link"
+  assert_not_contains "$out" "left: $C " "a left: line names <cfg>"; }
 one t_uninst_dangling link
 
 # 5.7 a failing installer
@@ -679,3 +686,43 @@ t_uninst_badjson() {
   echo '{}' > "$C/settings.json"
   inst --uninstall; assert_status "$st" 0 "after fix: $out $err"; gone_all; }
 both t_uninst_badjson
+
+# --- 6.x: code review fixes (design.md, Decisions) ---
+# 6.2 openspec row
+t_openspec() { local u names
+  for u in Linux Darwin MINGW64_NT-10.0; do
+    export ORCA_TEST_UNAME=$u
+    names=$(table_rows | cut -f1 | tr '\n' ' ')
+    assert_contains "$names" "direnv openspec mattpocock-skills" "$u: openspec between direnv and mattpocock-skills"
+    assert_eq "$(table_rows | awk -F'\t' '$1 == "openspec" { print $3 }')" "npm install -g @fission-ai/openspec@latest" "$u: openspec command"
+  done
+  export ORCA_TEST_UNAME=Linux; rm "$d/bin/npm"
+  inst --yes; assert_status "$st" 0 "$err"
+  en=$(table_rows | awk -F'\t' '$1 == "openspec" { print $2 }')
+  assert_contains "$out" "openspec: not installed ($en); see https://github.com/Fission-AI/OpenSpec"; }
+one t_openspec copy
+
+# 6.3 README links herdr's /tui page, not the desktop app
+t_herdr_docs() { ! grep -q 'https://herdr.dev)' "$ORCA_SRC/README.md" || fail "README links https://herdr.dev"; }
+one t_herdr_docs copy
+
+# 6.4 wrong-shaped settings.json
+shape_run() {
+  printf '%s' "$2" > "$C/settings.json"; a=$(snapshot "$HOME"); [ ! -f "$M" ] || cp "$M" "$d/m.saved"
+  inst $3; assert_status "$st" 1 "$1"
+  assert_contains "$err" "install.sh: $C/settings.json is valid JSON but not a Claude settings object:" "$1"
+  assert_contains "$err" "install.sh: nothing changed" "$1"; assert_not_contains "$err" "not valid JSON" "$1"
+  assert_not_contains "$out" "removed" "$1: a removed line"
+  assert_eq "$(snapshot "$HOME")" "$a" "$1: changed \$HOME"
+  [ ! -f "$d/m.saved" ] || { cmp -s "$M" "$d/m.saved" || fail "$1: manifest changed"; }; rm -f "$d/m.saved"; }
+t_shape() { local j
+  for j in '{"hooks": []}' '[]'; do
+    rm -rf "$HOME"; mkdir -p "$C"; shape_run "install $j" "$j" --no-optional
+    rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"
+    shape_run "uninstall $j" "$j" --uninstall
+  done
+  rm -rf "$HOME"; mkdir -p "$C"; printf '{' > "$C/settings.json"
+  inst --no-optional; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; printf '{' > "$C/settings.json"
+  inst --uninstall; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"; }
+both t_shape

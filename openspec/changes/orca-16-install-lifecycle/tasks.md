@@ -240,17 +240,17 @@ install.sh already does all of this (design.md, Decisions: Keep what apply built
 
 design.md, Decisions: Fix the code review's R10, R11, S17 and S18 in this change.
 
-- [ ] 6.1 `orca-lc test-lock on`.
-- [ ] 6.2 **openspec row** (design.md, Recommended tools). `table_rows` lists `openspec` after `direnv` and before `mattpocock-skills`, with the command `npm install -g @fission-ai/openspec@latest` for each of `ORCA_TEST_UNAME=Linux`, `Darwin` and `MINGW64_NT-10.0`. 1.11's `--yes` case then expects that call through `table_rows`, unchanged. Without `npm`, its `not installed (<enables>); see https://github.com/Fission-AI/OpenSpec` line is printed.
-- [ ] 6.3 **herdr URL** (design.md, Required tools). In 1.8's herdr case, stderr has `install.sh: missing required tool: herdr (https://herdr.dev/tui)`, and no output line holds `https://herdr.dev` followed by anything other than `/tui`. README.md has no `https://herdr.dev)` link (a docs check, in the same test file or as a grep in 6.10's report).
-- [ ] 6.4 **Wrong-shaped settings.json** (design.md, settings.json). Both modes, for each of `{"hooks": []}` and `[]`:
+- [x] 6.1 `orca-lc test-lock on`.
+- [x] 6.2 **openspec row** (design.md, Recommended tools). `table_rows` lists `openspec` after `direnv` and before `mattpocock-skills`, with the command `npm install -g @fission-ai/openspec@latest` for each of `ORCA_TEST_UNAME=Linux`, `Darwin` and `MINGW64_NT-10.0`. 1.11's `--yes` case then expects that call through `table_rows`, unchanged. Without `npm`, its `not installed (<enables>); see https://github.com/Fission-AI/OpenSpec` line is printed.
+- [x] 6.3 **herdr URL** (design.md, Required tools). In 1.8's herdr case, stderr has `install.sh: missing required tool: herdr (https://herdr.dev/tui)`, and no output line holds `https://herdr.dev` followed by anything other than `/tui`. README.md has no `https://herdr.dev)` link (a docs check, in the same test file or as a grep in 6.10's report).
+- [x] 6.4 **Wrong-shaped settings.json** (design.md, settings.json). Both modes, for each of `{"hooks": []}` and `[]`:
   - install: exit 1; stderr has `install.sh: <cfg>/settings.json is valid JSON but not a Claude settings object:` and `install.sh: nothing changed`, and does not contain `not valid JSON`; the `$HOME` snapshot is unchanged
   - after a clean install, write the same content, save the manifest's bytes, then `--uninstall`: the same two lines, exit 1, no `removed` line, the snapshot unchanged, and `cmp` the manifest against the saved bytes
   - 5.5's and 5.9's `{` cases still print `not valid JSON` and not the shape line.
-- [ ] 6.5 **Dangling settings.json and its dir** (design.md, Uninstall, Directories; S17). Extend 5.6: after the uninstall, `<cfg>` still exists and holds only the link, no `left:` line names `<cfg>`, and the exit status is 0.
-- [ ] 6.6 install.sh: add the `openspec` row between `direnv` and `mattpocock-skills`, with a source comment like the other rows (README, npm, `@fission-ai/openspec`, Node 22.12 or later; the script installers excluded). README.md: add openspec to the recommended list. Makes 6.2 pass.
-- [ ] 6.7 install.sh: herdr's `tool_url` is `https://herdr.dev/tui`. README.md: the required-tools line links herdr to `https://herdr.dev/tui`; check docs/ for the same URL. Makes 6.3 pass.
-- [ ] 6.8 install.sh: split the settings.json check in install's preflight and in uninstall into `jq empty` (the `not valid JSON` message) and the filters (the `valid JSON but not a Claude settings object` message), both before anything is written or removed. Makes 6.4 pass; 6.5 needs no code change.
-- [ ] 6.9 `orca-lc test-lock off`. Commit the tests.
-- [ ] 6.10 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
+- [x] 6.5 **Dangling settings.json and its dir** (design.md, Uninstall, Directories; S17). Extend 5.6: after the uninstall, `<cfg>` still exists and holds only the link, no `left:` line names `<cfg>`, and the exit status is 0.
+- [x] 6.6 install.sh: add the `openspec` row between `direnv` and `mattpocock-skills`, with a source comment like the other rows (README, npm, `@fission-ai/openspec`, Node 22.12 or later; the script installers excluded). README.md: add openspec to the recommended list. Makes 6.2 pass.
+- [x] 6.7 install.sh: herdr's `tool_url` is `https://herdr.dev/tui`. README.md: the required-tools line links herdr to `https://herdr.dev/tui`; check docs/ for the same URL. Makes 6.3 pass.
+- [x] 6.8 install.sh: split the settings.json check in install's preflight and in uninstall into `jq empty` (the `not valid JSON` message) and the filters (the `valid JSON but not a Claude settings object` message), both before anything is written or removed. Makes 6.4 pass; 6.5 needs no code change.
+- [x] 6.9 `orca-lc test-lock off`. Commit the tests.
+- [x] 6.10 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
 - [ ] 6.11 Run `orca-lc gate` and report.
