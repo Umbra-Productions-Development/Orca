@@ -57,8 +57,7 @@ cd Orca && ./install.sh
 In the repository you want to work on:
 
 ```bash
-mkdir -p .orca && cp /path/to/Orca/orca.example.json .orca/config.json
-# edit .orca/config.json, then add .orca/ to .gitignore
+orca-lc init            # writes .orca/config.json from what it detects, adds .orca to .gitignore
 orca-lc worktree up ABC-123
 ```
 
@@ -66,7 +65,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 
 ## Configuration
 
-`.orca/config.json`, one per repository, never committed.
+`.orca/config.json`, one per repository, never committed. `orca-lc init` writes it, proposing each value from the repository, and a rerun edits it. `orca.example.json` is the reference for every key.
 
 | Key | What |
 |---|---|
