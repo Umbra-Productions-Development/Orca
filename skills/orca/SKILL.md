@@ -136,7 +136,7 @@ An empty tier reads `none`. The verdict is APPROVE when Blocker and Should fix a
 - `{"do": "<instruction>"}` is carried out by the session itself, as written.
 - Any entry written as an object may add `"when": "<regex>"`: it runs only when a path in the diff matches.
 
-The findings file (see Reconcile) lists every entry with its result, or `skipped` and the reason.
+Each entry's result goes in the findings file's passes table (see Reconcile).
 
 ## Pull requests
 
