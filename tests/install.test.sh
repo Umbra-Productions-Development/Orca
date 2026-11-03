@@ -287,8 +287,8 @@ t_missing() {
     inst; assert_status "$st" 1 "missing $t"; assert_contains "$err" "$t"
     if [ "$t" = herdr ]; then
       assert_contains "$err" "install.sh: missing required tool: herdr (https://herdr.dev/tui)"
-      x=$out$'\n'$err; x=${x//https:\/\/herdr.dev\/tui/}
-      assert_not_contains "$x" "https://herdr.dev" "a herdr.dev URL other than /tui"
+      x=$(printf '%s\n%s\n' "$out" "$err" | grep -o 'https://herdr\.dev[^ )]*' | grep -vx 'https://herdr\.dev/tui')
+      assert_eq "$x" "" "a herdr.dev URL other than /tui"
     fi
     assert_eq "$(snapshot "$HOME")" "$a" "missing $t changed \$HOME"
     mv "$d/away" "$d/bin/$t"
@@ -689,7 +689,7 @@ both t_uninst_badjson
 
 # --- 6.x: code review fixes (design.md, Decisions) ---
 # 6.2 openspec row
-t_openspec() { local u names
+t_openspec() { local u names en
   for u in Linux Darwin MINGW64_NT-10.0; do
     export ORCA_TEST_UNAME=$u
     names=$(table_rows | cut -f1 | tr '\n' ' ')
