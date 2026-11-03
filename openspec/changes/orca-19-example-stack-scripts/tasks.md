@@ -8,7 +8,14 @@
 - [ ] 1.2 Add `examples/stack/stack-up.sh` (executable), settings header and steps 1–8 per design.md "stack-up.sh".
 - [ ] 1.3 Add `examples/stack/stack-down.sh` (executable) per design.md "stack-down.sh".
 - [ ] 1.4 Both scripts pass `bash -n` and `shellcheck -S warning`, and use no GNU-only `sed`/`grep` flags (Git Bash and macOS portable).
-- [ ] 1.5 Add `examples/stack/README.md`: copy both scripts into `scripts/` and keep `orca.example.json`'s `stackUp`/`stackDown`; the settings table; the Compose ≥ 2.24.4 requirement; the project and volume naming; that `stackDown` removes volumes; the `${WEB_PORT:-80}:80` interpolation alternative for adopters who own their compose file.
+- [ ] 1.5 Add `examples/stack/README.md` covering:
+  - copying both scripts into `scripts/`, keeping `orca.example.json`'s `stackUp`/`stackDown`;
+  - the settings table, including `COMPOSE_PATH_SEPARATOR` on Windows;
+  - Compose's automatic override file being kept when `COMPOSE_FILE` is unset;
+  - the Compose ≥ 2.24.4 requirement;
+  - the project name (`project` required) and volume naming;
+  - that `stackDown` removes volumes;
+  - the `${WEB_PORT:-80}:80` interpolation alternative for adopters who own their compose file.
 
 ## 2. Docs
 
@@ -22,4 +29,4 @@
 
 ## 4. Acceptance
 
-- [ ] 4.1 Run design.md "Manual verification" on native Linux with real Docker (covers Linux and WSL2), and put the output in the PR body.
+- [ ] 4.1 Run design.md "Manual verification" on native Linux with real Docker, and put the output in the PR body.
