@@ -243,6 +243,7 @@ t_edit_inst() {
   inst --uninstall
   assert_eq "$(jq .added "$C/settings.json")" true "added key lost"
   assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "echo foreign-start"
+  assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "other-pretool"
   assert_eq "$(n_orca "$C/settings.json")" 0 "hooks of Orca's left"; }
 both t_edit_inst
 
@@ -427,12 +428,14 @@ t_checkout() {
     for t in $(SRC=$d/src2 targets "$C"); do case $(readlink "$t") in "$d/src2/"*) ;; *) fail "$t does not point into src2";; esac; done
   else
     assert_eq "$(awk -F'\t' '$1 == "copy" && index($3, "'"$d/src2/"'") != 1' "$M")" "" "copy records not from src2"
+    has_rec copy "$HOME/.local/bin/orca-lc$TAB$d/src2/" || fail "no copy record from src2"
   fi
   no_bak; has_rec config "$C$" || fail "config record lost in the switch"
   b=$(snapshot "$HOME")
   for f in "" --force; do
     CLAUDE_CONFIG_DIR=$d/cfg SRC=$d/src2 inst $f; assert_status "$st" 1 "other config dir after switch ($f)"
     assert_eq "$(snapshot "$HOME")" "$b" "other config dir changed \$HOME ($f)"
+    [ ! -e "$d/cfg" ] || fail "other config dir run created $d/cfg ($f)"
   done
   SRC=$d/src2 inst --uninstall; assert_status "$st" 0 "$out $err"
   cmp -s "$C/settings.json" "$d/saved" || fail "settings.json not restored"
@@ -726,3 +729,39 @@ t_shape() { local j
   rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; printf '{' > "$C/settings.json"
   inst --uninstall; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"; }
 both t_shape
+
+# --- 7.x: re-review fixes (design.md, Decisions: Empty and multi-document settings.json) ---
+# 7.2 empty settings.json is read as {}
+t_empty() { local c a
+  for c in '' $'  \n\n \n'; do
+    rm -rf "$HOME"; mkdir -p "$C"; printf '%s' "$c" > "$C/settings.json"; cp "$C/settings.json" "$d/saved"
+    inst --no-optional; assert_status "$st" 0 "$err"
+    assert_contains "$out" "hooks registered in $C/settings.json"
+    assert_eq "$(n_orca "$C/settings.json")" 4 "four hooks of Orca's"
+    assert_eq "$(jq -s 'length == 1 and (.[0] | type == "object")' "$C/settings.json")" true "one object"
+    a=$(snapshot "$HOME"); inst --no-optional; assert_eq "$(snapshot "$HOME")" "$a" "second install changed something"
+    inst --uninstall; assert_status "$st" 0 "$out $err"
+    cmp -s "$C/settings.json" "$d/saved" || fail "empty bytes not restored"
+  done
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"
+  : > "$C/settings.json"
+  inst --uninstall; assert_status "$st" 0 "emptied by hand: $out $err"
+  [ -f "$C/settings.json" ] && [ ! -s "$C/settings.json" ] || fail "emptied settings.json not left as it is"; }
+both t_empty
+
+# 7.3 multi-document settings.json stops
+multi_run() {
+  printf '%s' "$2" > "$C/settings.json"; a=$(snapshot "$HOME"); [ ! -f "$M" ] || cp "$M" "$d/m.saved"
+  inst $3; assert_status "$st" 1 "$1"
+  assert_contains "$err" "install.sh: $C/settings.json holds 2 JSON documents; Claude reads one" "$1"
+  assert_contains "$err" "install.sh: nothing changed" "$1"
+  assert_not_contains "$out" "removed" "$1: a removed line"
+  assert_eq "$(snapshot "$HOME")" "$a" "$1: changed \$HOME"
+  [ ! -f "$d/m.saved" ] || { cmp -s "$M" "$d/m.saved" || fail "$1: manifest changed"; }; rm -f "$d/m.saved"; }
+t_multi() { local j
+  for j in '{} {}' $'{"a":1}\n{}'; do
+    rm -rf "$HOME"; mkdir -p "$C"; multi_run "install $j" "$j" --no-optional
+    rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"
+    multi_run "uninstall $j" "$j" --uninstall
+  done; }
+both t_multi
