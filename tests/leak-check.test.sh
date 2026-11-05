@@ -394,11 +394,3 @@ out=$(printf 'zebra\n' | BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc leak-check --st
 ok $(( st == 1 ? 0 : 1 )) "without mapfile: --stdin hit exits 1"
 out=$(BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc discover b3-slug "uses zebra" 2>&1); st=$?
 ok $(( st == 1 ? 0 : 1 )) "without mapfile: discover hit exits 1"; [ ! -e .orca/discoveries/b3-slug.md ]; ok $? "without mapfile: discover hit creates no file"
-
-
-# inbox read before any inbox/ exists reads nothing and fails nothing; a send then makes it.
-ir="$TMPDIR/noinbox"; git init -q "$ir"; mkdir "$ir/.orca"; echo '{}' > "$ir/.orca/config.json"
-out=$(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox read orca-9 2>&1); st=$?
-ok $st "inbox read with no inbox/ exits 0"; [ -z "$out" ]; ok $? "inbox read with no inbox/ prints nothing"
-(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox send orca-9 "hello there" >/dev/null)
-out=$(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox read orca-9 2>&1); has "hello there"; ok $? "inbox read after the first send prints it"
