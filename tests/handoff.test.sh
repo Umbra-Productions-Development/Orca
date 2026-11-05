@@ -111,3 +111,20 @@ check "consume stamps the front matter, not the body" '[ "$(grep -c "^consumed-b
 e=$("$lc" role start ABC-12 apply --sa x </dev/null 2>&1); rc=$?
 check "role start: an unknown third argument is a usage error" '[ "$rc" = 2 ] && [[ $e == *"role start <ticket> <role> [--as <name>]"* ]]'
 
+
+# handoff write names the ticket's stack ports on one line, from the worktree's .env.local; none, no line (#89)
+mkdir -p "$(dirname "$repo")/ABC-20"; printf 'A_PORT=3200\nB_PORT=3201\nOTHER=x\n' >"$(dirname "$repo")/ABC-20/.env.local"
+f=$(as s1 handoff write ABC-20 apply)
+check "stack ports joined on one line" 'grep -qx "Stack ports: A_PORT=3200 B_PORT=3201" "$f"'
+f=$(as s1 handoff write ABC-21 apply)
+check "no ports, no Stack ports line" '! grep -q "^Stack ports:" "$f"'
+
+# context lists the last three unconsumed handoffs in name order; with none, no line (#89)
+cr="$(mktemp -d)/CTX-1"; git init -q "$cr" && mkdir "$cr/.orca" && echo '{}' >"$cr/.orca/config.json"
+out=$(cd "$cr" && HERDR_PANE_ID=pane-ctx "$lc" context 2>/dev/null)
+check "context: no handoffs, no line" '[[ $out != *"unconsumed handoffs"* ]]'
+for r in review apply propose orchestrator; do (cd "$cr" && as s1 handoff write CTX-1 "$r" >/dev/null); done
+out=$(cd "$cr" && HERDR_PANE_ID=pane-ctx "$lc" context 2>/dev/null)
+check "context: unconsumed handoffs line" '[[ $out == *"unconsumed handoffs for ctx-1"* ]]'
+got=$(grep '\.md$' <<<"$out" | xargs -n1 basename | cut -d- -f1 | tr '\n' ' ')
+check "context: last three in name order" '[ "$got" = "orchestrator propose review " ]'
