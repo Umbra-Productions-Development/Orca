@@ -111,7 +111,6 @@ check "consume stamps the front matter, not the body" '[ "$(grep -c "^consumed-b
 e=$("$lc" role start ABC-12 apply --sa x </dev/null 2>&1); rc=$?
 check "role start: an unknown third argument is a usage error" '[ "$rc" = 2 ] && [[ $e == *"role start <ticket> <role> [--as <name>]"* ]]'
 
-
 # handoff write names the ticket's stack ports on one line, from the worktree's .env.local; none, no line (#89)
 mkdir -p "$(dirname "$repo")/ABC-20"; printf 'A_PORT=3200\nB_PORT=3201\nOTHER=x\n' >"$(dirname "$repo")/ABC-20/.env.local"
 f=$(as s1 handoff write ABC-20 apply)
