@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PostToolUse Read: a handoff read once is being worked on, so it is consumed and archived.
+# PostToolUse Read: a handoff read once is being worked on, so it is consumed and archived. The archive path
+# reaches Claude as hookSpecificOutput.additionalContext (one JSON object on stdout); plain stdout would not.
 set -uo pipefail
 in=$(cat)
 f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
@@ -10,6 +11,7 @@ case "$f" in
     sid=$(jq -r '.session_id // empty' <<<"$in")
     [ -n "$sid" ] && [ "$(sed -n 's/^by: //p' "$f" 2>/dev/null | head -1)" = "$sid" ] && exit 0
     cwd=$(jq -r '.cwd // empty' <<<"$in"); cd "${cwd:-.}" 2>/dev/null || exit 0
-    a=$(orca-lc handoff consume "$f" 2>/dev/null) && echo "orca-lc: handoff consumed and archived at $a";;
+    a=$(orca-lc handoff consume "$f" 2>/dev/null) && jq -n --arg m "orca-lc: handoff consumed and archived at $a" \
+      '{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext: $m}}';;
 esac
 exit 0
