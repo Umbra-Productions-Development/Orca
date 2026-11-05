@@ -63,7 +63,7 @@ Messages never echo an argument that was not scanned:
 
 ## Test
 
-Added to `tests/leak-check.sh`:
+Added to `tests/leak-check.test.sh`:
 
 - `--file` reports `file:<line>` and the denylist line, never the path or the term; a denylisted path with clean contents is reported as `file path:1`; it exits 0 on a clean file and when there is no denylist, and 2 on a missing path.
 - With `leakCheck: true` and a hit:

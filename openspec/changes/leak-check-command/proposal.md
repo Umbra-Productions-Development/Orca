@@ -14,14 +14,14 @@ This repository refuses pushes that carry a denylisted term, but the matcher liv
 - `.githooks/pre-push` shrinks to a call to this checkout's own `bin/orca-lc leak-check --pre-push`. It behaves as today, except that a branch-name hit and a hit under a denylisted path no longer print the term (see design: Decisions).
 - New config key `leakCheck` (boolean, default off). When true, `orca-lc gate` runs `leak-check` on the unpushed commits after the gate command passes. A hit fails the gate, so no marker is written and the pretool hook keeps refusing `git push`.
 - README: a `leak-check` row in the command table, a `leakCheck` row in the config table, the Contributing paragraph updated, and a one-line `.git/hooks/pre-push` for adopters who push from a terminal. `orca.example.json` gains `"leakCheck": true`. `orca-lc help` gets the `USAGE` line.
-- New standalone test `tests/leak-check.sh`.
+- New test `tests/leak-check.test.sh`, run by `tests/run.sh`.
 
 ## Impact
 
-- `bin/orca-lc` (new subcommand, gate step), `.githooks/pre-push`, `README.md`, `orca.example.json`, `docs/daily-use.md`, `tests/leak-check.sh`.
+- `bin/orca-lc` (new subcommand, gate step), `.githooks/pre-push`, `README.md`, `orca.example.json`, `docs/daily-use.md`, `tests/leak-check.test.sh`.
 - Projects without `leakCheck` see no change. Projects with it and no denylist get one note line from the gate.
 - Open PRs #48, #49, #83 and #84 also edit `bin/orca-lc` and `README.md`; expect conflicts, mostly in `USAGE`, the dispatcher and the README tables. Once #50 merges, `leak-check --help` works from the `USAGE` line with no further code.
-- The gate does not run `tests/` until #49 adds `tests/run.sh`, so `tests/leak-check.sh` runs by hand until a follow-up wires it in.
+- The gate does not run `tests/` until #49 adds `tests/run.sh`, so the test ran by hand as `tests/leak-check.sh` until #87 moved it under `tests/run.sh` as `tests/leak-check.test.sh`.
 
 ## Out of scope
 

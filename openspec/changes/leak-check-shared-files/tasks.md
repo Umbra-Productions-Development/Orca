@@ -14,7 +14,7 @@ Starts after `leak-check-command` is applied.
 - [x] 2.4 In `hooks/pretool.sh`, scan Write/Edit/MultiEdit content aimed at the shared `handoffs/` or discoveries directory when `leakCheck` is true, and block on a hit (design: Handoff and discovery bodies through pretool)
 
 ## 3. Test
-- [x] 3.1 Extend `tests/leak-check.sh` with the cases in design: Test, with this checkout's `bin/` first on `PATH` for the pretool cases (test-lock on; the commit body says why)
+- [x] 3.1 Extend `tests/leak-check.test.sh` with the cases in design: Test, with this checkout's `bin/` first on `PATH` for the pretool cases (test-lock on; the commit body says why)
 - [x] 3.2 Run it on Linux or WSL2 and show the output in the commit or PR
 - [x] 3.3 Test the 1.2 output: a content hit prints `file:<n>` without the path, a denylisted path with clean contents prints `file path:1`, and neither carries the term (test-lock on; the commit body says why)
 
