@@ -1,6 +1,6 @@
 ## 1. Tests first
 
-- [ ] 1.1 `orca-lc test-lock on`; add the four cases in design.md "Tests" to `tests/handoff.test.sh` and `tests/worktree.test.sh`.
+- [ ] 1.1 `orca-lc test-lock on`; add the two new cases in design.md "Tests" to `tests/handoff.test.sh`, and extend S-4 and S-7 in `tests/worktree.test.sh` as described there.
 - [ ] 1.2 Run `bash tests/run.sh` on the unchanged `bin/orca-lc`; all pass. Commit with the reason for the test edit in the body; `orca-lc test-lock off`.
 
 ## 2. bin/orca-lc
@@ -11,8 +11,9 @@
 - [ ] 2.4 `:310`: `export ORCA_TICKET=… ORCA_WORKTREE=…`.
 - [ ] 2.5 `:361`: `if`/`then`/`else`, `die` message unchanged.
 - [ ] 2.6 `:536`: `case "$r" in propose|apply|review)`.
-- [ ] 2.7 `:546`: glob in place of `ls | sort`, last three, nothing when none.
-- [ ] 2.8 `:113` and `:246`: inline directives with the reasons in design.md.
+- [ ] 2.7 `:546`: `set -- <dir>/*.md` with a `[ -e "$1" ]` guard in place of `ls | sort`; last three; nothing when none.
+- [ ] 2.8 `:113`: `# shellcheck source=/dev/null` above `load_env`, with its reason.
+- [ ] 2.9 `:246`: split `f=$(ls -t …)` onto its own line inside the `read)` branch; `# shellcheck disable=SC2012` with its reason directly above that line, not above `read)`.
 
 ## 3. Verify
 

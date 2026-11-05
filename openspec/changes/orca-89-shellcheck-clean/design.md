@@ -7,7 +7,9 @@ Established facts (main at the time of proposal, shellcheck 0.11.0):
 - `shellcheck bin/orca-lc` reports 24 findings: 5 warnings (SC2155, SC2034 ×2, SC2046, SC2194) and 19 notes. Line numbers below are from that run.
 - The gate runs `shellcheck -S error`, so warnings and notes pass it today; nothing stops new ones.
 - Tests run with `HERDR_ENV=0` and only `gh` is stubbed (`tests/stub/gh`). Code reached only inside herdr (`cmd_notify`'s herdr branch, `role start`) has no test path.
-- Already covered by tests: the ticket-case `tr` sites (mixed-case `InFrA` in `tests/worktree.test.sh`, `Abc-1` in `tests/handoff.test.sh`), the `worktree up` ports line (`tests/worktree.test.sh:9,14`), `handoff read` picking a handoff (`tests/handoff.test.sh`).
+- Already covered by tests: the ticket-case `tr` sites (mixed-case `InFrA` in `tests/worktree.test.sh`, `Abc-1` in `tests/handoff.test.sh`), the `worktree up` ports line (`tests/worktree.test.sh:9,14`), `handoff read` picking a handoff (`tests/handoff.test.sh`), `$ORCA_TICKET` reaching the `stackUp` script (S-4, `tests/worktree.test.sh:29-33`), and the `stackUp`-failed path's exit status, retry and tear-down lines (S-7, `tests/worktree.test.sh:37-43`). Not covered: `$ORCA_WORKTREE` in `stackUp`, and the literal `stackUp failed` text.
+- A case branch cannot carry a shellcheck directive: one above `read)` is SC1124 plus SC1073 at error severity, which fails the gate (proposal review at 3650b96, should-fix 1).
+- `bin/orca-lc` does not set `nullglob`; an unmatched glob expands to the literal pattern.
 - Handoff files are named `<role>-YYYY-MM-DD-HHMMSS.md`, with `-2`, `-3`… from `free_path` on collision. Alphabetical order is time order only within one role, and a collision suffix sorts before its base (`-` < `.`).
 - `printf 'A\nB\n' | paste -sd' ' -` gives `A B`; empty input gives empty output. `paste -s` is POSIX and present on macOS and Git Bash.
 
@@ -21,17 +23,17 @@ Rewrites keep observable output identical for well-formed input (`NAME_PORT=<dig
 | 113 | `load_env` `. ./.env` | SC1091 | `# shellcheck source=/dev/null` above it, reason: the project's own `.env`, never known to shellcheck | No code change | — |
 | 193 | `cmd_notify` header | SC2155 | `local hdr; hdr="[orca from $(me_tag)]"` | Same value; status now the substitution's | none (herdr only) |
 | 244 | `handoff write` stack ports | SC2116, SC2086 | `sp=$(stack_ports "$t" \| paste -sd' ' -)`, then `printf … "$sp"` | `echo $sp` joined lines with spaces; `paste -s` does the same without globbing or squeezing | new |
-| 246 | `handoff read` newest | SC2012 | Keep `ls -t`; `# shellcheck disable=SC2012` with reason: newest by mtime across roles, names do not sort by time, `find -printf` is GNU-only. Placed where shellcheck honours it; split the line if needed | No code change | existing |
+| 246 | `handoff read` newest | SC2012 | Keep `ls -t`; `# shellcheck disable=SC2012` with reason: newest by mtime across roles, names do not sort by time, `find -printf` is GNU-only. The branch is split so `f=$(ls -t …)` sits on its own line inside `read)`, with the directive directly above that line, never above `read)` | No code change beyond the line split | existing |
 | 295 | `wt_dir` | SC2018/2019 | `tr '[:lower:]' '[:upper:]'` | As 41 | existing |
 | 303 | `ports_for` hash | SC2018/2019 | `tr '[:lower:]' '[:upper:]'` | As 41; the cksum input is unchanged, so hashed ports stay the same | existing (`InFrA` hash) |
-| 310 | `stack_run` | SC2034 ×2 | `export ORCA_TICKET="$t" ORCA_WORKTREE="$dir"` in place of the bare assignment | `set -a` already exported them; `export` says so explicitly | new |
+| 310 | `stack_run` | SC2034 ×2 | `export ORCA_TICKET="$t" ORCA_WORKTREE="$dir"` in place of the bare assignment | `set -a` already exported them; `export` says so explicitly | extend S-4 |
 | 329 | `worktree up` ticket | SC2018/2019 | as 295 | As 41 | existing |
 | 359 | `worktree up` output | SC2046, SC2005 | `local sp; sp=$(stack_ports "$t" \| paste -sd' ' -)` before the echo; `${ports:+; ports $sp}` | As 244 | existing |
-| 361 | `worktree up --stack` | SC2015 | `if stack_run …; then echo "stack up"; else die "…"; fi`, message unchanged | Only differs if `echo` fails, where `die` would wrongly run | new (failure path) |
+| 361 | `worktree up --stack` | SC2015 | `if stack_run …; then echo "stack up"; else die "…"; fi`, message unchanged | Only differs if `echo` fails, where `die` would wrongly run | extend S-7 |
 | 370 | `worktree down` ticket | SC2018/2019 | as 295 | As 41 | existing |
 | 520 | `role start` ticket | SC2018/2019 | as 295 | As 41 | none (herdr only) |
 | 536 | `role start` owner | SC2194 | `case "$r" in propose\|apply\|review) …;; esac` | Same membership test, written directly | none (herdr only) |
-| 546 | `context` unconsumed handoffs | SC2012 | Glob instead of `ls \| sort`: the glob is already sorted by the same collation; print the last three, nothing when none match | Same three files in the same order | new |
+| 546 | `context` unconsumed handoffs | SC2012 | Glob instead of `ls \| sort`: `set -- "$dir"/*.md` inside the existing `{ … }` group, then `[ -e "$1" ]` guards the unmatched case (no `nullglob`), then the last three of `"$@"`, one per line | Glob, `ls` and `sort` all order by `LC_COLLATE`: same three files in the same order; none → no `unconsumed handoffs` line, as now | new |
 
 ## Tests
 
@@ -39,8 +41,8 @@ Written first, against the current code (they must pass before any rewrite), the
 
 - `tests/handoff.test.sh`: `handoff write <t> apply` with a worktree `.env.local` holding two `_PORT` lines writes `Stack ports: A_PORT=… B_PORT=…` on one line; with no ports, no `Stack ports:` line.
 - `tests/handoff.test.sh` (or wherever `context` is set up most cheaply): `orca-lc context` in a ticket worktree with four unconsumed handoffs lists the last three in name order; with none, prints no `unconsumed handoffs` line.
-- `tests/worktree.test.sh`: `stackUp` set to a command that writes `$ORCA_TICKET $ORCA_WORKTREE` to a file; `worktree up <t> --stack` leaves both values there.
-- `tests/worktree.test.sh`: `stackUp` set to `false`; `worktree up <t> --stack` exits non-zero and prints `stackUp failed; worktree … is in place without a stack.`
+- `tests/worktree.test.sh` S-4: the `scripts/up.sh` it writes also echoes `$ORCA_WORKTREE`; assert the output carries the S-4 worktree path (through `native`). No new repo.
+- `tests/worktree.test.sh` S-7: add `assert_contains "$out" "stackUp failed"` to the existing block. No new repo.
 
 ## Decisions
 
@@ -53,6 +55,9 @@ Written first, against the current code (they must pass before any rewrite), the
 - The gate is unchanged here; lowering it to `-S warning` (and possibly a repo `.shellcheckrc`) is a follow-up for #15 — user.
 - The issue body is left as is; this change records that `cmd_inbox` and `cmd_handoff` were already fixed — user (recommended, accepted).
 - No spec delta — user (recommended, accepted).
+- The `:246` directive goes above a split-off `f=$(ls -t …)` line inside `read)`, since a directive above a case branch is a parse error — proposal review at 3650b96, should-fix 1.
+- `:310` and `:361` are covered by extending the existing S-4 and S-7 tests, not by new repos — proposal review at 3650b96, suggestion 2.
+- `:546` handles the empty glob with `set --` and a `[ -e "$1" ]` guard, not `nullglob` — proposal review at 3650b96, suggestion 3.
 
 ## Risks
 
