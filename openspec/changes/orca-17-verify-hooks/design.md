@@ -65,4 +65,5 @@ Checks: `git push` without a fresh gate is blocked; `git merge` is blocked; an E
 
 - Rewriting a group's matcher applies to every hook in that group. A group with Orca's default matcher holds only Orca's hook unless the user added one by hand next to it; that hook would then also fire on `fork`.
 - Whether a background `/fork` copy inherits `HERDR_PANE_ID` is not settled by code or docs. The fork guard makes the answer harmless for the foreground identity; the `/fork` live check confirms it. A background copy that finds no identity writes one for whatever pane id it has.
+- After `/branch` the pane's identity keeps the parent's session id, so `orca-lc handoff write` stamps `by:` with it and post-read, comparing against the branched session's own id, consumes a handoff that session wrote and then reads back. A mismatch between `by:` and the live session id predates this change; the fork guard extends it to `/branch` (proposal review on 8e47d5b).
 - Live behaviour can drift from the docs between releases; the README version is the one checked, and the per-hook tests pin the output shapes so a regression in Orca's own output shows in the gate.
