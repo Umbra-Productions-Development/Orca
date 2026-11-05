@@ -19,4 +19,4 @@
 
 - [x] 3.1 `shellcheck bin/orca-lc` prints nothing and exits 0.
 - [x] 3.2 `orca-lc gate` passes.
-- [ ] 3.3 PR body lists the findings beyond SC2155 as found during #89, and the ones left in `hooks/pretool.sh`, `.githooks/pre-push` and `tests/` as handed to #15.
+- [x] 3.3 PR body lists the findings beyond SC2155 as found during #89, and the ones left in `hooks/pretool.sh`, `.githooks/pre-push` and `tests/` as handed to #15.
