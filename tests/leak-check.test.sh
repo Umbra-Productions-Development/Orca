@@ -62,6 +62,9 @@ c8=$(add "$(printf 'x\tzebra.txt')" "zebra"); lc
 has "commit $c8 path  (project denylist:1)"; ok $? "tab in a path: the path is still scanned"
 has "commit $c8 added line  (project denylist:1)"; ok $? "tab in a path: hit reported as added line"; clean; ok $? "tab in a path never prints the term"
 c9=$(add "$(printf 'q\tw.txt')" "zebra"); lc; has "commit $c9 q w.txt  (project denylist:1)"; ok $? "tab in a clean path reads unquoted, tab as space"
+# git C-quotes the +++ path of a name with " or \ even with quotePath off: they read back as themselves, octal escapes as a space.
+q='a"b\c.txt'; c15=$(add "$q" "zebra"); lc "$c15~1..$c15"; has "commit $c15 $q  (project denylist:1)"; ok $? "quoted path: \\\" and \\\\ read as \" and \\"
+q=$(printf 'o\001p.txt'); c16=$(add "$q" "zebra"); lc "$c16~1..$c16"; has "commit $c16 o p.txt  (project denylist:1)"; ok $? "quoted path: an octal escape reads as a space"
 # A binary or empty file has no +++ line; its path is still scanned. A deleted path is not.
 printf 'a\0b' > zebra.png; git add zebra.png; git commit -qm "add a binary"; c10=$(git rev-parse --short HEAD)
 lc "$c10~1..$c10"; ok $(( st == 1 ? 0 : 1 )) "binary file: denylisted path exits 1"; has "commit $c10 path  (project denylist:1)"; ok $? "binary file: path reported"; clean; ok $? "binary file never prints the term"
@@ -75,6 +78,14 @@ lc "$c14~1..$c14"; has "commit $c14 path  (project denylist:1)"; ok $? "newline 
 c13=$(printf '++ harmless\nzebra\n' > plus.txt; git add plus.txt; git commit -qm "plus lines"; git rev-parse --short HEAD)
 lc "$c13~1..$c13"; has "commit $c13 plus.txt  (project denylist:1)"; ok $? "++ line: next hit keeps its file"
 has "harmless"; ok $(( $? == 0 ? 1 : 0 )) "++ line: its text is never read as a path"
+# A merge's resolution shows only in its diff --cc; a line neither parent has is an added line under that file.
+mb=$(add mg.txt "base"); git checkout -q -b side; printf 'side\n' > mg.txt; git commit -qam side; ms=$(git rev-parse HEAD)
+git checkout -q topic; printf 'ours\n' > mg.txt; git commit -qam ours
+printf 'ours\nzebra resolved\n' > mg.txt; git add mg.txt
+cm=$(git commit-tree "$(git write-tree)" -p HEAD -p "$ms" -m merged); git reset -q --hard "$cm"; cm=$(git rev-parse --short HEAD)
+lc "$cm^1..$cm"; ok $(( st == 1 ? 0 : 1 )) "merge resolution: hit exits 1"
+has "commit $cm mg.txt  (project denylist:1)"; ok $? "merge resolution: added line located in its file"; clean; ok $? "merge resolution never prints the term"
+git branch -q -D side
 git reset -q --hard "$(git rev-parse main)"
 
 # Matching: ! re-allows, the project list's later line beats the global one, case-insensitive, whole words only.
@@ -134,6 +145,7 @@ ok $(( st == 2 ? 0 : 1 )) "--pre-push with an unknown remote sha exits 2, not cl
 # Through the repository hook.
 git push -q origin topic3 2>"$TMPDIR/push.err"; ok $(( $? == 0 ? 1 : 0 )) "git push with a hit is refused by the hook"
 out=$(cat "$TMPDIR/push.err"); has "commit $n1 n.txt"; ok $? "hook names the location"
+has "pre-push: denylisted terms found, push refused."; ok $? "hook prints the pre-push header"
 git reset -q --hard origin/main; add ok.txt "fine" >/dev/null
 git push -q origin topic3 2>/dev/null; ok $? "clean push goes through the hook"
 
@@ -180,6 +192,7 @@ zebra.md"; ok $(( st == 1 ? 0 : 1 )) "--file path with a newline is scanned whol
 if [ "$(id -u)" != 0 ]; then
   printf 'x\n' > "$TMPDIR/zebra-unr.md"; chmod 000 "$TMPDIR/zebra-unr.md"; lc --file "$TMPDIR/zebra-unr.md"
   ok $(( st == 2 ? 0 : 1 )) "--file unreadable file exits 2"; clean; ok $? "--file unreadable file never prints the path"
+  has "leak-check: unreadable file"; ok $? "--file unreadable file says unreadable file"
 fi
 out=$(printf 'a\nzebra\n' | bin/orca-lc leak-check --stdin "some label" 2>&1); st=$?
 ok $(( st == 1 ? 0 : 1 )) "--stdin hit exits 1"; has "some label:2  (project denylist:1)"; ok $? "--stdin names label:line"; clean; ok $? "--stdin never prints the term"
@@ -253,11 +266,15 @@ printf '#!/bin/sh\nfor a; do [ "$a" = "%s" ] && { echo "awk: fatal: cannot open 
   "$pl" "$pl" "$(command -v awk)" > "$astub/awk"; chmod +x "$astub/awk"
 printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json
 sf() { ok $(( st == 2 ? 0 : 1 )) "failed scan: $1 exits 2"; has "orca-lc: refused, nothing written"; ok $? "failed scan: $1 says refused"
-  has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: $1 never prints the list's path"; }
+  has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: $1 never prints the list's path"
+  has "orca-lc: leak-check: scan failed, text not checked"; ok $? "failed scan: $1 says text not checked"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: $1 has no awk error"; }
 out=$(PATH="$astub:$PATH" bin/orca-lc discover sf-slug "clean" 2>&1); st=$?; sf discover
 [ ! -e .orca/discoveries/sf-slug.md ]; ok $? "failed scan: discover creates no file"
 out=$(PATH="$astub:$PATH" bin/orca-lc inbox send orca-9 "clean" 2>&1); st=$?; sf "inbox send"
 ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "failed scan: inbox send queues nothing"
+out=$(PATH="$astub:$PATH" bin/orca-lc notify ORCA-9 "clean" 2>&1); st=$?; sf notify
+has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: notify does not print queued:"
+! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "failed scan: notify queues nothing"
 rm -f "$TMPDIR/herdr.log"
 out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$astub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; sf "role start"
 [ ! -e "$TMPDIR/herdr.log" ]; ok $? "failed scan: role start makes no herdr call"
@@ -275,7 +292,9 @@ out=$(bin/orca-lc discover set zebra-none hook 2>&1); st=$?; ok $(( st == 0 ? 1 
 out=$(bin/orca-lc discover archive zebra-none 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "discover archive unknown slug fails"; clean; ok $? "discover archive never echoes the slug"
 out=$(bin/orca-lc notify zebra-peer "hi" 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "notify to no target fails"; clean; ok $? "notify never echoes the target"
 out=$(bin/orca-lc notify ZEBRA-9 "clean" 2>&1); st=$?; ok $st "notify to a ticket queues"; clean; ok $? "notify never echoes the ticket"; rm -rf .orca/inbox/zebra-9
+[[ $out =~ ^no\ live\ session\ for\ the\ ticket,\ queued:\ [0-9]+-[^/[:space:]]+\.md$ ]]; ok $? "notify prints only the queued line with the file name"
 out=$(bin/orca-lc inbox send zebra-9 "clean" 2>&1); st=$?; ok $st "inbox send queues"; clean; ok $? "inbox send never echoes the ticket"; rm -rf .orca/inbox/zebra-9
+[[ $out =~ ^[0-9]+-[^/[:space:]]+\.md$ ]]; ok $? "inbox send prints only <epoch>-<id>.md"
 
 # pretool: Write/Edit/MultiEdit into the shared handoffs/ and discoveries dirs.
 pre() { # <want exit> <label> <tool> <path> <tool_input extra as JSON>
@@ -360,6 +379,8 @@ if [ "$(id -u)" != 0 ]; then
     has "handoff write blocked: leak scan failed (exit 2), write not checked ($m)"; ok $? "unreadable $k list: pretool names it by kind"
     has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: pretool never prints its path"
     pre 2 "unreadable $k list: clean discovery Edit blocked" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"fine"}'
+    has "discovery write blocked: leak scan failed (exit 2), write not checked ($m)"; ok $? "unreadable $k list: pretool names the discovery block by kind"
+    has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: discovery block never prints its path"
     chmod 644 "$u"
   done
   rm -f "$gl"
@@ -374,3 +395,10 @@ ok $(( st == 1 ? 0 : 1 )) "without mapfile: --stdin hit exits 1"
 out=$(BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc discover b3-slug "uses zebra" 2>&1); st=$?
 ok $(( st == 1 ? 0 : 1 )) "without mapfile: discover hit exits 1"; [ ! -e .orca/discoveries/b3-slug.md ]; ok $? "without mapfile: discover hit creates no file"
 
+
+# inbox read before any inbox/ exists reads nothing and fails nothing; a send then makes it.
+ir="$TMPDIR/noinbox"; git init -q "$ir"; mkdir "$ir/.orca"; echo '{}' > "$ir/.orca/config.json"
+out=$(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox read orca-9 2>&1); st=$?
+ok $st "inbox read with no inbox/ exits 0"; [ -z "$out" ]; ok $? "inbox read with no inbox/ prints nothing"
+(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox send orca-9 "hello there" >/dev/null)
+out=$(cd "$ir" && "$ORCA_SRC/bin/orca-lc" inbox read orca-9 2>&1); has "hello there"; ok $? "inbox read after the first send prints it"
