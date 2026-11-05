@@ -1,31 +1,31 @@
 ## 1. Hooks
 
-- [ ] 1.1 `hooks/stop.sh`: print the undone-work line as one JSON object `{systemMessage}` via `jq -n`, nothing else on stdout; exit 0; keep the `stop_hook_active` exit (design.md "Hooks").
-- [ ] 1.2 `hooks/post-read.sh`: on a successful consume print one JSON object `{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext}}` naming the archive path; nothing else on stdout.
-- [ ] 1.3 `hooks/session-start.sh`: remove the `agent_id` check.
-- [ ] 1.3a `hooks/session-start.sh`: on `source: "fork"`, run `orca-lc name --set` only when `orca-lc name` shows an empty `id`; print context either way (design.md "Hooks").
-- [ ] 1.4 Update each changed hook's header comment to name its output channel.
+- [x] 1.1 `hooks/stop.sh`: print the undone-work line as one JSON object `{systemMessage}` via `jq -n`, nothing else on stdout; exit 0; keep the `stop_hook_active` exit (design.md "Hooks").
+- [x] 1.2 `hooks/post-read.sh`: on a successful consume print one JSON object `{hookSpecificOutput: {hookEventName: "PostToolUse", additionalContext}}` naming the archive path; nothing else on stdout.
+- [x] 1.3 `hooks/session-start.sh`: remove the `agent_id` check.
+- [x] 1.3a `hooks/session-start.sh`: on `source: "fork"`, run `orca-lc name --set` only when `orca-lc name` shows an empty `id`; print context either way (design.md "Hooks").
+- [x] 1.4 Update each changed hook's header comment to name its output channel.
 
 ## 2. install.sh
 
-- [ ] 2.1 Register SessionStart with matcher `startup|resume|clear|compact|fork`.
-- [ ] 2.2 `ensure()`: take the event's old default matchers; when the kept Orca hook's group matcher equals one, set it to the new default; keep any other matcher. Pass `["startup|resume|clear|compact"]` for SessionStart and none for the other events.
-- [ ] 2.3 Update the comment above `ensure()` to describe the migration.
+- [x] 2.1 Register SessionStart with matcher `startup|resume|clear|compact|fork`.
+- [x] 2.2 `ensure()`: take the event's old default matchers; when the kept Orca hook's group matcher equals one, set it to the new default; keep any other matcher. Pass `["startup|resume|clear|compact"]` for SessionStart and none for the other events.
+- [x] 2.3 Update the comment above `ensure()` to describe the migration.
 
 ## 3. Docs
 
-- [ ] 3.1 README Requirements: "Claude Code 2.1.318 or later" (the version verified).
-- [ ] 3.2 docs/daily-use.md (Stop hook sentence): the undone-work line is shown to the user, not to Claude.
-- [ ] 3.3 skills/orca/SKILL.md ("The Stop hook names anything still undone"): same rewording; the session must check gate, tree and test lock itself, since it is not told.
+- [x] 3.1 README Requirements: "Claude Code 2.1.318 or later" (the version verified).
+- [x] 3.2 docs/daily-use.md (Stop hook sentence): the undone-work line is shown to the user, not to Claude.
+- [x] 3.3 skills/orca/SKILL.md ("The Stop hook names anything still undone"): same rewording; the session must check gate, tree and test lock itself, since it is not told.
 
 ## 4. Tests
 
 Test edits: `orca-lc test-lock on`, reason in the commit body, `orca-lc test-lock off`.
 
-- [ ] 4.1 `tests/lib.sh`: add `payload <event> <cwd> [jq-args…]` per design.md "Tests".
-- [ ] 4.2 Add `tests/hook-session-start.test.sh`, `tests/hook-stop.test.sh`, `tests/hook-post-read.test.sh`, `tests/pretool-edit-lock.test.sh` with the cases in design.md "Tests".
-- [ ] 4.3 `tests/install-config-dir.sh`: add the matcher-migration cases.
-- [ ] 4.4 Run `bash tests/install-config-dir.sh` and `orca-lc gate`; both pass.
+- [x] 4.1 `tests/lib.sh`: add `payload <event> <cwd> [jq-args…]` per design.md "Tests".
+- [x] 4.2 Add `tests/hook-session-start.test.sh`, `tests/hook-stop.test.sh`, `tests/hook-post-read.test.sh`, `tests/pretool-edit-lock.test.sh` with the cases in design.md "Tests".
+- [x] 4.3 `tests/install-config-dir.sh`: add the matcher-migration cases.
+- [x] 4.4 Run `bash tests/install-config-dir.sh` and `orca-lc gate`; both pass.
 
 ## 5. Live checks (after merge; not apply's)
 
