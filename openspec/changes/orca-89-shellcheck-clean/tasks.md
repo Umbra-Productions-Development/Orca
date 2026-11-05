@@ -1,0 +1,21 @@
+## 1. Tests first
+
+- [ ] 1.1 `orca-lc test-lock on`; add the four cases in design.md "Tests" to `tests/handoff.test.sh` and `tests/worktree.test.sh`.
+- [ ] 1.2 Run `bash tests/run.sh` on the unchanged `bin/orca-lc`; all pass. Commit with the reason for the test edit in the body; `orca-lc test-lock off`.
+
+## 2. bin/orca-lc
+
+- [ ] 2.1 SC2155 at `:193`: `local hdr; hdr="[orca from $(me_tag)]"`.
+- [ ] 2.2 SC2018/2019 at `:41`, `:295`, `:303`, `:329`, `:370`, `:520`: `[:upper:]`/`[:lower:]` classes.
+- [ ] 2.3 `:244` and `:359`: build the ports line with `stack_ports "$t" | paste -sd' ' -` into a local, no `echo $(…)`.
+- [ ] 2.4 `:310`: `export ORCA_TICKET=… ORCA_WORKTREE=…`.
+- [ ] 2.5 `:361`: `if`/`then`/`else`, `die` message unchanged.
+- [ ] 2.6 `:536`: `case "$r" in propose|apply|review)`.
+- [ ] 2.7 `:546`: glob in place of `ls | sort`, last three, nothing when none.
+- [ ] 2.8 `:113` and `:246`: inline directives with the reasons in design.md.
+
+## 3. Verify
+
+- [ ] 3.1 `shellcheck bin/orca-lc` prints nothing and exits 0.
+- [ ] 3.2 `orca-lc gate` passes.
+- [ ] 3.3 PR body lists the findings beyond SC2155 as found during #89, and the ones left in `hooks/pretool.sh`, `.githooks/pre-push` and `tests/` as handed to #15.
