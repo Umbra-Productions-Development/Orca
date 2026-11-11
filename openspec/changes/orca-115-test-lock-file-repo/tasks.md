@@ -29,3 +29,9 @@
 - [x] 5.1 Finding 1: a symlinked directory on the path is judged by where it points. After the walk, when `$(cd "$dir" && pwd -P)` differs from `$dir`, `m` becomes that physical path plus the rest of `p`. Tests: an Edit through a dir link to B's `tests/`, and a Write of a new file under it, are blocked while B is locked; a dir link under `tests/` to B's `src/` passes.
 - [x] 5.2 Suggestions 2 and 3: task 1.3 now names `m`, and 4.4 records the finding 2 fix.
 - [x] 5.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+
+## 6. Code re-review fix (`.orca/reviews/orca-115-code-cde6421.md`)
+
+- [x] 6.1 Finding 1: right after `\` → `/`, `p` has `.` and `..` collapsed as text (`textpath`, plain bash, like Node's `path.resolve`), before the `-L` check and the walk. No `cd -P`, `realpath -m` or whole-path `readlink -f`. Tests: `q/nope/../tdir/x.sh` (`tdir` → B's `tests/`, B locked) is blocked for Edit and Write; `B/lnk/../run.sh` (`lnk` → B's `tests/deep`) passes; `B/src/./../tests/x.sh` is blocked.
+- [x] 6.2 Finding 2: `m` is always `pwd -P` of `dir` plus the rest of `p` below it, falling back to `p` when the `cd` fails; the `m=$p` before the `\` step is gone, and the comment above the case statement is updated. Tests, with B locked: a `/tests/` glob blocks `$B\tests\x.sh` and a relative `tests\x.sh`, and a `\\tests\\` glob no longer matches `$B\tests\x.sh`.
+- [x] 6.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.

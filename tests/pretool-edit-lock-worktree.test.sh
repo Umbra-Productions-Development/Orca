@@ -62,6 +62,11 @@ ln -s "$B/tests" "$q/tdir"; ln -s "$B/src" "$q/tests/srcdir"
 assert_eq "$(edit Edit "$plain" "$q/tdir/x.sh")" 2 "dir link to B's tests/: blocked"
 assert_eq "$(edit Write "$plain" "$q/tdir/new/y.sh")" 2 "new file under dir link to B's tests/: blocked"
 assert_eq "$(edit Edit "$plain" "$q/tests/srcdir/foo.sh")" 0 "dir link under tests/ to B's src/: passes"
+# . and .. collapse as text before any link is followed, as Claude Code does.
+for t in Edit Write; do assert_eq "$(edit $t "$plain" "$q/nope/../tdir/x.sh")" 2 "$t: missing dir then .. before a dir link to B's tests/: blocked"; done
+mkdir -p "$B/tests/deep"; ln -s "$B/tests/deep" "$B/lnk"
+assert_eq "$(edit Edit "$A" "$B/lnk/../run.sh")" 0 ".. after a dir link collapses as text: lands on B/run.sh, passes"
+assert_eq "$(edit Edit "$A" "$B/src/./../tests/x.sh")" 2 ". and .. into B's tests/: blocked"
 lock "$B" on
 assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 0 "symlink to unlocked B's test: passes"
 lock "$B" off
@@ -75,3 +80,11 @@ assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 2 "backslash path into locked B,
 # A drive path that cannot exist ends the walk with no repo, not a fallback to the session's.
 lock "$A" off
 assert_eq "$(edit Edit "$A" 'Z:\nowhere\tests\x.sh')" 0 "missing drive path from locked A passes"
+
+# testGlob always sees the physical path, which has only / separators. B locked.
+jq -cn '{project:"proj",gate:"true",testGlob:"/tests/"}' > "$B/.orca/config.json"
+assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 2 "/-only glob, backslash absolute path: blocked"
+assert_eq "$(edit Edit "$B" 'tests\x.sh')" 2 "/-only glob, backslash relative path: blocked"
+jq -cn '{project:"proj",gate:"true",testGlob:"\\\\tests\\\\"}' > "$B/.orca/config.json"
+assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 0 "backslash-only glob no longer matches a backslash path"
+echo "$cfg" > "$B/.orca/config.json"
