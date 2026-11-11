@@ -16,5 +16,5 @@ The Edit/Write/MultiEdit branch of `hooks/pretool.sh` decides whether a test fil
 - Code: `hooks/pretool.sh` (Edit|Write|MultiEdit branch only). Docs: `README.md`, `docs/daily-use.md`. Tests: `tests/pretool-edit-lock-worktree.test.sh` (new).
 - Behaviour: a lock lifted in worktree A no longer unlocks edits in worktree B, and a lock lifted in B now takes effect from a session in A. Sessions whose cwd is outside Orca are now guarded when they edit Orca tests.
 - `orca-lc test-lock` is unchanged. It still writes the marker in the git dir of the worktree it runs in.
-- `testGlob` is matched against the resolved path: a relative `file_path` resolved against the payload `cwd`, an absolute one as given.
+- `testGlob` is matched against the physical path: a relative `file_path` resolved against the payload `cwd`, then `pwd -P` of the nearest existing ancestor plus the rest.
 - Out of scope: matching `testGlob` relative to the repo root; `NotebookEdit`; the Bash branch.
