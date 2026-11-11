@@ -11,6 +11,17 @@ block() { echo "orca-lc: $1. $tail_msg" >&2; exit 2; }
 advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"PreToolUse", additionalContext:$m}}'; exit 0; }
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
+# textpath <path with / separators>: . and .. collapsed as text (like Node's path.resolve), links not
+# followed. Keeps a leading /, // (UNC) or drive (C:/); .. above the root stays at the root.
+textpath() {
+  local s=$1 pre="" c out=() parts=() IFS=/
+  case "$s" in //*) pre=//;; /*) pre=/;; [A-Za-z]:/*) pre=${s:0:3};; esac
+  read -rd '' -a parts < <(printf %s "${s#"$pre"}") || true
+  for c in "${parts[@]}"; do
+    case "$c" in ""|.) ;; ..) [ ${#out[@]} -gt 0 ] && unset 'out[${#out[@]}-1]';; *) out+=("$c");; esac
+  done
+  echo "$pre${out[*]}"
+}
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
 
 # git_targets <verb> <command> [dir]: the directory each `git [global opts] <verb>` in the command acts on,
@@ -105,12 +116,11 @@ case "$tool" in
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     [ -n "$f" ] || exit 0
     # Absolute when it starts with /, a drive (C:\ or C:/) or \\ (UNC); else relative to the payload cwd.
-    # testGlob matches m, the resolved path with its separators as given; \ reads as / for the walk only.
+    # \ reads as /, then . and .. collapse as text, as Claude Code does before it follows any link.
     case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
-    m=$p; p=${p//\\//}
-    # A symlinked file is judged as its target: that repo, that lock, that path for testGlob. A symlinked
-    # dir on the way is resolved after the walk.
-    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && { p=$t; m=$t; }; fi
+    p=$(textpath "${p//\\//}")
+    # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
+    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
     # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
     # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
     dir=$p
@@ -122,8 +132,10 @@ case "$tool" in
       dir=$n
       [ -d "$dir" ] && break
     done
-    # Through a symlinked dir, testGlob sees the physical path the write lands on, not the link's name.
-    phys=$(cd "$dir" 2>/dev/null && pwd -P) && [ "$phys" != "$dir" ] && m=$phys${p#"$dir"}
+    # testGlob always matches the physical path: pwd -P of that ancestor, then the rest of the path below it.
+    # A symlinked dir shows as its target.
+    rest=${p#"$dir"}; rest=/${rest#/}
+    if phys=$(cd "$dir" 2>/dev/null && pwd -P); then m=${phys%/}$rest; else m=$p; fi
     froot=$(orca_root "$dir")
     [ -n "$froot" ] || exit 0
     glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
