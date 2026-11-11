@@ -21,7 +21,7 @@ In the Edit|Write|MultiEdit branch, with `f=tool_input.file_path`:
 5. `glob` from `$froot/.orca/config.json`. Marker: `$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits`. `--absolute-git-dir` (git ≥ 2.13) prints the git dir absolute, so the case where git prints a relative `.git` disappears.
 6. Block when `glob` is set, `m` matches it, and the marker is missing. An absolute `f` is matched exactly as before. A relative `f` such as `tests/x.sh` is matched as `$cwd/tests/x.sh`, so `[/\\]tests[/\\]` catches it.
 
-`git -C` changes into the directory, so a path through a symlink (e.g. a worktree's `.orca` link) is judged in the repo the link resolves to.
+`git -C` changes into the directory, so a path through a symlink (e.g. a worktree's `.orca` link) is judged in the repo the link resolves to. When `p` itself is a symlink to a file, it is replaced by its `readlink -f` target before the walk. `testGlob` is matched against that target, not the link path (see Decisions).
 
 The early `[ -n "$root" ] || exit 0` is dropped from this branch. The session's `root` is no longer consulted here. The Bash branch keeps its own use of `root`.
 
@@ -57,6 +57,7 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - `testGlob` is matched against the resolved path. A relative `file_path` is first resolved against the payload cwd (`$cwd/$f`, original separators kept), and the glob is matched against that absolute path. An absolute input is matched exactly as before. Matching relative to the repo root is still a follow-up for the orchestrator. This replaces the grilling decision "matched against the path as given", which let a bare `tests/x.sh` past the lock and contradicted the relative-path test case — user (`.orca/reviews/orca-115-code-a8febb2.md` finding 1).
 - The block message names the file's repo root to run `orca-lc test-lock on` in, and otherwise stays as is, `($f)` included. If PR #95 lands first, its message form is kept and the root is added to it — user (recommended, accepted in grilling).
 - Symlinked paths are judged in the repo the link resolves to — user (recommended, accepted in grilling).
+- A symlinked file is judged by its `readlink -f` target alone. The target decides the repo, the lock marker and the `testGlob` match; the link path is not consulted. Before this, the walk started at the link's directory, so a link outside any Orca repo pointing at a locked test passed. Matching the link path as well wrongly blocked a link under `tests/` that points to a non-test file (the verifier reproduced it) — apply (`.orca/reviews/orca-115-code-a8febb2.md` finding 2).
 - Tests go in a new `tests/pretool-edit-lock-worktree.test.sh`, next to PR #136's `tests/pretool-edit-lock.test.sh`, so neither PR conflicts with the other — user (recommended, accepted in grilling).
 - `.openspec.yaml` uses `skip_specs: true`, as sibling changes do, with no spec deltas. Starting capability specs is a follow-up for the orchestrator — user (recommended, accepted in grilling).
 - Windows paths are in scope. A drive-letter or UNC `file_path` is absolute, `\` becomes `/` for the walk only, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 1).
@@ -74,3 +75,9 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - A session that relied on unlocking its own checkout to edit another worktree's tests (the workaround in the discovery) is now blocked until the lock is lifted in that worktree. This is intended. The block message names where.
 - A session outside any Orca repo that edits Orca tests is newly blocked. This is intended and matches the push guard.
 - The block message sends a session in A to run `orca-lc test-lock on` in B. If it forgets `test-lock off` there, the Stop hook (`hooks/stop.sh`, which runs `orca-lc test-lock status` in the session cwd only) doesn't flag it. The old workaround, unlocking your own checkout, was caught; the new, intended path isn't. This is a follow-up for the orchestrator (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 2).
+- A relative `file_path` under any parent directory named `tests/` now always matches `[/\\]tests[/\\]`, because the glob sees `$cwd/$f`. An absolute path already behaved this way. This is the same family as the relative-to-root `testGlob` follow-up.
+- Untested paths. The code handles each, but no test case exercises it:
+  - a dangling symlink (`readlink -f` of a missing target);
+  - a symlinked directory, where the walk follows the link but `testGlob` sees the link path, not the target;
+  - MultiEdit payloads;
+  - UNC `\\srv\share` paths.
