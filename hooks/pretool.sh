@@ -117,7 +117,8 @@ case "$tool" in
     [ -n "$f" ] || exit 0
     # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
     # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
-    # \ reads as /, then . and .. collapse as text, as Claude Code does before it follows any link.
+    # On Windows \ reads as /; elsewhere it is an ordinary filename character and stays in its segment.
+    # Then . and .. collapse as text, as Claude Code does before it follows any link.
     win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
     case "$f" in
       "~") p=$HOME;;
@@ -126,7 +127,8 @@ case "$tool" in
       [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
       *) p=$cwd/$f;;
     esac
-    p=$(textpath "${p//\\//}")
+    [ -n "$win" ] && p=${p//\\//}
+    p=$(textpath "$p")
     # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
     if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
     # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the

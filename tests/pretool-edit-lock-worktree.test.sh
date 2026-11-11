@@ -46,7 +46,8 @@ assert_eq "$(edit Write "$A" "$B/tests/new/dir/y.sh")" 2 "new file in missing di
 
 # Relative file_path resolves against the payload cwd, and testGlob matches the resolved path.
 assert_eq "$(edit Edit "$B" "tests/x.sh")" 2 "relative path, cwd B locked: blocked"
-assert_eq "$(edit Edit "$B" 'tests\x.sh')" 2 "relative backslash path, cwd B locked: blocked"
+# On Linux tests\x.sh is one file in B, and the default glob's \ alternative still matches its name.
+assert_eq "$(edit Edit "$B" 'tests\x.sh')" 2 "Linux: relative tests\\x.sh, cwd B locked: blocked"
 lock "$B" on
 assert_eq "$(edit Edit "$B" "tests/x.sh")" 0 "relative path, cwd B unlocked: passes"
 lock "$B" off
@@ -75,14 +76,21 @@ lock "$B" off
 # Non-test path in locked B passes.
 assert_eq "$(edit Edit "$A" "$B/README")" 0 "non-test file in locked B passes"
 
-# Backslash separators: \ reads as / for the walk.
-lock "$A" on
-assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 2 "backslash path into locked B, from unlocked A: blocked"
-# Drive and UNC paths are absolute only on Windows. Elsewhere they are relative to the cwd, as Claude Code
-# resolves them there. A stub uname stands in for Git Bash.
-lock "$A" off
+# \ is a separator only on Windows; a stub uname stands in for Git Bash. On Linux it is an ordinary
+# filename character, as Claude Code reads it there.
 winbin=$(mktemp -d); printf '#!/bin/sh\necho MINGW64_NT-10.0\n' > "$winbin/uname"; chmod +x "$winbin/uname"
 editwin() { payload "$@" | PATH="$winbin:$PATH" bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?; }
+lock "$A" on
+assert_eq "$(editwin Edit "$A" "$B\\tests\\x.sh")" 2 "Windows: backslash path into locked B, from unlocked A: blocked"
+assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 0 "Linux: $B\\tests\\x.sh is one file beside B, outside any repo: passes"
+lock "$A" off
+# A backslash segment is one name, so the .. after it removes only that name and the path stays in A.
+assert_eq "$(edit Edit "$A" "$A/z\\..\\..\\..\\/../tests/run.sh")" 2 "Linux: A/z\\..\\..\\..\\/../tests/run.sh from locked A: blocked"
+assert_eq "$(edit Edit "$plain" "$A/z\\..\\..\\..\\/../tests/run.sh")" 2 "Linux: same path into locked A from non-Orca cwd: blocked"
+assert_eq "$(edit Edit "$A" 'z\..\..\..\/../tests/run.sh')" 2 "Linux: same shape relative from locked A: blocked"
+assert_eq "$(edit MultiEdit "$plain" "$A/q\\..\\..\\/../tests/new.sh")" 2 "Linux: MultiEdit A/q\\..\\..\\/../tests/new.sh from non-Orca cwd: blocked"
+# Drive and UNC paths are absolute only on Windows. Elsewhere they are relative to the cwd, as Claude Code
+# resolves them there.
 assert_eq "$(edit Edit "$A" 'Z:\nowhere\tests\x.sh')" 2 "Linux: drive path is relative to locked A: blocked"
 assert_eq "$(edit Write "$B" 'C:/../tests/x.sh')" 2 "Linux: C:/../tests/x.sh from locked B lands in B/tests: blocked"
 assert_eq "$(edit Write "$B" 'c:/x/../../tests/new.sh')" 2 "Linux: c:/x/../../tests/new.sh from locked B: blocked"
@@ -96,10 +104,10 @@ assert_eq "$(payload Edit "$A" "~/b/tests/x.sh" | HOME=$(dirname "$B") bash "$OR
 assert_eq "$(payload Edit "$B" "~/b/tests/x.sh" | HOME=$plain bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 0 "~/ path into a non-repo HOME, from locked B: passes"
 lock "$A" off
 
-# testGlob always sees the physical path, which has only / separators. B locked.
+# On Windows testGlob sees the physical path, which has only / separators. B locked.
 jq -cn '{project:"proj",gate:"true",testGlob:"/tests/"}' > "$B/.orca/config.json"
-assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 2 "/-only glob, backslash absolute path: blocked"
-assert_eq "$(edit Edit "$B" 'tests\x.sh')" 2 "/-only glob, backslash relative path: blocked"
+assert_eq "$(editwin Edit "$A" "$B\\tests\\x.sh")" 2 "Windows: /-only glob, backslash absolute path: blocked"
+assert_eq "$(editwin Edit "$B" 'tests\x.sh')" 2 "Windows: /-only glob, backslash relative path: blocked"
 jq -cn '{project:"proj",gate:"true",testGlob:"\\\\tests\\\\"}' > "$B/.orca/config.json"
-assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 0 "backslash-only glob no longer matches a backslash path"
+assert_eq "$(editwin Edit "$A" "$B\\tests\\x.sh")" 0 "Windows: backslash-only glob no longer matches a backslash path"
 echo "$cfg" > "$B/.orca/config.json"
