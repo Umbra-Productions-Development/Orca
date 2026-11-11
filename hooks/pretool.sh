@@ -115,9 +115,17 @@ case "$tool" in
   Edit|Write|MultiEdit)
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     [ -n "$f" ] || exit 0
-    # Absolute when it starts with /, a drive (C:\ or C:/) or \\ (UNC); else relative to the payload cwd.
+    # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
+    # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
     # \ reads as /, then . and .. collapse as text, as Claude Code does before it follows any link.
-    case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
+    win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
+    case "$f" in
+      "~") p=$HOME;;
+      "~/"*) p=$HOME/${f#"~/"};;
+      /*) p=$f;;
+      [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
+      *) p=$cwd/$f;;
+    esac
     p=$(textpath "${p//\\//}")
     # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
     if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi

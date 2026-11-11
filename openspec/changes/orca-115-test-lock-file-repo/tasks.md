@@ -35,3 +35,10 @@
 - [x] 6.1 Finding 1: right after `\` → `/`, `p` has `.` and `..` collapsed as text (`textpath`, plain bash, like Node's `path.resolve`), before the `-L` check and the walk. No `cd -P`, `realpath -m` or whole-path `readlink -f`. Tests: `q/nope/../tdir/x.sh` (`tdir` → B's `tests/`, B locked) is blocked for Edit and Write; `B/lnk/../run.sh` (`lnk` → B's `tests/deep`) passes; `B/src/./../tests/x.sh` is blocked.
 - [x] 6.2 Finding 2: `m` is always `pwd -P` of `dir` plus the rest of `p` below it, falling back to `p` when the `cd` fails; the `m=$p` before the `\` step is gone, and the comment above the case statement is updated. Tests, with B locked: a `/tests/` glob blocks `$B\tests\x.sh` and a relative `tests\x.sh`, and a `\\tests\\` glob no longer matches `$B\tests\x.sh`.
 - [x] 6.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+
+## 7. Code re-review fix (`.orca/reviews/orca-115-code-7359b3b.md`)
+
+- [x] 7.1 Finding 1: a drive (`X:/`, `X:\`) or UNC (`\\`) `file_path` counts as absolute only when `uname -s` is MINGW*, MSYS* or CYGWIN*; elsewhere it is relative to the payload cwd, as Claude Code resolves it. Tests on Linux: `C:/../tests/x.sh` and `c:/x/../../tests/new.sh` from locked B are blocked, and `Z:\nowhere\tests\x.sh` from locked A is now blocked (it lands in A). With a stub `uname` printing MINGW64: `Z:\nowhere\tests\x.sh` from locked A and `C:/../tests/x.sh` from locked B pass.
+- [x] 7.2 Finding 2: `~` and `~/…` expand to `$HOME` before the absolute/relative case, as `absdir` does. Tests: `~/b/tests/x.sh` with `HOME` holding B, from unlocked A, B locked: blocked; with `HOME` a non-repo dir, from locked B: passes.
+- [x] 7.3 The test file exits at once when `new_repo` is missing, so a bare run outside `tests/run.sh` can't add a worktree to the cwd.
+- [x] 7.4 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
