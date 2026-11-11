@@ -22,7 +22,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 ## What it enforces
 
 - **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree. `git push` is refused without a fresh marker; `git merge` is always refused.
-- **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
+- **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set in the worktree that holds the file, whatever the session's cwd.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
 - **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
