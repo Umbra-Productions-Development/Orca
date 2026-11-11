@@ -1,7 +1,8 @@
 # pretool.sh test-edit lock judges the edited file's repo and worktree, not the session's cwd (#115)
 glob='[/\\]tests[/\\]'
 cfg=$(jq -cn --arg g "$glob" '{project:"proj",gate:"true",testGlob:$g}')
-A=$(new_repo "$cfg")
+# Run only through tests/run.sh: bare, new_repo is missing and the worktree below would land in the cwd.
+A=$(new_repo "$cfg") && [ -n "$A" ] || exit 1
 B="$(dirname "$A")/b"; git -C "$A" worktree add -q -b b "$B"
 mkdir -p "$A/tests" "$B/tests"
 lock() { (cd "$1" && orca-lc test-lock "$2" >/dev/null); }
@@ -77,9 +78,23 @@ assert_eq "$(edit Edit "$A" "$B/README")" 0 "non-test file in locked B passes"
 # Backslash separators: \ reads as / for the walk.
 lock "$A" on
 assert_eq "$(edit Edit "$A" "$B\\tests\\x.sh")" 2 "backslash path into locked B, from unlocked A: blocked"
-# A drive path that cannot exist ends the walk with no repo, not a fallback to the session's.
+# Drive and UNC paths are absolute only on Windows. Elsewhere they are relative to the cwd, as Claude Code
+# resolves them there. A stub uname stands in for Git Bash.
 lock "$A" off
-assert_eq "$(edit Edit "$A" 'Z:\nowhere\tests\x.sh')" 0 "missing drive path from locked A passes"
+winbin=$(mktemp -d); printf '#!/bin/sh\necho MINGW64_NT-10.0\n' > "$winbin/uname"; chmod +x "$winbin/uname"
+editwin() { payload "$@" | PATH="$winbin:$PATH" bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?; }
+assert_eq "$(edit Edit "$A" 'Z:\nowhere\tests\x.sh')" 2 "Linux: drive path is relative to locked A: blocked"
+assert_eq "$(edit Write "$B" 'C:/../tests/x.sh')" 2 "Linux: C:/../tests/x.sh from locked B lands in B/tests: blocked"
+assert_eq "$(edit Write "$B" 'c:/x/../../tests/new.sh')" 2 "Linux: c:/x/../../tests/new.sh from locked B: blocked"
+# On Windows a missing drive ends the walk with no repo, not a fallback to the session's.
+assert_eq "$(editwin Edit "$A" 'Z:\nowhere\tests\x.sh')" 0 "Windows: missing drive path from locked A passes"
+assert_eq "$(editwin Write "$B" 'C:/../tests/x.sh')" 0 "Windows: C:/../tests/x.sh is on drive C:, not in B: passes"
+
+# ~ expands to $HOME. B sits in HOME's dir; the session is in unlocked A.
+lock "$A" on
+assert_eq "$(payload Edit "$A" "~/b/tests/x.sh" | HOME=$(dirname "$B") bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 2 "~/ path into locked B, from unlocked A: blocked"
+assert_eq "$(payload Edit "$B" "~/b/tests/x.sh" | HOME=$plain bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 0 "~/ path into a non-repo HOME, from locked B: passes"
+lock "$A" off
 
 # testGlob always sees the physical path, which has only / separators. B locked.
 jq -cn '{project:"proj",gate:"true",testGlob:"/tests/"}' > "$B/.orca/config.json"
