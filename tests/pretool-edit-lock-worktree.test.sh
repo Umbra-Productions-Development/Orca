@@ -43,10 +43,20 @@ assert_eq "$(edit Edit "$A" "$plain/tests/x.sh")" 0 "file outside any repo passe
 # Write of a new file in dirs that do not exist yet resolves through the nearest existing one.
 assert_eq "$(edit Write "$A" "$B/tests/new/dir/y.sh")" 2 "new file in missing dirs of locked B blocked"
 
-# Relative file_path resolves against the payload cwd. ./ so the glob, matched as given, sees a separator.
-assert_eq "$(edit Edit "$B" "./tests/x.sh")" 2 "relative path, cwd B locked: blocked"
+# Relative file_path resolves against the payload cwd, and testGlob matches the resolved path.
+assert_eq "$(edit Edit "$B" "tests/x.sh")" 2 "relative path, cwd B locked: blocked"
+assert_eq "$(edit Edit "$B" 'tests\x.sh')" 2 "relative backslash path, cwd B locked: blocked"
 lock "$B" on
-assert_eq "$(edit Edit "$B" "./tests/x.sh")" 0 "relative path, cwd B unlocked: passes"
+assert_eq "$(edit Edit "$B" "tests/x.sh")" 0 "relative path, cwd B unlocked: passes"
+lock "$B" off
+
+# A symlinked test file outside any Orca repo is judged in the repo it points to (B, locked).
+q=$(mktemp -d); mkdir -p "$q/tests"; : > "$B/tests/x.sh"
+ln -s "$B/tests/x.sh" "$q/tests/x.sh"; ln -s "$B/tests/x.sh" "$q/link.sh"
+assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 2 "symlink in non-Orca dir to B's test: blocked"
+assert_eq "$(edit Edit "$plain" "$q/link.sh")" 2 "symlink named outside tests/ to B's test: blocked"
+lock "$B" on
+assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 0 "symlink to unlocked B's test: passes"
 lock "$B" off
 
 # Non-test path in locked B passes.
