@@ -105,9 +105,12 @@ case "$tool" in
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     [ -n "$f" ] || exit 0
     # Absolute when it starts with /, a drive (C:\ or C:/) or \\ (UNC); else relative to the payload cwd.
-    # \ reads as / for the walk only; testGlob still matches $f as given.
+    # testGlob matches m, the resolved path with its separators as given; \ reads as / for the walk only.
     case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
-    p=${p//\\//}
+    m=$p; p=${p//\\//}
+    # A symlinked file is judged in the repo it points to, and testGlob also sees the target; a symlinked
+    # dir is followed by git -C below.
+    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && { p=$t; m=$m$'\n'$t; }; fi
     # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
     # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
     dir=$p
@@ -122,7 +125,7 @@ case "$tool" in
     froot=$(orca_root "$dir")
     [ -n "$froot" ] || exit 0
     glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
-    if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
+    if [ -n "$glob" ] && grep -qE "$glob" <<<"$m" && [ ! -f "$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
       block "test file edit blocked ($f). Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in $froot and say why in the commit body"
     fi
     ;;
