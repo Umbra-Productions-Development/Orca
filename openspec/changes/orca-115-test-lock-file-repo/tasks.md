@@ -42,3 +42,9 @@
 - [x] 7.2 Finding 2: `~` and `~/…` expand to `$HOME` before the absolute/relative case, as `absdir` does. Tests: `~/b/tests/x.sh` with `HOME` holding B, from unlocked A, B locked: blocked; with `HOME` a non-repo dir, from locked B: passes.
 - [x] 7.3 The test file exits at once when `new_repo` is missing, so a bare run outside `tests/run.sh` can't add a worktree to the cwd.
 - [x] 7.4 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+
+## 8. Code re-review fix (`.orca/reviews/orca-115-code-1c1b97b.md` should-fix 1)
+
+- [ ] 8.1 `hooks/pretool.sh`: rewrite `\` to `/` in `p` only when `win` is set (MINGW*/MSYS*/CYGWIN*). Elsewhere, pass `p` to `textpath` as given (design.md "Resolving the file's repo", step 2).
+- [ ] 8.2 `tests/pretool-edit-lock-worktree.test.sh`: move the cases that encode Windows semantics behind the MINGW stub: `$B\tests\x.sh`, the Windows reading of `tests\x.sh`, and the `/`-only-glob backslash cases. Keep relative `tests\x.sh` from locked B blocked on Linux under the default glob. Add the four bypass payloads from the review as Linux cases expecting exit 2: `A/z\..\..\..\/../tests/run.sh` from locked A and from non-Orca C, the same shape relative from cwd A, and MultiEdit `A/q\..\..\/../tests/new.sh` from C. This is a test edit: `orca-lc test-lock on`, reason in the commit body, `test-lock off`.
+- [ ] 8.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
