@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse. Active only where <repo>/.orca/config.json exists. Exit 2 blocks; stderr reaches the session.
+# PreToolUse. Active only where <repo>/.orca/config.json exists: the repo a push, commit or edited file acts on,
+# else the session cwd's. Exit 2 blocks; stderr reaches the session.
 set -uo pipefail
 in=$(cat)
 cwd=$(jq -r '.cwd // empty' <<<"$in"); cd "${cwd:-.}" 2>/dev/null || exit 0
@@ -79,9 +80,10 @@ git_seg() {
   else echo "$d"; fi
 }
 
-# push and commit are judged in the repo they act on, not the session's cwd: a push into an Orca repo is
-# gated from wherever it is typed, and one into a repo without .orca/config.json is left alone even from
-# an Orca cwd. Everything else stays active only where the cwd's repo carries the config.
+# push, commit and file edits are judged in the repo they act on, not the session's cwd: a push into an
+# Orca repo is gated from wherever it is typed, and one into a repo without .orca/config.json is left alone
+# even from an Orca cwd. An Edit/Write is judged by the repo and worktree holding the file: its testGlob,
+# its test lock. Everything else stays active only where the cwd's repo carries the config.
 root=$(orca_root .)
 case "$tool" in
   Bash)
@@ -114,16 +116,33 @@ case "$tool" in
     fi
     ;;
   Edit|Write|MultiEdit)
-    [ -n "$root" ] || exit 0
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
-    glob=$(jq -r '.testGlob // empty' "$root/.orca/config.json")
-    if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git rev-parse --git-dir)/orca-allow-test-edits" ]; then
-      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
+    [ -n "$f" ] || exit 0
+    # Absolute when it starts with /, a drive (C:\ or C:/) or \\ (UNC); else relative to the payload cwd.
+    # \ reads as / for the walk only; testGlob still matches $f as given.
+    case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
+    p=${p//\\//}
+    # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
+    # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
+    dir=$p
+    while :; do
+      case "$dir" in */*) n=${dir%/*};; *) exit 0;; esac
+      [ -n "$n" ] || n=/
+      [[ "$n" =~ ^[A-Za-z]:$ ]] && n=$n/
+      [ "$n" != "$dir" ] || exit 0
+      dir=$n
+      [ -d "$dir" ] && break
+    done
+    froot=$(orca_root "$dir")
+    [ -n "$froot" ] || exit 0
+    glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
+    if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
+      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in $froot and say why in the commit body"
     fi
     # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
     # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an
     # unreadable denylist, an orca-lc without leak-check) blocks too, since the write was not checked.
-    if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
+    if [ -n "$root" ] && [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
       sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
       dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
       case "$f" in */*) dir=${f%/*}; dir=${dir:-/};; *) dir=.;; esac # not dirname: $(...) strips a trailing newline
