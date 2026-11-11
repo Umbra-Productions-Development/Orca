@@ -15,11 +15,11 @@ Established facts (main at the start of this change):
 In the Edit|Write|MultiEdit branch, with `f=tool_input.file_path`:
 
 1. Empty `f`: exit 0.
-2. Absolute path, `p`. Claude Code on Windows sends `C:\…\tests\x.sh`. So `f` counts as absolute when it starts with `/`, with a drive (`[A-Za-z]:` then `\` or `/`), or with `\\` (UNC). Otherwise `p=$cwd/$f`, using the payload cwd the hook already `cd`ed to. Then every `\` in `p` becomes `/`. `p` is used only for the walk. `testGlob` still matches the original `f` (step 6).
+2. Absolute path, `p`. Claude Code on Windows sends `C:\…\tests\x.sh`. So `f` counts as absolute when it starts with `/`, with a drive (`[A-Za-z]:` then `\` or `/`), or with `\\` (UNC). Otherwise `p=$cwd/$f`, using the payload cwd the hook already `cd`ed to. The string `testGlob` matches, `m`, is set here, before any `\` is converted: `m=$f` when `f` is absolute, else `m=$cwd/$f`. Then every `\` in `p` becomes `/`. `p` is used only for the walk.
 3. Directory: start at the parent of `p`, where the parent is `p` with its last `/component` removed. An empty parent is `/`, and a bare drive `C:` is tried as `C:/`. While that directory does not exist, move to its parent. The walk stops at the first directory that exists, or when the parent equals the current directory or no `/` is left. That last stop covers a missing drive root such as `Z:/`, which never reaches `/`. If the walk finds no existing directory, exit 0, since no repo holds the file. A Write of a new test in a new `tests/sub/` resolves through `tests/`.
 4. `froot=$(orca_root "$dir")`. Empty: exit 0. The file is outside any Orca repo, whatever the session cwd.
 5. `glob` from `$froot/.orca/config.json`. Marker: `$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits`. `--absolute-git-dir` (git ≥ 2.13) prints the git dir absolute, so the case where git prints a relative `.git` disappears.
-6. Block when `glob` is set, `f` matches it (matched against the path as given, unchanged), and the marker is missing.
+6. Block when `glob` is set, `m` matches it, and the marker is missing. An absolute `f` is matched exactly as before. A relative `f` such as `tests/x.sh` is matched as `$cwd/tests/x.sh`, so `[/\\]tests[/\\]` catches it.
 
 `git -C` changes into the directory, so a path through a symlink (e.g. a worktree's `.orca` link) is judged in the repo the link resolves to.
 
@@ -43,6 +43,7 @@ The walk-up is a few lines local to this branch. PR #95 adds a general `abspath(
 - File in a repo without `.orca/config.json` (or outside any repo), session in locked A: exit 0.
 - Write of `B/tests/new/dir/y.sh`, where `tests/new/dir` does not exist, B locked: exit 2.
 - Relative `file_path` `tests/x.sh` with cwd B, B locked: exit 2; unlocked: exit 0.
+- Relative `file_path` with a backslash, `tests\x.sh`, with cwd B, B locked: exit 2.
 - Non-test path in locked B: exit 0.
 - Backslash separators: `file_path` is B's absolute path with `\` between components (`$B\tests\x.sh`), the session is in unlocked A, and B is locked: exit 2. On Linux this exercises the `\`→`/` step for the walk. A drive-letter path can't exist on Linux, so `Z:\nowhere\tests\x.sh` from locked A gives exit 0: the walk ends with no existing directory instead of falling back to A.
 
@@ -53,7 +54,7 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - The guard judges only the edited file's repo, for both the lock marker and `testGlob`. The session cwd is ignored, so a non-Orca cwd editing an Orca test is guarded, and a file outside any Orca repo passes — user (recommended, accepted in grilling).
 - A file or directory that does not exist yet is resolved from its nearest existing ancestor directory, with a local walk-up loop — user (recommended, accepted in grilling).
 - A relative `file_path` resolves against the payload `cwd` — user (recommended, accepted in grilling).
-- `testGlob` is still matched against the path as given; relative-to-root matching is a follow-up for the orchestrator — user (recommended, accepted in grilling).
+- `testGlob` is matched against the resolved path. A relative `file_path` is first resolved against the payload cwd (`$cwd/$f`, original separators kept), and the glob is matched against that absolute path. An absolute input is matched exactly as before. Matching relative to the repo root is still a follow-up for the orchestrator. This replaces the grilling decision "matched against the path as given", which let a bare `tests/x.sh` past the lock and contradicted the relative-path test case — user (`.orca/reviews/orca-115-code-a8febb2.md` finding 1).
 - The block message names the file's repo root to run `orca-lc test-lock on` in, and otherwise stays as is, `($f)` included. If PR #95 lands first, its message form is kept and the root is added to it — user (recommended, accepted in grilling).
 - Symlinked paths are judged in the repo the link resolves to — user (recommended, accepted in grilling).
 - Tests go in a new `tests/pretool-edit-lock-worktree.test.sh`, next to PR #136's `tests/pretool-edit-lock.test.sh`, so neither PR conflicts with the other — user (recommended, accepted in grilling).
