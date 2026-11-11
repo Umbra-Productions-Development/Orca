@@ -1,0 +1,18 @@
+## 1. hooks/pretool.sh
+
+- [ ] 1.1 In the Edit|Write|MultiEdit branch, drop `[ -n "$root" ] || exit 0`. Read `f`, exit 0 when empty, and make it absolute against `$cwd` when it does not start with `/`.
+- [ ] 1.2 Walk up from the absolute path's parent to the nearest existing directory (design.md "Resolving the file's repo", step 3).
+- [ ] 1.3 `froot=$(orca_root "$dir")`; exit 0 when empty. Read `testGlob` from `$froot/.orca/config.json` and the marker from `git -C "$dir" rev-parse --git-dir`, absolutized against `$dir`.
+- [ ] 1.4 Block message: `... run 'orca-lc test-lock on' in $froot and say why in the commit body` (design.md "Block message").
+- [ ] 1.5 Update the comment above `root=` so it says file edits are also judged by the tree they act on.
+
+## 2. Docs
+
+- [ ] 2.1 `README.md` Test lock line: edits to test files are blocked unless `orca-lc test-lock on` is set in the worktree that holds the file.
+- [ ] 2.2 `docs/daily-use.md` test-lock line: run `orca-lc test-lock on` in the worktree that holds the test.
+
+## 3. Tests
+
+- [ ] 3.1 Add `tests/pretool-edit-lock-worktree.test.sh` with the cases in design.md "Tests" (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
+- [ ] 3.2 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+- [ ] 3.3 Verify on native Linux: from a session in one worktree, Edit a test in another after `orca-lc test-lock on` there passes, and it is blocked after `test-lock off`.
