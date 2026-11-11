@@ -108,9 +108,9 @@ case "$tool" in
     # testGlob matches m, the resolved path with its separators as given; \ reads as / for the walk only.
     case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
     m=$p; p=${p//\\//}
-    # A symlinked file is judged in the repo it points to, and testGlob also sees the target; a symlinked
+    # A symlinked file is judged as its target: that repo, that lock, that path for testGlob. A symlinked
     # dir is followed by git -C below.
-    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && { p=$t; m=$m$'\n'$t; }; fi
+    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && { p=$t; m=$t; }; fi
     # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
     # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
     dir=$p

@@ -55,6 +55,8 @@ q=$(mktemp -d); mkdir -p "$q/tests"; : > "$B/tests/x.sh"
 ln -s "$B/tests/x.sh" "$q/tests/x.sh"; ln -s "$B/tests/x.sh" "$q/link.sh"
 assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 2 "symlink in non-Orca dir to B's test: blocked"
 assert_eq "$(edit Edit "$plain" "$q/link.sh")" 2 "symlink named outside tests/ to B's test: blocked"
+mkdir -p "$B/src"; : > "$B/src/foo.sh"; ln -s "$B/src/foo.sh" "$q/tests/src.sh"
+assert_eq "$(edit Edit "$plain" "$q/tests/src.sh")" 0 "symlink under tests/ to B's non-test file: passes"
 lock "$B" on
 assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 0 "symlink to unlocked B's test: passes"
 lock "$B" off
