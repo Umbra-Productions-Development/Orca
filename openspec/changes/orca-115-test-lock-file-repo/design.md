@@ -58,10 +58,10 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - Symlinked paths are judged in the repo the link resolves to — user (recommended, accepted in grilling).
 - Tests go in a new `tests/pretool-edit-lock-worktree.test.sh`, next to PR #136's `tests/pretool-edit-lock.test.sh`, so neither PR conflicts with the other — user (recommended, accepted in grilling).
 - `.openspec.yaml` uses `skip_specs: true`, as sibling changes do, with no spec deltas. Starting capability specs is a follow-up for the orchestrator — user (recommended, accepted in grilling).
-- Windows paths are in scope. A drive-letter or UNC `file_path` is absolute, `\` becomes `/` for the walk only, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (proposal review on 890ba06, should-fix 1).
-- The marker is read with `git rev-parse --absolute-git-dir` rather than absolutizing `--git-dir` by hand — propose (proposal review on 890ba06, suggestion 3).
-- Task 1.5 also updates the header comment at `hooks/pretool.sh:2` ("Active only where <repo>/.orca/config.json exists"). It now says Edit/Write is judged by the edited file's repo — propose (proposal review on 890ba06, suggestion 4).
-- The Stop hook still checks the lock only in the session's cwd. A lock left on in another worktree is listed under Risks and sent to the orchestrator as a follow-up, not fixed here: Stop is outside this ticket's Edit/Write scope — propose (proposal review on 890ba06, suggestion 2).
+- Windows paths are in scope. A drive-letter or UNC `file_path` is absolute, `\` becomes `/` for the walk only, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 1).
+- The marker is read with `git rev-parse --absolute-git-dir` rather than absolutizing `--git-dir` by hand — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 3).
+- Task 1.5 also updates the header comment at `hooks/pretool.sh:2` ("Active only where <repo>/.orca/config.json exists"). It now says Edit/Write is judged by the edited file's repo — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 4).
+- The Stop hook still checks the lock only in the session's cwd. A lock left on in another worktree is listed under Risks and sent to the orchestrator as a follow-up, not fixed here: Stop is outside this ticket's Edit/Write scope — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 2).
 
 ## Overlaps
 
@@ -72,4 +72,4 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 
 - A session that relied on unlocking its own checkout to edit another worktree's tests (the workaround in the discovery) is now blocked until the lock is lifted in that worktree. This is intended. The block message names where.
 - A session outside any Orca repo that edits Orca tests is newly blocked. This is intended and matches the push guard.
-- The block message sends a session in A to run `orca-lc test-lock on` in B. If it forgets `test-lock off` there, the Stop hook (`hooks/stop.sh`, which runs `orca-lc test-lock status` in the session cwd only) doesn't flag it. The old workaround, unlocking your own checkout, was caught; the new, intended path isn't. This is a follow-up for the orchestrator (proposal review on 890ba06, suggestion 2).
+- The block message sends a session in A to run `orca-lc test-lock on` in B. If it forgets `test-lock off` there, the Stop hook (`hooks/stop.sh`, which runs `orca-lc test-lock status` in the session cwd only) doesn't flag it. The old workaround, unlocking your own checkout, was caught; the new, intended path isn't. This is a follow-up for the orchestrator (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 2).
