@@ -4,7 +4,7 @@ The Edit/Write/MultiEdit branch of `hooks/pretool.sh` decides whether a test fil
 
 ## What Changes
 
-- The Edit/Write/MultiEdit branch resolves the repo from the edited file. Path: `tool_input.file_path`, made absolute against the payload `cwd` when relative. `~` expands to `$HOME`. Drive-letter and UNC paths count as absolute on Windows (Git Bash, MSYS, Cygwin) only, and `\` is read as `/` for both the walk and the `testGlob` match. Directory: the nearest existing ancestor of the file's directory. Repo: `orca_root` of that directory, and its git dir.
+- The Edit/Write/MultiEdit branch resolves the repo from the edited file. Path: `tool_input.file_path`, made absolute against the payload `cwd` when relative. `~` expands to `$HOME`. On Windows (Git Bash, MSYS, Cygwin) only, drive-letter and UNC paths count as absolute and `\` is read as `/`, for both the walk and the `testGlob` match. Elsewhere `\` is an ordinary filename character. Directory: the nearest existing ancestor of the file's directory. Repo: `orca_root` of that directory, and its git dir.
 - `testGlob` comes from that repo's `.orca/config.json`. The lock marker is read from that repo's git dir (`orca-allow-test-edits`).
 - A file outside any Orca repo passes, whatever the session cwd. A file inside an Orca repo is guarded, whatever the session cwd.
 - The block message names the repo root to unlock in: `run 'orca-lc test-lock on' in <root>`.
