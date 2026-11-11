@@ -57,6 +57,11 @@ assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 2 "symlink in non-Orca dir to 
 assert_eq "$(edit Edit "$plain" "$q/link.sh")" 2 "symlink named outside tests/ to B's test: blocked"
 mkdir -p "$B/src"; : > "$B/src/foo.sh"; ln -s "$B/src/foo.sh" "$q/tests/src.sh"
 assert_eq "$(edit Edit "$plain" "$q/tests/src.sh")" 0 "symlink under tests/ to B's non-test file: passes"
+# A symlinked directory is judged by where it points too.
+ln -s "$B/tests" "$q/tdir"; ln -s "$B/src" "$q/tests/srcdir"
+assert_eq "$(edit Edit "$plain" "$q/tdir/x.sh")" 2 "dir link to B's tests/: blocked"
+assert_eq "$(edit Write "$plain" "$q/tdir/new/y.sh")" 2 "new file under dir link to B's tests/: blocked"
+assert_eq "$(edit Edit "$plain" "$q/tests/srcdir/foo.sh")" 0 "dir link under tests/ to B's src/: passes"
 lock "$B" on
 assert_eq "$(edit Edit "$plain" "$q/tests/x.sh")" 0 "symlink to unlocked B's test: passes"
 lock "$B" off

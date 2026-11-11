@@ -109,7 +109,7 @@ case "$tool" in
     case "$f" in /*|[A-Za-z]:[\\/]*|'\\'*) p=$f;; *) p=$cwd/$f;; esac
     m=$p; p=${p//\\//}
     # A symlinked file is judged as its target: that repo, that lock, that path for testGlob. A symlinked
-    # dir is followed by git -C below.
+    # dir on the way is resolved after the walk.
     if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && { p=$t; m=$t; }; fi
     # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
     # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
@@ -122,6 +122,8 @@ case "$tool" in
       dir=$n
       [ -d "$dir" ] && break
     done
+    # Through a symlinked dir, testGlob sees the physical path the write lands on, not the link's name.
+    phys=$(cd "$dir" 2>/dev/null && pwd -P) && [ "$phys" != "$dir" ] && m=$phys${p#"$dir"}
     froot=$(orca_root "$dir")
     [ -n "$froot" ] || exit 0
     glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
