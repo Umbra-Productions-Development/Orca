@@ -375,7 +375,7 @@ cmd_worktree() {
         [ "${st:-0}" -gt 0 ] || die "no merged PR for $branch; pass --force to tear down anyway"
       fi
       stack_run "$t" "$dir" stackDown
-      rm -f "$dir/.orca"; for p in $(cfg '.linkPaths[]'); do [ -L "$dir/$p" ] && rm -f "$dir/$p"; done
+      [ -L "$dir/.orca" ] && rm -f "$dir/.orca"; for p in $(cfg '.linkPaths[]'); do [ -L "$dir/$p" ] && rm -f "$dir/$p"; done
       if inherdr; then local ws; ws=$(wt_ws "$dir"); [ -n "$ws" ] && herdr worktree remove --workspace "$ws" --force >/dev/null 2>&1; fi
       local main; main=$(main_root)
       [ -d "$dir" ] && git -C "$main" worktree remove --force "$dir"
