@@ -15,7 +15,7 @@ Established facts (main at the start of this change):
 In the Edit|Write|MultiEdit branch, with `f=tool_input.file_path`:
 
 1. Empty `f`: exit 0.
-2. Absolute path, `p`. Claude Code on Windows sends `C:\…\tests\x.sh`. So `f` counts as absolute when it starts with `/`, with a drive (`[A-Za-z]:` then `\` or `/`), or with `\\` (UNC). Otherwise `p=$cwd/$f`, using the payload cwd the hook already `cd`ed to. Then every `\` in `p` becomes `/`. Then `textpath` collapses `.` and `..` in `p` as text, the way Node's `path.resolve` does and Claude Code's Write does, without following links. So `q/nope/../tdir/x.sh` becomes `q/tdir/x.sh` before anything touches the filesystem. Only after this come the symlinked-file check (`-L`) and the walk.
+2. Absolute path, `p`. First, `~` and `~/…` expand to `$HOME`, as Claude Code does. `f` then counts as absolute when it starts with `/`. A drive (`[A-Za-z]:` then `\` or `/`) or `\\` (UNC) counts as absolute only on Windows, meaning `uname -s` is `MINGW*`, `MSYS*` or `CYGWIN*`. Claude Code on Windows sends `C:\…\tests\x.sh`. Elsewhere such a path is relative, as Claude Code treats it on Linux. Otherwise `p=$cwd/$f`, using the payload cwd the hook already `cd`ed to. Then every `\` in `p` becomes `/`. Then `textpath` collapses `.` and `..` in `p` as text, the way Node's `path.resolve` does and Claude Code's Write does, without following links. So `q/nope/../tdir/x.sh` becomes `q/tdir/x.sh` before anything touches the filesystem. Only after this come the symlinked-file check (`-L`) and the walk.
 3. Directory: start at the parent of `p`, where the parent is `p` with its last `/component` removed. An empty parent is `/`, and a bare drive `C:` is tried as `C:/`. While that directory does not exist, move to its parent. The walk stops at the first directory that exists, or when the parent equals the current directory or no `/` is left. That last stop covers a missing drive root such as `Z:/`, which never reaches `/`. If the walk finds no existing directory, exit 0, since no repo holds the file. A Write of a new test in a new `tests/sub/` resolves through `tests/`.
 4. `froot=$(orca_root "$dir")`. Empty: exit 0. The file is outside any Orca repo, whatever the session cwd.
 5. `glob` from `$froot/.orca/config.json`. Marker: `$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits`. `--absolute-git-dir` (git ≥ 2.13) prints the git dir absolute, so the case where git prints a relative `.git` disappears.
@@ -45,7 +45,7 @@ The walk-up is a few lines local to this branch. PR #95 adds a general `abspath(
 - Relative `file_path` `tests/x.sh` with cwd B, B locked: exit 2; unlocked: exit 0.
 - Relative `file_path` with a backslash, `tests\x.sh`, with cwd B, B locked: exit 2.
 - Non-test path in locked B: exit 0.
-- Backslash separators: `file_path` is B's absolute path with `\` between components (`$B\tests\x.sh`), the session is in unlocked A, and B is locked: exit 2. On Linux this exercises the `\`→`/` step for the walk. A drive-letter path can't exist on Linux, so `Z:\nowhere\tests\x.sh` from locked A gives exit 0: the walk ends with no existing directory instead of falling back to A.
+- Backslash separators: `file_path` is B's absolute path with `\` between components (`$B\tests\x.sh`), the session is in unlocked A, and B is locked: exit 2. On Linux this exercises the `\`→`/` step. On Linux a drive-letter path is relative to the cwd, so `Z:\nowhere\tests\x.sh` from locked A is blocked: it lands in A. With a stub `uname` printing `MINGW64`, it is absolute and passes (tasks.md 7.1).
 
 The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, `test-lock off`.
 
@@ -62,10 +62,13 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - A symlinked file is judged by its `readlink -f` target alone. The target decides the repo, the lock marker and the `testGlob` match; the link path is not consulted. Before this, the walk started at the link's directory, so a link outside any Orca repo pointing at a locked test passed. Matching the link path as well wrongly blocked a link under `tests/` that points to a non-test file (the verifier reproduced it) — apply (`.orca/reviews/orca-115-code-a8febb2.md` finding 2).
 - Tests go in a new `tests/pretool-edit-lock-worktree.test.sh`, next to PR #136's `tests/pretool-edit-lock.test.sh`, so neither PR conflicts with the other — user (recommended, accepted in grilling).
 - `.openspec.yaml` uses `skip_specs: true`, as sibling changes do, with no spec deltas. Starting capability specs is a follow-up for the orchestrator — user (recommended, accepted in grilling).
-- Windows paths are in scope. A drive-letter or UNC `file_path` is absolute, `\` becomes `/` for the walk only, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 1).
+- Windows paths are in scope. A drive-letter or UNC `file_path` is absolute on Windows, `\` becomes `/` for the walk and for the `testGlob` match, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 1).
 - The marker is read with `git rev-parse --absolute-git-dir` rather than absolutizing `--git-dir` by hand — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 3).
 - Task 1.5 also updates the header comment at `hooks/pretool.sh:2` ("Active only where <repo>/.orca/config.json exists"). It now says Edit/Write is judged by the edited file's repo — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 4).
 - The Stop hook still checks the lock only in the session's cwd. A lock left on in another worktree is listed under Risks and sent to the orchestrator as a follow-up, not fixed here: Stop is outside this ticket's Edit/Write scope — propose (first proposal review, `.orca/reviews/orca-115-proposal-890ba06.md` finding 2).
+- A drive (`X:/`, `X:\`) or UNC (`\\`) `file_path` counts as absolute only when `uname -s` is `MINGW*`, `MSYS*` or `CYGWIN*`. Elsewhere it is relative to the payload cwd, as Claude Code resolves it on Linux. Treating it as absolute everywhere let `C:/../tests/x.sh` collapse to `/tests/x.sh` on Linux and get past the lock — apply (`.orca/reviews/orca-115-code-7359b3b.md` should-fix 1).
+- `~` and `~/…` expand to `$HOME` before the absolute check, as Claude Code does. Before this, a `~` path was taken as relative and judged in the session's repo — apply (`.orca/reviews/orca-115-code-7359b3b.md` should-fix 2).
+- "`\` becomes `/`" applies to the walk and the `testGlob` match alike; the earlier "for the walk only" wording predates the physical-path decision — propose (`.orca/reviews/orca-115-code-7359b3b.md` suggestion 3).
 
 ## Overlaps
 
@@ -83,6 +86,8 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - A UNC path `//srv/share/../x` collapses as text to `//srv/x`, so `..` climbs above the share. Claude Code's own resolution decides the real target. The hook may judge a path one level off from where Windows writes it.
 - Untested paths. The code handles each, but no test case exercises it:
   - MultiEdit payloads;
+  - a bare `~` `file_path`;
   - UNC `\\srv\share` paths, including `..` above the share;
+  - a missing `uname`: drive and UNC paths are then treated as relative;
   - the cd-failure fallback in step 6 (`m=$p` when `cd` into `dir` fails);
   - the physical-path rebuild on Windows (Git Bash `/c/`) and macOS (`/private/tmp`) path forms.
