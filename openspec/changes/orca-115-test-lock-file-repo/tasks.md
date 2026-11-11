@@ -20,5 +20,5 @@
 ## 4. Code review fix (`.orca/reviews/orca-115-code-a8febb2.md` finding 1)
 
 - [x] 4.1 `hooks/pretool.sh`: set `m=$f` when `f` is absolute (same test as step 2), else `m=$cwd/$f`, before any `\` → `/` conversion. Match `testGlob` against `m` instead of `f` (design.md "Resolving the file's repo", steps 2 and 6).
-- [ ] 4.2 `tests/pretool-edit-lock-worktree.test.sh`: put the relative case back to a bare `tests/x.sh` (design.md "Tests"), with cwd B: exit 2 when B is locked, 0 when unlocked. Add `tests\x.sh` with cwd B locked: exit 2. This is a test edit: `orca-lc test-lock on`, reason in the commit body, `test-lock off`.
-- [ ] 4.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+- [x] 4.2 `tests/pretool-edit-lock-worktree.test.sh`: put the relative case back to a bare `tests/x.sh` (design.md "Tests"), with cwd B: exit 2 when B is locked, 0 when unlocked. Add `tests\x.sh` with cwd B locked: exit 2. This is a test edit: `orca-lc test-lock on`, reason in the commit body, `test-lock off`.
+- [x] 4.3 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
