@@ -15,10 +15,10 @@ Established facts (main at the start of this change):
 In the Edit|Write|MultiEdit branch, with `f=tool_input.file_path`:
 
 1. Empty `f`: exit 0.
-2. Absolute path: `f` when it starts with `/`, else `$cwd/$f` (the payload cwd the hook already `cd`ed to).
-3. Directory: start at the parent of the absolute path. While that directory does not exist, move to its parent. `/` always exists, so the loop ends. A Write of a new test in a new `tests/sub/` resolves through `tests/`.
+2. Absolute path, `p`. Claude Code on Windows sends `C:\…\tests\x.sh`. So `f` counts as absolute when it starts with `/`, with a drive (`[A-Za-z]:` then `\` or `/`), or with `\\` (UNC). Otherwise `p=$cwd/$f`, using the payload cwd the hook already `cd`ed to. Then every `\` in `p` becomes `/`. `p` is used only for the walk. `testGlob` still matches the original `f` (step 6).
+3. Directory: start at the parent of `p`, where the parent is `p` with its last `/component` removed. An empty parent is `/`, and a bare drive `C:` is tried as `C:/`. While that directory does not exist, move to its parent. The walk stops at the first directory that exists, or when the parent equals the current directory or no `/` is left. That last stop covers a missing drive root such as `Z:/`, which never reaches `/`. If the walk finds no existing directory, exit 0, since no repo holds the file. A Write of a new test in a new `tests/sub/` resolves through `tests/`.
 4. `froot=$(orca_root "$dir")`. Empty: exit 0. The file is outside any Orca repo, whatever the session cwd.
-5. `glob` from `$froot/.orca/config.json`. Marker: `$(git -C "$dir" rev-parse --git-dir)`, absolutized against `$dir` when git prints a relative path (`.git`), then `/orca-allow-test-edits`.
+5. `glob` from `$froot/.orca/config.json`. Marker: `$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits`. `--absolute-git-dir` (git ≥ 2.13) prints the git dir absolute, so the case where git prints a relative `.git` disappears.
 6. Block when `glob` is set, `f` matches it (matched against the path as given, unchanged), and the marker is missing.
 
 `git -C` changes into the directory, so a path through a symlink (e.g. a worktree's `.orca` link) is judged in the repo the link resolves to.
@@ -44,6 +44,7 @@ The walk-up is a few lines local to this branch. PR #95 adds a general `abspath(
 - Write of `B/tests/new/dir/y.sh`, where `tests/new/dir` does not exist, B locked: exit 2.
 - Relative `file_path` `tests/x.sh` with cwd B, B locked: exit 2; unlocked: exit 0.
 - Non-test path in locked B: exit 0.
+- Backslash separators: `file_path` is B's absolute path with `\` between components (`$B\tests\x.sh`), the session is in unlocked A, and B is locked: exit 2. On Linux this exercises the `\`→`/` step for the walk. A drive-letter path can't exist on Linux, so `Z:\nowhere\tests\x.sh` from locked A gives exit 0: the walk ends with no existing directory instead of falling back to A.
 
 The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, `test-lock off`.
 
@@ -57,6 +58,10 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 - Symlinked paths are judged in the repo the link resolves to — user (recommended, accepted in grilling).
 - Tests go in a new `tests/pretool-edit-lock-worktree.test.sh`, next to PR #136's `tests/pretool-edit-lock.test.sh`, so neither PR conflicts with the other — user (recommended, accepted in grilling).
 - `.openspec.yaml` uses `skip_specs: true`, as sibling changes do, with no spec deltas. Starting capability specs is a follow-up for the orchestrator — user (recommended, accepted in grilling).
+- Windows paths are in scope. A drive-letter or UNC `file_path` is absolute, `\` becomes `/` for the walk only, and the walk ends at a fixpoint with exit 0 when nothing exists. Without this, a Windows path falls back to the session's repo, which is the bug this ticket fixes — propose (proposal review on 890ba06, should-fix 1).
+- The marker is read with `git rev-parse --absolute-git-dir` rather than absolutizing `--git-dir` by hand — propose (proposal review on 890ba06, suggestion 3).
+- Task 1.5 also updates the header comment at `hooks/pretool.sh:2` ("Active only where <repo>/.orca/config.json exists"). It now says Edit/Write is judged by the edited file's repo — propose (proposal review on 890ba06, suggestion 4).
+- The Stop hook still checks the lock only in the session's cwd. A lock left on in another worktree is listed under Risks and sent to the orchestrator as a follow-up, not fixed here: Stop is outside this ticket's Edit/Write scope — propose (proposal review on 890ba06, suggestion 2).
 
 ## Overlaps
 
@@ -67,3 +72,4 @@ The new file is a test edit: `orca-lc test-lock on`, reason in the commit body, 
 
 - A session that relied on unlocking its own checkout to edit another worktree's tests (the workaround in the discovery) is now blocked until the lock is lifted in that worktree. This is intended. The block message names where.
 - A session outside any Orca repo that edits Orca tests is newly blocked. This is intended and matches the push guard.
+- The block message sends a session in A to run `orca-lc test-lock on` in B. If it forgets `test-lock off` there, the Stop hook (`hooks/stop.sh`, which runs `orca-lc test-lock status` in the session cwd only) doesn't flag it. The old workaround, unlocking your own checkout, was caught; the new, intended path isn't. This is a follow-up for the orchestrator (proposal review on 890ba06, suggestion 2).
