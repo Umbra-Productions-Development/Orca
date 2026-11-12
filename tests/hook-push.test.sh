@@ -7,6 +7,8 @@ echo edit >> "$r/README"; echo edit >> "$d/stale/README"   # main checkout and s
 plain=$(mktemp -d); git init -q "$plain/p"                 # a repo without .orca/config.json
 
 assert_eq "$(hook "$r" 'git push')" 2 "plain push from a stale cwd"
+assert_eq "$(hook "$r" $'cat > notes <<EOF\ngit push origin main\nEOF' | tail -1)" 0 "a heredoc body line is not a push"
+assert_eq "$(hook "$r" $'cat > notes <<EOF\nEOF\ngit push' | tail -1)" 2 "a push after the heredoc terminator is gated"
 assert_eq "$(hook "$d/fresh" 'git push origin HEAD')" 0 "plain push from a fresh cwd"
 assert_eq "$(hook "$r" "cd $d/fresh && git push")" 0 "cd <fresh> && git push from a stale cwd"
 assert_eq "$(hook "$r" 'cd ../fresh && git push')" 0 "relative cd resolves against the payload cwd"
