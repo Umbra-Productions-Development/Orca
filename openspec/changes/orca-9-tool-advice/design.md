@@ -39,7 +39,7 @@ This changes `git_targets` behaviour on purpose: a heredoc body line that starts
 For each segment, with `c` the command word after prefixes, options are parsed per command so an option's value is never taken for an operand (review S1). Value-taking options (separate word, or attached: `-n20`, `--lines=20`):
 
 - `head`, `tail`: `-n -c --lines --bytes`
-- `grep`, `egrep`, `fgrep`: `-A -B -C -m -e -f -d -D --after-context --before-context --context --max-count --regexp --file --directories --devices --include --exclude --exclude-dir --label --color`
+- `grep`, `egrep`, `fgrep`: `-A -B -C -m -e -f -d -D --after-context --before-context --context --max-count --regexp --file --directories --devices --include --exclude --exclude-dir --label`
 - `rg`: `-A -B -C -m -e -f -g -t -T -j -M --glob --type --type-not --max-count --regexp --file --threads --max-columns`
 - `ag`: `-A -B -C -m -G --file-search-regex --ignore --max-count`
 - `sed`: `-e -f -l --expression --file --line-length`
