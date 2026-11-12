@@ -77,6 +77,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
+| `toolAdvice` | Advise when Bash reads, searches or writes files the dedicated tools cover, once per session per kind. Default `true`; `false` turns it off |
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |
 | `roles` | Map of tab labels to role names |
