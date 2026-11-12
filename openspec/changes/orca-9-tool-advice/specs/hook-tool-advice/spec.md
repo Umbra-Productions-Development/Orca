@@ -17,12 +17,28 @@ In a repository carrying `.orca/config.json`, the PreToolUse hook SHALL advise, 
 - **THEN** the hook exits 0 with additionalContext naming the Write tool
 
 #### Scenario: Pipeline over command output
-- **WHEN** the command is `git log | grep fix` or `make | head -5`
+- **WHEN** the command is `git log | grep fix`, `git log | head -n 20`, `git log | grep -A 3 fix` or `git log | rg fix`
 - **THEN** the hook exits 0 with no output
 
-#### Scenario: Command output redirected to a file
-- **WHEN** the command is `make > build.log`
+#### Scenario: Command output captured to a file
+- **WHEN** the command is `make > build.log` or `make 2>&1 | tee build.log`
 - **THEN** the hook exits 0 with no output
+
+#### Scenario: Heredoc body is not a command
+- **WHEN** the command is `git commit -F - <<EOF` with a body line `less noise in tail output`
+- **THEN** the tool advice does not fire for that line
+
+### Requirement: Heredoc bodies are not commands
+
+The hook SHALL skip heredoc bodies when reading a Bash command, for the tool advice and for the push and commit checks alike.
+
+#### Scenario: Push text inside a heredoc body
+- **WHEN** the command is `cat > notes <<EOF`, a body line `git push origin main`, then `EOF`, and the gate marker is stale
+- **THEN** the hook does not block
+
+#### Scenario: Push after the heredoc ends
+- **WHEN** a `git push` line follows the heredoc's terminator and the gate marker is stale
+- **THEN** the hook blocks the push
 
 #### Scenario: Never a block
 - **WHEN** any Bash command is evaluated by the tool advice
