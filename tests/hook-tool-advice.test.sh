@@ -15,11 +15,13 @@ fires $'cat <<EOF | tee f\nbody\nEOF' "Write tool"; fires 'sed -i s/a/b/ f' "Edi
 fires 'cd sub && cat f' "Read tool"; fires 'bash -c "cat f"' "Read tool"; fires 'cat f | grep x' "Read tool"
 fires 'cat a > b' "Write tool"; fires "grep '>' f" "Grep tool"
 fires 'cat f' "toolAdvice: false"
+fires 'cat f 2>err.log' "Read tool"; fires 'echo x 1>f' "Write tool"; fires 'rg --files' "Glob tool"
 
 quiet 'git log | grep x'; quiet 'git log | head -n 20'; quiet 'git log | grep -A 3 fix'; quiet 'git log | rg fix'
 quiet 'cmd | head -5'; quiet 'make > build.log'; quiet 'make | tee build.log'; quiet 'make 2>&1 | tee build.log'
 quiet 'echo hi > /dev/null'; quiet 'echo x >&2'; quiet 'ls 2>&1'; quiet 'ls -la'; quiet "awk '{print}' f"
 quiet 'find . -name x -exec rm {} \;'
+quiet 'echo x 2>err.log'
 quiet $'git commit -F - <<EOF\nless noise in tail output\nhead notes.txt\nEOF'
 quiet $'git commit -F - <<EOF\nit\'s done\nhead notes.txt\nEOF'
 
