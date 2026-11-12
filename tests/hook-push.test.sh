@@ -9,6 +9,8 @@ plain=$(mktemp -d); git init -q "$plain/p"                 # a repo without .orc
 assert_eq "$(hook "$r" 'git push')" 2 "plain push from a stale cwd"
 assert_eq "$(hook "$r" $'cat > notes <<EOF\ngit push origin main\nEOF' | tail -1)" 0 "a heredoc body line is not a push"
 assert_eq "$(hook "$r" $'cat > notes <<EOF\nEOF\ngit push' | tail -1)" 2 "a push after the heredoc terminator is gated"
+assert_eq "$(hook "$r" $'n=$((1<<3))\ngit push origin main' | tail -1)" 2 "arithmetic << is no heredoc: the push after it is gated"
+assert_eq "$(hook "$r" $'((x<<=2))\ngit push' | tail -1)" 2 "(( << )) is no heredoc either"
 assert_eq "$(hook "$d/fresh" 'git push origin HEAD')" 0 "plain push from a fresh cwd"
 assert_eq "$(hook "$r" "cd $d/fresh && git push")" 0 "cd <fresh> && git push from a stale cwd"
 assert_eq "$(hook "$r" 'cd ../fresh && git push')" 0 "relative cd resolves against the payload cwd"
