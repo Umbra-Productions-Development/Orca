@@ -21,7 +21,7 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # them local. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
 # optional fd digit; >&N, N>&M and <&N are fd duplications with target &N. Heredoc bodies are skipped.
 tokenize() {
-  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=()
+  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = '"' ]; then
@@ -30,10 +30,12 @@ tokenize() {
       "'"|'"') q=$c; has=1;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
-      '>'|'<') _tr;;
+      '>'|'<') if [ "$ad" -gt 0 ]; then tok+=$c; else _tr; fi;;   # inside (( )) they are arithmetic
       '&') if [ "${s:i+1:1}" = '>' ]; then _tr; else _tw; _ts; np=0; fi;;
       '|') _tw; _ts; if [ "${s:i+1:1}" = '|' ]; then i=$((i+1)); np=0; else np=1; [ "${s:i+1:1}" = '&' ] && i=$((i+1)); fi;;
-      ';'|'('|')') _tw; _ts; np=0;;
+      '(') [ "${s:i+1:1}" = '(' ] && { ad=$((ad+1)); i=$((i+1)); }; _tw; _ts; np=0;;
+      ')') [ "$ad" -gt 0 ] && [ "${s:i+1:1}" = ')' ] && { ad=$((ad-1)); i=$((i+1)); }; _tw; _ts; np=0;;
+      ';') _tw; _ts; np=0;;
       $'\n') _tw; _ts; np=0; [ ${#hds[@]} -gt 0 ] && _tb;;
       *) tok+=$c;;
     esac; fi
@@ -44,7 +46,9 @@ tokenize() {
 # read a redirect operator at $i, skip heredoc bodies after the line at $i.
 _tw() {
   if [ "$has$tok" != 0 ]; then
-    if [ -n "$rop" ]; then r+=("$rop$GS$tok"); case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1;; esac; rop=""
+    if [ -n "$rop" ]; then r+=("$rop$GS$tok")
+      # a heredoc delimiter is a word or quoted; `1<<3` is a shift, not a heredoc
+      case "$rop" in '<<'|'<<-') { [ "$has" = 1 ] || [[ "$tok" =~ ^[A-Za-z_] ]]; } && { hds+=("$rop$GS$tok"); hd=1; };; esac; rop=""
     else w+=("$tok"); fi
   fi; tok=""; has=0
 }
@@ -56,8 +60,9 @@ _ts() {
   fi; w=(); r=(); hd=0
 }
 _tr() {
-  local op t=""
-  if [ "$has" = 0 ] && [[ "$tok" =~ ^[0-9]$ ]]; then tok=""; else _tw; fi
+  local op t="" fd=""
+  # a lone fd digit before the operator belongs to it; fds other than 0 and 1 stay on the op (2> is no file write)
+  if [ "$has" = 0 ] && [[ "$tok" =~ ^[0-9]$ ]]; then [[ "$tok" == [01] ]] || fd=$tok; tok=""; else _tw; fi
   case "${s:i:3}" in
     '<<<'|'<<-'|'&>>') op=${s:i:3}; i=$((i+2));;
     *) case "${s:i:2}" in
@@ -67,7 +72,7 @@ _tr() {
       *) op=$c;;
     esac;;
   esac
-  rop=$op
+  rop=$fd$op
 }
 _tb() {
   local x op d rest ln
@@ -163,7 +168,8 @@ tool_seg() {
     sed) p=1; [[ "$fl" =~ \ (-e|-f|--expression|--file)\  ]] && p=0
       if [[ "$fl" =~ \ (-i|--in-place)\  ]]; then [ ${#ops[@]} -gt $p ] && echo "edit sed"
       elif [[ "$fl" =~ \ (-n|--quiet|--silent)\  ]]; then [ ${#ops[@]} -gt $p ] && echo "read sed"; fi;;
-    grep|egrep|fgrep|rg|ag) p=1; [[ "$fl" =~ \ (-e|-f|--regexp|--file)\  ]] && p=0
+    grep|egrep|fgrep|rg|ag) [ "$c" = rg ] && [[ "$fl" == *" --files "* ]] && { echo "glob rg"; return; }
+      p=1; [[ "$fl" =~ \ (-e|-f|--regexp|--file)\  ]] && p=0
       if [ ${#ops[@]} -gt $p ]; then echo "search $c"
       elif [ "${S_P[k]}" != 1 ]; then
         case "$c" in rg|ag) echo "search $c";; *) [[ "$fl" =~ \ (-r|-R|--recursive|--dereference-recursive)\  ]] && echo "search $c";; esac
@@ -212,7 +218,7 @@ case "$tool" in
     # Bash reading, searching or writing files the dedicated tools cover: once per session per kind.
     [ "$(jq -r '.toolAdvice' "$root/.orca/config.json")" = false ] && exit 0
     ta=$(tool_scan); [ -n "$ta" ] || exit 0
-    ta_kind=${ta%% *} ta_cmd=${ta#* }; ta_mk=$ta_kind; [ "$ta_kind" = edit ] && ta_mk=write
+    ta_kind=${ta%% *} ta_cmd=${ta#* }; ta_mk=$ta_kind; case "$ta_kind" in edit) ta_mk=write;; glob) ta_mk=search;; esac
     sid=$(jq -r '.session_id // ""' <<<"$in")
     if [[ "$sid" =~ ^[A-Za-z0-9_-]+$ ]]; then
       ta_dir="$(git rev-parse --git-dir)/orca-tool-advice"
@@ -223,6 +229,7 @@ case "$tool" in
     case "$ta_kind" in
       read) advise "Bash \`$ta_cmd\` reads a file: the Read tool covers it (line-numbered, no output cap). $ta_off";;
       search) advise "Bash \`$ta_cmd\` searches files: the Grep tool (Glob for find) covers it. $ta_off";;
+      glob) advise "Bash \`$ta_cmd\` lists files: the Glob tool covers it. $ta_off";;
       write) advise "Bash \`$ta_cmd\` writes a file: the Write tool covers it. $ta_off";;
       edit) advise "Bash \`$ta_cmd\` changes a file: the Edit tool covers it. $ta_off";;
     esac
