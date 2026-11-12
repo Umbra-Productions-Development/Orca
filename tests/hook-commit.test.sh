@@ -10,6 +10,7 @@ assert_eq "$(cd "$d/wt" && orca-lc ticket)" abc-12
 assert_eq "$(hook "$r" 'git commit -m x')" "" "no ticket on the branch: no advice"
 assert_not_contains "$(hook "$r" 'git commit -m x')" "notify proj"
 assert_contains "$(hook "$d/wt" 'git commit -m x')" "orca-lc notify abc-12 --role orchestrator"
+assert_not_contains "$(hook "$d/wt" $'cat > notes <<EOF\ngit commit -m x\nEOF')" "orca-lc notify" "a heredoc body line is not a commit"
 assert_contains "$(hook "$r" "git -C $d/wt commit -am x")" "orca-lc notify abc-12 --role orchestrator" "ticket from the -C target"
 assert_eq "$(hook "$d/wt" "cd $r && git commit -m x")" "" "cd into a tree without a ticket: no advice"
 unset ORCA_ROLE; s=$(new_repo); git -C "$s" checkout -q -b feat/abc-13
