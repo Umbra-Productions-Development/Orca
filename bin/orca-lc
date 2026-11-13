@@ -75,7 +75,13 @@ lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock -w 10 9 || die 
     die "lock held: $d (remove it if no orca-lc is running)"; done
   echo $$ >"$d/pid"; trap 'rm -rf "'"$d"'"' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
-tree_sig() { ( cd "$(git rev-parse --show-toplevel)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard; git ls-files --others --exclude-standard -z | xargs -0r git hash-object --; } | sha1sum | cut -c1-12)" ); }
+# The gate's inputs: HEAD, the diff, every untracked file (a symlink by its target; a directory or nested
+# repo by its name only), the config and .env, both often gitignored and both able to change the gate.
+tree_sig() { ( cd "$(git rev-parse --show-toplevel)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD
+  cat .orca/config.json .env 2>/dev/null
+  git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+    printf '%s\n' "$f"; if [ -L "$f" ]; then readlink -- "$f"; elif [ -f "$f" ]; then git hash-object -- "$f"; fi; done
+  } | sha1sum | cut -c1-12)" ); }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
 idfile() { echo "$(gitdir)/orca-session-${HERDR_PANE_ID:-nopane}.json"; }
 
