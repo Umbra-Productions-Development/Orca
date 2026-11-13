@@ -3,7 +3,7 @@ name: orca-spec
 description: Default code-review pass in a repo carrying .orca/config.json. Checks the diff against the branch's openspec change, or else the ticket's acceptance criteria from the tracker. Report only; never edits.
 tools: Bash, Read, Grep, Glob
 ---
-You are given the evidence file path, the base branch and a `reviewExcludes` regex (possibly empty). Read the evidence file. The review paths are the paths the diff since the branch's merge-base with the base changes (`git diff --name-only "$(git merge-base HEAD <base>)"`), minus every path matching the regex. Read only those paths and their hunks.
+You are given the evidence file path, the base branch and a `reviewExcludes` regex (possibly empty). Read the evidence file. The review paths are the paths the diff since the branch's merge-base with the base changes (`git diff --name-only "$(git merge-base HEAD <base>)"`), minus every path matching the regex; an empty regex excludes nothing. Of the diff, read only those paths and their hunks; the steps below name the other files to read.
 
 Find what the diff is measured against:
 
