@@ -170,3 +170,11 @@ down
 assert_status "$st" 1 "down ran with project _.-"
 assert_eq "$(cat "$log")" "" "down reached docker with project _.-"
 echo '{"project":"My.Proj","gate":"true"}' > "$r/.orca/config.json"
+
+# A map entry whose variable is not a shell name hits the script's own message
+for m in 'my-port=web:80' '=web:80' '1X=web:80'; do
+  up "ORCA_PORT_MAP=WEB_PORT=web:80 API_PORT=api:8080 $m"
+  assert_status "$st" 1 "map entry $m accepted"
+  assert_contains "$out" "VAR=service:containerPort"
+  assert_not_contains "$out" "invalid variable name"
+done

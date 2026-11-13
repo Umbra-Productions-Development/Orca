@@ -62,6 +62,7 @@ fi
 for e in "${map[@]}"; do
   var=${e%%=*}
   case "$e" in *=*:*) ;; *) die "ORCA_PORT_MAP entry '$e' is not VAR=service:containerPort" ;; esac
+  case "$var" in ''|[!A-Za-z_]*|*[!A-Za-z0-9_]*) die "ORCA_PORT_MAP entry '$e' is not VAR=service:containerPort" ;; esac
   [ -n "${!var:-}" ] || die "$var is in ORCA_PORT_MAP but unset; add it to ports in .orca/config.json"
 done
 
