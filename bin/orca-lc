@@ -102,7 +102,7 @@ cmd_name() {
   local f; f=$(idfile)
   if [ "${1:-}" = "--set" ] && ! nested_agent; then
     local sid="${CLAUDE_SESSION_ID:-}" t r n base i=1
-    t=$(echo "${ORCA_TICKET:-}" | tr 'A-Z' 'a-z'); [ -n "$t" ] || t=$(ticket); [ -n "$t" ] || t=$(cfg '.project' proj); r=$(role_from_tab); n="${t//-/}-$r"; base="$n"
+    t=$(tkey "${ORCA_TICKET:-}"); [ -n "$t" ] || t=$(ticket); [ -n "$t" ] || t=$(cfg '.project' proj); r=$(role_from_tab); n="${t//-/}-$r"; base="$n"
     if inherdr; then
       while herdr agent list | jq -e --arg n "$n" --arg me "${HERDR_PANE_ID:-}" '.result.agents[] | select((.agent_name // .name)==$n and .pane_id!=$me)' >/dev/null 2>&1; do i=$((i+1)); n="$base$i"; done
       herdr agent rename "$HERDR_PANE_ID" "$n" >/dev/null 2>&1
@@ -700,6 +700,7 @@ cmd_role() {
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       leak_guard "role start handoff" "$body" || exit $?
       local t r dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); dir=$(wt_dir "$t")
+      case "$r" in propose|apply|review) [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session";; esac
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       name="$(ticket_slug "$t")-$r"
