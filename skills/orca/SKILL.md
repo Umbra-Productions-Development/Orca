@@ -105,11 +105,11 @@ Each default pass and `orca-verifier` end with a `## Findings` list, one entry p
    - **Should fix**: fixed in this PR, or answered `Keeping it: <reason>`.
    - **Suggestion**: optional.
 
-The findings file is `<gitdir>/orca-findings.md` (`git rev-parse --git-dir`), overwritten by each review. It lists every pass and check with its result, or `skipped` and the reason:
+The findings file is `<gitdir>/orca-findings.md` (`git rev-parse --git-dir`), overwritten by each review. It lists every pass and check with its result, or `skipped` and the reason. The `skipDefaultPasses:` header line appears only when there is an unknown name:
 
 ```
 # Review — <branch> @ <sha> vs <base>
-skipDefaultPasses: unknown pass <name>, ignored   (only when there is one)
+skipDefaultPasses: unknown pass <name>, ignored
 
 ## Passes
 | Pass | Result |
