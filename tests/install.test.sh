@@ -794,3 +794,13 @@ t_readonly_settings() { perm() { ls -ld "$1" | cut -c1-10; }
   cmp -s "$C/settings.json" "$d/saved" || fail "settings.json not restored"
   assert_eq "$(perm "$C/settings.json")" -r--r--r-- "settings.json mode after uninstall"; }
 [ "$(id -u)" = 0 ] || one t_readonly_settings link
+
+# R4 (review 4) a rerun with HOME spelled differently keeps orca-lc
+t_home_spelling() { local H=$HOME
+  inst --no-optional; assert_status "$st" 0 "$err"
+  for sp in "$H/" "$H"; do
+    HOME=$sp inst --no-optional; assert_status "$st" 0 "HOME=$sp: $err"
+    assert_not_contains "$out" "no longer shipped" "HOME=$sp"
+    [ -e "$H/.local/bin/orca-lc" ] || fail "orca-lc gone after HOME=$sp"
+  done; }
+both t_home_spelling
