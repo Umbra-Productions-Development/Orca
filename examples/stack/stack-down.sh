@@ -9,6 +9,7 @@ cd "${ORCA_WORKTREE:-.}"
 
 project=$(orca-lc config project)
 [ -n "$project" ] || die "set project in .orca/config.json; it names the compose project"
-project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')
+project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed 's/^[-_]*//')
+[ -n "$project" ] || die "project in .orca/config.json has no letter or digit; Compose project names need one"
 
 docker compose -p "$project-$ORCA_TICKET" down -v --remove-orphans

@@ -32,7 +32,8 @@ fi
 # 2. Project name: <project>-<ticket>.
 project=$(orca-lc config project)
 [ -n "$project" ] || die "set project in .orca/config.json; it names the compose project"
-project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')
+project=$(printf '%s' "$project" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-' | sed 's/^[-_]*//')
+[ -n "$project" ] || die "project in .orca/config.json has no letter or digit; Compose project names need one"
 name="$project-$ORCA_TICKET"
 
 # 3. Compose files.

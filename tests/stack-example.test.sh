@@ -153,3 +153,20 @@ down
 assert_status "$st" 1 "down ran without project"
 assert_contains "$out" "project"
 assert_eq "$(cat "$log")" "" "down reached docker without project"
+
+# A project starting with a non-alphanumeric loses the leading - and _; one with none left fails
+echo '{"project":"_.My.Proj","gate":"true"}' > "$r/.orca/config.json"
+up
+assert_status "$st" 0 "up failed on _.My.Proj: $out"
+assert_contains "$(cat "$log")" "compose -p my-proj-abc-1 "
+down
+assert_eq "$(cat "$log")" "compose -p my-proj-abc-1 down -v --remove-orphans"
+echo '{"project":"_.-","gate":"true"}' > "$r/.orca/config.json"
+up
+assert_status "$st" 1 "up ran with project _.-"
+assert_contains "$out" "letter or digit"
+assert_not_contains "$(cat "$log")" " up "
+down
+assert_status "$st" 1 "down ran with project _.-"
+assert_eq "$(cat "$log")" "" "down reached docker with project _.-"
+echo '{"project":"My.Proj","gate":"true"}' > "$r/.orca/config.json"

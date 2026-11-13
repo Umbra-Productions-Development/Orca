@@ -38,7 +38,7 @@ With `COMPOSE_FILE` unset, the script looks up files as Compose does: the first 
 
 ## What it names
 
-- Compose project: `project` from `.orca/config.json`, lowercased, characters outside `a-z0-9_-` replaced by `-`, then `-<ticket>`: `myapp-abc-12`. `project` is required; both scripts fail without it.
+- Compose project: `project` from `.orca/config.json`, lowercased, characters outside `a-z0-9_-` replaced by `-`, leading `-` and `_` dropped (Compose names start with a letter or digit), then `-<ticket>`: `myapp-abc-12`. `project` is required; both scripts fail without it.
 - Volumes: Compose names a named volume `<project-name>_<key>`, so the ticket's `data` volume is `myapp-abc-12_data`.
 - Ports: a generated override file under the worktree's git dir (`git rev-parse --git-path orca-compose.override.yaml`) replaces each mapped service's `ports` with the ticket's. Your compose file stays untouched and nothing appears in `git status`.
 
