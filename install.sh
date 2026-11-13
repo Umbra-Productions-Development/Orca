@@ -341,6 +341,18 @@ if [ $force = 0 ]; then
   done
   [ ${#problems[@]} = 0 ] || problems+=("run ./install.sh --force to switch the install to $here")
 fi
+# A parent that exists but is not a directory (a dangling link, a file) would stop mkdir midway through the apply.
+BADP=() PT=("$state/x" "$cfg/settings.json")
+for ((i = 1; i < ${#P[@]}; i += 2)); do PT+=("${P[i]}"); done
+for p in "${PT[@]}"; do
+  q=$(dirname "$p")
+  while [ ! -d "$q" ]; do
+    if [ -e "$q" ] || [ -L "$q" ]; then
+      in_list "$q" ${BADP[@]+"${BADP[@]}"} || { BADP+=("$q"); problems+=("$q exists and is not a directory"); }; break
+    fi
+    q=$(dirname "$q")
+  done
+done
 # Records of targets no longer shipped (a skill removed upstream): removed when still Orca's, else kept.
 # A record that names a target in another spelling (HOME with a trailing slash, say) is that target, not an orphan.
 npath() { printf '%s/%s\n' "$(norm "$(dirname "$1")")" "$(basename "$1")"; }

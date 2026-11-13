@@ -817,3 +817,13 @@ t_crlf_jq() {
   seed_settings "$C/settings.json"; rm -f "$M"; inst --no-optional; assert_status "$st" 0 "$err"
   ! has_rec hooks-key "" || fail "hooks-key recorded for a file that had .hooks"; }
 one t_crlf_jq link
+
+# R7 (review 7) a target's parent that exists but is not a directory stops the preflight
+t_parent_notdir() {
+  mkdir -p "$C"; ln -s "$d/nowhere" "$C/skills"; mkdir -p "$HOME/.local"; : > "$HOME/.local/bin"; a=$(snapshot "$HOME")
+  inst --no-optional; assert_status "$st" 1 "$err"
+  assert_contains "$err" "install.sh: $C/skills exists and is not a directory"
+  assert_contains "$err" "install.sh: $HOME/.local/bin exists and is not a directory"
+  assert_contains "$err" "install.sh: nothing changed"
+  assert_eq "$(snapshot "$HOME")" "$a" "a stopped install changed \$HOME"; }
+one t_parent_notdir link
