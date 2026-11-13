@@ -11,7 +11,9 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 ## Gate
 
-`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
+`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. `orca-lc gate` returns the gate's own exit status as soon as the gate ends, however it ends; inside herdr a split pane only follows its log, closing on success and staying open on failure. A gate still running after `gateTimeoutMin` (30 minutes when unset) is stopped with `ORCA_GATE_TIMEOUT`, exit 124.
+
+Run `orca-lc gate` in the foreground with a tool timeout above `gateTimeoutMin`; never in the background, never polled. In Claude Code that takes `BASH_MAX_TIMEOUT_MS` in the user's settings `env` at least that high (`2400000` for a 30-minute gate), or the call is moved to the background.
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
