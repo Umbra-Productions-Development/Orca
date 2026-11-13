@@ -81,7 +81,7 @@ In order, `set -euo pipefail`, every failure message on stderr and naming the se
   - Versions: `5.6.0` and `2.24.4-desktop.1` pass. `2.24.3` and `2.9.0` exit non-zero, with a message naming 2.24.4 and no `up` in the log.
   - An extra `DB_PORT=3012` line in `.env.local` with no map entry: fails naming `DB_PORT`. A map entry whose variable is unset: fails naming it.
   - No compose file and no `COMPOSE_FILE`: fails.
-  - `project` unset in the config: up and down both fail naming `project`, and nothing reaches the log.
+  - `project` unset in the config: up and down both fail naming `project`. Nothing reaches the log from down; from up only step 1's `compose version` does, since the version check runs first.
   - `SEED_VOLUME=seed SEED_TARGET=data`, with `seed` present and the ticket volume missing: the log has `volume create` with both labels for `my-proj-abc-1_data`, then `run --rm ... alpine:3.20 cp -a`. With the ticket volume present: neither appears.
   - `SEED_VOLUME=seed` with `seed` missing: fails naming `SEED_VOLUME`; no `volume create` and no `run` in the log.
   - Seed copy fails (stub `run` exits 1): the script exits non-zero and the log has `volume rm my-proj-abc-1_data` after the `run`.
