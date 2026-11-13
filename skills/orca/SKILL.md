@@ -75,6 +75,7 @@ Never: fixes what it finds; findings go to the orchestrator.
 In Claude Code, the orchestrator runs apply and review by default as background subagents of its own session, the `orca-apply` and `orca-review` agents, one subagent per job:
 
 - Brief each with a handoff from `orca-lc handoff write <ticket> apply|review` and the prompt `read handoff <file> and work it`.
+- Before each dispatch, record the owner: `orca-lc role owner <ticket> --set apply|review`. The subagent is the owner while it works.
 - Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
 - A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
 - After a crash, `SendMessage` the old subagent; when that is refused, dispatch a new one with the same handoff and the prompt `read handoff <file> and work it; continue from git log`.
