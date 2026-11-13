@@ -77,6 +77,9 @@ run role start ABC-1 propose
 check 'low memory refuses a new session and lists idle ones' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "under minFreeMemMb 3000.*abc1-review" "$H/out"'
 run role start ABC-1 review
 check 'low memory still allows reuse' 'grep -q "^handoff " "$H/out"'
+ORCA_MEMINFO="$H/none" run role start ABC-1 propose
+check 'unknown free memory (no /proc/meminfo) opens the session' 'jq -e "any(.name==\"abc1-propose\")" "$H/agents" >/dev/null'
+run role retire ABC-1 propose
 echo '{"ticketPattern":"ABC-[0-9]+","minFreeMemMb":500}' >"$main/.orca/config.json"
 run role start ABC-1 propose
 check 'minFreeMemMb sets the threshold' '[ "$(agents)" = "abc1-propose abc1-review abc1-tour" ]'
