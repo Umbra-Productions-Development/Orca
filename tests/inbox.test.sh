@@ -3,15 +3,14 @@ r=$(new_repo); cd "$r" || exit 1
 ib="$r/.orca/inbox"
 
 out=$(orca-lc notify ABC-5 --role orchestrator "hi" 2>&1); assert_status $? 0
-assert_contains "$out" "no live session for abc-5, queued: "
-f=${out##*queued: }
-case "$f" in "$(native "$ib")/abc-5/"*) ;; *) fail "queued outside $ib/abc-5/: $f";; esac
+assert_contains "$out" "no live session for the ticket, queued: "
+f="$ib/abc-5/${out##*queued: }"
 [ -f "$f" ] || fail "queued file missing: $f"
 assert_contains "$(cat "$f")" "hi"
 grep -q '^from: ' "$f" || fail "no from: line in $f"
 
 out=$(orca-lc notify "see ABC-5 now" "second" 2>&1); assert_status $? 0
-assert_contains "$out" "no live session for abc-5, queued: "
+assert_contains "$out" "no live session for the ticket, queued: "
 
 out=$(orca-lc notify somebody "x" 2>&1); assert_status $? 1
 assert_contains "$out" "nothing queued"
