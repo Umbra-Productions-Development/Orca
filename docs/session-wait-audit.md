@@ -39,7 +39,7 @@ Subagents behave the same way. A subagent that ends its turn while its own backg
 
 ### 2. The gate outlives the default Bash timeout
 
-- 481 gate runs (`orca-lc gate` and the sibling `asdlc gate`); 203 ran in the foreground for more than 30 s; the median was 138 s.
+- 481 gate runs (`orca-lc gate` and the same gate in a sibling CLI); 203 ran in the foreground for more than 30 s; the median was 138 s.
 - 213 runs set no timeout, so they ran under the 120 s default; one of them was moved to the background on timeout. The 120 s ceiling is the reason agents background the gate and then sleep on it.
 
 ### 3. Gate reruns on an unchanged tree: about 73 min
@@ -86,5 +86,5 @@ By hand, one week after the change lands: foreground sleep minutes, results wait
 ## Follow-ups
 
 - Gate duration (median 138 s) is a separate problem, tracked as an Orca GitHub issue that states the problem only.
-- The sibling `asdlc` CLI carries the same gate and pane logic and ran most of the audited sessions. Porting these changes to it is a separate step.
+- A sibling CLI carries the same gate and pane logic and ran most of the audited sessions. Porting these changes to it is a separate step.
 - The hook is Claude Code specific. Other runtimes need their own equivalent, or rely on the skill text alone.

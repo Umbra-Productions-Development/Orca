@@ -24,7 +24,7 @@ Anything else passes with no message. The file match goes through the transcript
 
 ## Decisions
 
-- Orca first; porting to `asdlc` is a separate step, and any change to `asdlc`, a client repository or a repository skill is escalated to the user first — user.
+- Orca first; porting to a sibling CLI is a separate step, and any change to that CLI, a client repository or a repository skill is escalated to the user first — user.
 - Block only a sleep whose answer is guaranteed to arrive (the three shapes above); `sleep` stays a usable tool — user.
 - No length threshold: a fixed number is an assumption — user.
 - A `sleep` with no check after it (`sleep N`, `sleep N; echo done`) is not blocked; revisit after the re-measure if it still costs too much — user.
