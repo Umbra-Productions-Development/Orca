@@ -24,7 +24,7 @@ Established facts, from the hooks reference (code.claude.com/docs/en/hooks), the
 ## Install
 
 - SessionStart is registered with matcher `startup|resume|clear|compact|fork`.
-- `ensure()` takes the old default matchers for the event. When it keeps the first Orca hook, and that hook's group `matcher` equals one of them, it sets the group's matcher to the new default. Any other matcher (hand-edited, or a different spelling) is kept as is.
+- `ensure()` takes the old default matchers for the event. When it keeps the first Orca hook, that hook's group `matcher` equals one of them, and every hook in the group is Orca's, it sets the group's matcher to the new default. Any other matcher (hand-edited, or a different spelling) is kept as is.
 - Only SessionStart has an old default to migrate: `startup|resume|clear|compact`. PreToolUse, PostToolUse and Stop pass none.
 
 ## Tests
@@ -63,7 +63,7 @@ Checks: `git push` without a fresh gate is blocked; `git merge` is blocked; an E
 
 ## Risks
 
-- Rewriting a group's matcher applies to every hook in that group. A group with Orca's default matcher holds only Orca's hook unless the user added one by hand next to it; that hook would then also fire on `fork`.
+- Rewriting a group's matcher applies to every hook in that group, so `ensure()` rewrites only a group that holds nothing but Orca's hook. A group where the user added a hook next to Orca's keeps the old default matcher, so Orca's hook in it does not fire on `fork` until the user adds `fork` by hand or moves the other hook out.
 - Whether a background `/fork` copy inherits `HERDR_PANE_ID` is not settled by code or docs. The fork guard makes the answer harmless for the foreground identity; the `/fork` live check confirms it. A background copy that finds no identity writes one for whatever pane id it has.
 - After `/branch` the pane's identity keeps the parent's session id, so `orca-lc handoff write` stamps `by:` with it and post-read, comparing against the branched session's own id, consumes a handoff that session wrote and then reads back. A mismatch between `by:` and the live session id predates this change; the fork guard extends it to `/branch` (proposal review on 8e47d5b).
 - Live behaviour can drift from the docs between releases; the README version is the one checked, and the per-hook tests pin the output shapes so a regression in Orca's own output shows in the gate.
