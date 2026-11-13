@@ -1,6 +1,4 @@
 # orca-lc notify without a live session queues to the ticket's inbox; inbox read prints once and archives
-# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
-native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 r=$(new_repo); cd "$r" || exit 1
 ib="$r/.orca/inbox"
 

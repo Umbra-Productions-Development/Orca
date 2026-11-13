@@ -18,6 +18,10 @@ assert_contains() { grep -qF -- "$2" <<<"$1" || fail "${3:-'$2' not in: $1}"; }
 assert_not_contains() { if grep -qF -- "$2" <<<"$1"; then fail "${3:-'$2' unexpectedly in: $1}"; fi; }
 assert_status() { [ "$1" = "$2" ] || fail "${3:-exit $1, expected $2}"; }
 
+# native <path> -> the path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/....
+# Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
+
 # new_repo [config-json] -> path of a fresh repo on main with one commit, a bare origin and
 # .orca/config.json. The repo sits alone in a temp dir, so worktrees orca-lc makes next to it
 # (in its parent) stay inside that dir.

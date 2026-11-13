@@ -1,6 +1,4 @@
 # orca-lc discover create/set/archive and orca-lc triage
-# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
-native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 r=$(new_repo); cd "$r" || exit 1
 dd="$r/.orca/discoveries"
 
