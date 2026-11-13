@@ -30,3 +30,16 @@ assert_contains "$(cat "$HERDR_STUB/calls")" "pane close p1"
 r=$(cfgr 'kill -9 $$'); out=$(HERDR_ENV=1 gate "$r"); rc=$?
 [ "$rc" != 0 ] || fail "killed gate in pane mode returned 0"; assert_contains "$out" "left open"
 assert_eq "$(cat "$r/.git/orca-gate-pane")" p1
+
+# A gate exiting 124 on its own, well before gateTimeoutMin, is a failure, not a timeout.
+r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
+assert_contains "$out" ORCA_GATE_FAIL
+
+# A signal to orca-lc's process group (Ctrl-C, a tool killing the call) reaches the gate too.
+if command -v setsid >/dev/null; then
+  r=$(cfgr "echo \$\$ > $TMPDIR/gpid; sleep 47"); setsid bash -c 'echo $$ > "$1"; cd "$2" && exec orca-lc gate --inline' _ "$TMPDIR/lead" "$r" >/dev/null 2>&1 </dev/null &
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMPDIR/gpid" ] && break; sleep 0.3; done
+  kill -TERM -- "-$(cat "$TMPDIR/lead")"; wait $! 2>/dev/null
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$(cat "$TMPDIR/gpid")" 2>/dev/null || break; sleep 0.3; done
+  kill -0 "$(cat "$TMPDIR/gpid")" 2>/dev/null && fail "gate survived a TERM to orca-lc's group"
+fi
