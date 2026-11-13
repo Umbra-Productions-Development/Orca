@@ -458,7 +458,7 @@ ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(p
 stack_ports() { local f; f="$(wt_dir "$1")/.env.local"; if [ -f "$f" ]; then grep -E '^[A-Z0-9_]+_PORT=' "$f"; else ports_for "$1"; fi; }
 # Runs a project command from config in the worktree, with its ticket, path and ports exported.
 stack_run() { local t="$1" dir="$2" c; c=$(cfg ".$3"); [ -n "$c" ] || return 0
-  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && export ORCA_TICKET="$(tkey "$t")" ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
+  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET=$(tkey "$t") && export ORCA_TICKET ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
 # Untracked local config the main checkout owns; a worktree points at it instead of holding a copy,
 # so editing it once in the main checkout reaches every worktree.
 wt_link() { local main="$1" dir="$2" p
@@ -769,7 +769,7 @@ init_detect() { local m="$1" v
     tracker) v=$(init_tracker "$m" "$(jq -r '.ticketPattern // ""' <<<"$3")");;
     testCommand) v=$(init_testcmd "$m");;
     gate) v=$(init_gate "$m" "$(jq -r '.testCommand // ""' <<<"$3")");;
-    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr 'A-Z' 'a-z').sh");;
+    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr '[:upper:]' '[:lower:]').sh");;
     ports) echo '[]'; return;;
   esac
   jq -n --arg v "$v" '$v'; }
@@ -812,9 +812,10 @@ cmd_init() {
   local new; new=$(jq --indent 2 . <<<"$cur")
   echo "$new"; [ $gich = 1 ] && echo ".gitignore: add .orca"
   if [ $yes = 0 ]; then local c=""; printf 'Write %s? [y/N] ' "$f" >&2; read -r c || c=""
-    case "$(echo "$c" | tr 'A-Z' 'a-z')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
+    case "$(echo "$c" | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
   mkdir -p "$m/.orca" || die "could not create $m/.orca"
   local tmp="$f.tmp.$$"; { printf '%s\n' "$new" > "$tmp" && mv "$tmp" "$f"; } || { rm -f "$tmp"; die "could not write $f"; }
+  # shellcheck disable=SC2094 # tail -c1 reads the last byte before the append opens the file
   if [ $gich = 1 ]; then { [ -s "$gi" ] && [ -n "$(tail -c1 "$gi")" ] && echo; echo .orca; } >> "$gi" || die "could not write $gi"; fi
   echo "wrote $f"
   if [ "$r" != "$m" ] && [ $gich = 1 ]; then
