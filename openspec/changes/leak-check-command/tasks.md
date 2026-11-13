@@ -12,7 +12,7 @@
 - [x] 3.1 In `cmd_gate`, run `( cmd_leak_check )` in a subshell after the gate command when `leakCheck` is true; a hit prints `ORCA_GATE_FAIL` as the last line, returns 1 and writes no marker
 
 ## 4. Test
-- [x] 4.1 Add `tests/leak-check.sh` with the cases in design: Test (test-lock on; the commit body says why)
+- [x] 4.1 Add `tests/leak-check.test.sh` with the cases in design: Test (test-lock on; the commit body says why)
 - [x] 4.2 Run it on Linux or WSL2 and show the output in the commit or PR
 
 ## 5. Docs
@@ -22,4 +22,4 @@
 
 ## 6. Close
 - [x] 6.1 Run `applyChecks`, then `orca-lc gate` passes
-- [x] 6.2 Report to the orchestrator: the follow-up for wiring `tests/leak-check.sh` into `tests/run.sh` after #49
+- [x] 6.2 Report to the orchestrator: the follow-up for wiring the leak-check test into `tests/run.sh` after #49 (#87, done: `tests/leak-check.test.sh`)

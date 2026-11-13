@@ -59,7 +59,7 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 
 ## Test
 
-`tests/leak-check.sh`, standalone like `tests/install-keep.sh`. It builds a temporary repo with `HOME` and `XDG_CONFIG_HOME` pointed at temporary directories, and a bare remote as `origin`. The test copies this checkout's `bin/orca-lc` and `.githooks/pre-push` into the temporary repo and sets `core.hooksPath .githooks` there, so the hook's `$(git rev-parse --show-toplevel)/bin/orca-lc` resolves inside it. The copies are untracked (`.git/info/exclude`) so they never show up as scanned paths. Cases:
+`tests/leak-check.test.sh`, run by `tests/run.sh` like every `*.test.sh`. It builds a temporary repo under run.sh's `TMPDIR`, with `HOME` and `XDG_CONFIG_HOME` pointed there too, and a bare remote as `origin`. The test copies this checkout's `bin/orca-lc` and `.githooks/pre-push` into the temporary repo and sets `core.hooksPath .githooks` there, so the hook's `$(git rev-parse --show-toplevel)/bin/orca-lc` resolves inside it. The copies are untracked (`.git/info/exclude`) so they never show up as scanned paths. Cases:
 
 - A term in each place (message, author name, committer email, path, added line, branch name) is reported with location and denylist line. The term never appears in the output.
 - A denylisted path on a binary file and on an empty file is reported as `commit <sha> path`; a deleted denylisted path is not reported; an added line `++ harmless` followed by a hit is located under the real file, not `harmless`.
@@ -77,7 +77,7 @@ printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push &
 - This repo's hook calls the checkout's own `bin/orca-lc`, not the one on PATH — user (recommended, accepted).
 - Adopting projects are protected by a gate step: with `leakCheck: true`, a hit fails the gate, and the existing marker check blocks the push. pretool is unchanged. Terminal pushers get a documented one-line `.git/hooks/pre-push`; Orca installs no git hook — user (recommended, accepted).
 - Scanning shared `.orca/` files is a second change in this ticket, `leak-check-shared-files` — user (recommended, accepted).
-- Test: standalone `tests/leak-check.sh`. Wiring it into `tests/run.sh` after #49 is a follow-up — user (recommended, accepted).
+- Test: standalone `tests/leak-check.sh`. Wiring it into `tests/run.sh` after #49 is a follow-up — user (recommended, accepted). Done in #87: it is now `tests/leak-check.test.sh`.
 - `leakCheck: true` with no denylist: the gate prints `leak-check: no denylist, skipped` and passes; `--pre-push` stays silent — user (recommended, accepted).
 - `leakCheck` controls only the automatic steps. `orca-lc leak-check` always runs when called — user (recommended, accepted).
 - Two changes; they share one PR only when their combined counted size is under `prShareLimit`, otherwise the second is stacked on the first — user (recommended, accepted).

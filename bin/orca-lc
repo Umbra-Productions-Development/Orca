@@ -9,6 +9,7 @@ USAGE='usage: orca-lc <command> [args]
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
   leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
+  leak-check --file <path>...|--stdin <label>   scan files (as file:<n>, the path as file path:1) or stdin (as <label>:<n>)
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   ticket                           ticket of this directory or its branch, empty when none
@@ -217,28 +218,58 @@ leak_commits() { # <branch> <git log args>...: the branch name, then per commit 
   done <<<"$cs"
   return 0
 }
-# Returns rather than exits, so the gate keeps control; neither mode reads the config or needs jq.
+# leak_scan for cmd_leak_check: awk's error names the list's path, so a failed scan says so in a fixed line instead.
+leak_scan_q() { leak_scan "$@" 2>/dev/null || { echo "orca-lc: leak-check: scan failed" >&2; return 2; }; }
+leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; stdin: lines out as "<label>:<n>\t<line>"
+# <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
+leak_guard() {
+  [ "$(cfg '.leakCheck')" = true ] || return 0
+  local lists=() f l hits
+  # A list that cannot be read, or a scan that fails, refuses with 2: unscanned text never reads as clean. awk's own
+  # error is dropped, since it names the list's path.
+  f=$(leak_lists) || { echo "orca-lc: refused, nothing written" >&2; return 2; }
+  while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
+  [ ${#lists[@]} -gt 0 ] || return 0
+  hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}" 2>/dev/null) || {
+    echo "orca-lc: leak-check: scan failed, text not checked" >&2; echo "orca-lc: refused, nothing written" >&2; return 2; }
+  [ -z "$hits" ] && return 0
+  echo "leak-check: denylisted terms found. Location, then the denylist line that matched:" >&2
+  echo "$hits" | sort -u >&2; echo "orca-lc: refused, nothing written" >&2
+  return 1
+}
+# Returns rather than exits, so the gate keeps control; no mode reads the config or needs jq.
 cmd_leak_check() {
-  local prepush="" lists=() f l found head
-  [ "${1:-}" = --pre-push ] && { prepush=1; shift; }
-  case "${1:-}" in -*) usage "leak-check: unknown flag '$1'";; esac
-  [ $# -le $(( prepush ? 0 : 1 )) ] || usage "leak-check takes one range, or --pre-push alone"
+  local mode=range lists=() f l found head="leak-check: denylisted terms found."
+  case "${1:-}" in
+    --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
+    --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
+            for f; do [ -f "$f" ] || usage "leak-check: no such file"; [ -r "$f" ] || usage "leak-check: unreadable file"; done;;
+    --stdin) mode=stdin; shift; [ $# -eq 1 ] && [ -n "$1" ] || usage "leak-check --stdin <label>";;
+    -*) usage "leak-check: unknown flag '$1'";;
+    *) [ $# -le 1 ] || usage "leak-check takes one range";;
+  esac
   # A while-read loop, not mapfile: macOS ships bash 3.2, where a missing mapfile would leave no lists.
   f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
-  if [ ${#lists[@]} -eq 0 ]; then [ -n "$prepush" ] || echo "leak-check: no denylist, skipped" >&2; return 0; fi
-  if [ -n "$prepush" ]; then
-    local zero=0000000000000000000000000000000000000000 lref lsha rref rsha
-    found=$(while read -r lref lsha rref rsha; do
+  if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
+  if [ "$mode" = file ]; then
+    # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".
+    # Content goes in on stdin: awk would take a path operand holding "=" as an assignment. A newline in a path is
+    # flattened so no part of it escapes the "file path" label.
+    found=$(for f; do printf 'file path:1\t%s\n' "${f//$'\n'/ }"; leak_lines file < "$f"; done | leak_scan_q "${lists[@]}") || return 2
+  elif [ "$mode" = stdin ]; then
+    found=$(leak_lines "$1" | leak_scan_q "${lists[@]}") || return 2
+  elif [ "$mode" = pre-push ]; then
+    local zero=0000000000000000000000000000000000000000 lsha rref rsha
+    found=$(while read -r _ lsha rref rsha; do
       [ "$lsha" = "$zero" ] && continue
       if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
       else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
-    done | leak_scan "${lists[@]}") || return 2
+    done | leak_scan_q "${lists[@]}") || return 2
     head="pre-push: denylisted terms found, push refused."
   else
     # pipefail carries leak_commits' exit 2 out of the pipeline.
-    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan "${lists[@]}") || return 2
-    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan "${lists[@]}") || return 2; fi
-    head="leak-check: denylisted terms found."
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan_q "${lists[@]}") || return 2
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan_q "${lists[@]}") || return 2; fi
   fi
   [ -z "$found" ] && return 0
   echo "$head Location, then the denylist line that matched:" >&2
@@ -314,16 +345,17 @@ cmd_notify() {
     fi
   fi
   local tk; tk=$(tkey "$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1)")
-  [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
-  echo "no live session for $tk, queued: $(cmd_inbox send "$tk" "$text")"
+  [ -n "$tk" ] || die "no live session matches the target and it is not a ticket, nothing queued (orca-lc peers lists targets)"
+  local q; q=$(cmd_inbox send "$tk" "$text") || exit $?
+  echo "no live session for the ticket, queued: $q"
 }
 
 cmd_inbox() {
-  local d; d="$(shared)/inbox"; mkdir -p "$d"
+  local d; d="$(shared)/inbox"
   case "${1:-}" in
-    send) need ticket "${2:-}"; need text "${3:-}"; local td; td=$(tdir "$d" "$2"); shift 2; mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
+    send) need ticket "${2:-}"; need text "${3:-}"; local tk="$2" td; shift 2; leak_guard "inbox send text" "$*" || exit $?; td=$(tdir "$d" "$tk"); mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
           local f; f=$(free_path "$td" "$(date +%s)-${i:-anon}.md")
-          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; echo "$f";;
+          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; basename "$f";; # the file name only: the ticket is an unscanned argument
     read) local t="${2:-$(ticket)}"; [ -n "$t" ] || return 0; local td; td=$(tdir "$d" "$t"); [ -d "$td" ] || return 0
           for f in "$td"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv_free "$f" "$td/archive" >/dev/null; done;;
     *) usage "inbox send|read";;
@@ -373,15 +405,16 @@ disc_dir() { echo "$(shared)/$(cfg '.discoveriesDir' discoveries)"; }
 cmd_discover() {
   local d; d=$(disc_dir); mkdir -p "$d"
   case "${1:-}" in
-    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          case "$3" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
          sed -i "s/^enforced-by:.*/enforced-by: $3/" "$f"; grep -m1 '^enforced-by' "$f"; return;;
-    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          grep -q '^enforced-by: none' "$f" && die "still enforced by nothing; set hook|skill|memory|reference first"
          mkdir -p "$d/archive"; sed -i "0,/^---$/!{0,/^---$/s//archived: $(date +%F)\n---/}" "$f"; mv "$f" "$d/archive/"; echo "$d/archive/$2.md"; return;;
   esac
   need slug "${1:-}"; need rule "${2:-}"; local slug="$1" rule="$2" by="${3:-none}"
   case "$by" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
+  leak_guard "discover slug" "$slug" "discover rule" "$rule" || exit $?
   local f="$d/$slug.md"; [ -e "$f" ] && die "$f exists"
   printf -- '---\nrule: %s\nenforced-by: %s\nsince: %s\n---\n\n# %s\n\n' "$rule" "$by" "$(date +%F)" "$slug" > "$f"; echo "$f"
 }
@@ -626,9 +659,12 @@ cmd_role() {
     start)
       need ticket "${1:-}"; need role "${2:-}"
       [ -z "${3:-}" ] || [ "$3" = --as ] || usage "role start <ticket> <role> [--as <name>]"
+      # The role names the shared handoff file and the tab; scanned first, so no later message echoes unscanned text.
+      leak_guard "role start ticket" "$1" "role start role" "$2" || exit $?
       inherdr || die "role start needs herdr"
-      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
+      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start <ticket> <role> <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
+      leak_guard "role start handoff" "$body" || exit $?
       local t r as="" dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
       [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
