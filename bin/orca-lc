@@ -661,7 +661,8 @@ cmd_stack() {
 # ---- roles: the orchestrator starts each session in its own tab of the ticket's workspace
 owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 # review2, reviewer, code-review and the like are the review role; same for propose and apply.
-canon_role() { case "$1" in *review*) echo review;; *propos*) echo propose;; *apply*) echo apply;; *) echo "$1";; esac; }
+# Prefix or -suffix only, so preview and reapply stay extra sessions.
+canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) echo propose;; apply*|*-apply) echo apply;; *) echo "$1";; esac; }
 ticket_slug() { tkey "${1//-/}"; }
 ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
