@@ -206,12 +206,13 @@ swrite() { local tmp m ro=0
      && { [ -w "$tmp" ] || { ro=1; chmod u+w "$tmp"; }; } && cat "$1" > "$tmp" && { [ $ro = 0 ] || chmod u-w "$tmp"; } \
      && mv "$tmp" "$R"; then return 0; fi
   rm -f "$tmp"; return 1; }
+# jq's text output is read with \r stripped: a native jq.exe under Git Bash ends its lines with CRLF.
 # settings_in: R (the file to write), sexists, SDOCS (its JSON document count; empty when it does not parse) and SIN
 # (the content to read). An absent file and one with 0 documents are read as {} (design.md, settings.json).
 settings_in() {
   R=$S; if [ -L "$S" ]; then R=$(resolve "$S"); fi
   SIN=$R SDOCS=1
-  if [ -e "$R" ]; then sexists=1; SDOCS=$(jq -s length "$R" 2>/dev/null || true); else sexists=0; fi
+  if [ -e "$R" ]; then sexists=1; SDOCS=$(jq -s length "$R" 2>/dev/null | tr -d '\r' || true); else sexists=0; fi
   if [ $sexists = 0 ] || [ "$SDOCS" = 0 ]; then SIN=$work/empty.json; echo '{}' > "$SIN"; fi; }
 # settings_check: the preflight's steps (design.md, settings.json): it parses, holds one document (or none), and
 # Orca's filters accept its shape. $1 is the filter run on it; its output goes to $2.
@@ -400,7 +401,7 @@ while IFS=$TAB read -r ev sc matched existed; do
   if [ "$ev" = key ]; then had_key=$sc; continue; fi
   [ "$matched" = 0 ] || { had_orca=1; continue; }
   rec hook "$ev" >/dev/null || HOOKS+=("hook$TAB$ev$TAB$sc$TAB$((1 - existed))")
-done < "$work/scan"
+done < <(tr -d '\r' < "$work/scan")
 if [ $sexists = 1 ] && [ "$(jq -S . "$SIN")" = "$(jq -S . "$work/merged.json")" ]; then :
 else
   if [ -n "$r_post" ] && { [ $sexists = 0 ] || [ "$(hstream < "$R")" != "$r_post" ]; }; then
