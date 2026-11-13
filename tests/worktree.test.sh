@@ -1,7 +1,5 @@
 # orca-lc worktree up/down (git path; lib.sh sets HERDR_ENV=0)
 cfg='{"project":"p","gate":"true","ports":["web","db"]}'
-# The path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/.... Identity where cygpath is absent.
-native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
 
 # Ports: a trailing number gives its slot; an id without one hashes to a fixed slot (cksum of the uppercased id)
 r=$(new_repo "$cfg"); d=$(dirname "$r")
