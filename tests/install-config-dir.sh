@@ -86,6 +86,15 @@ ss "startup|resume|clear|compact"; run; ok $st "rerun over the old default Sessi
 ok $? "rerun: the old default SessionStart matcher gains fork"
 ss "startup"; run; ok $st "rerun over a hand-edited SessionStart matcher exits 0"
 [ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = startup ]; ok $? "rerun: a hand-edited SessionStart matcher is kept"
+ssg() { jq -n '{type: "command", command: "bash /x/hooks/orca/session-start.sh"}' > "$tmp/h"; jq -n --slurpfile h "$tmp/h" "$1" > "$S"; }
+ssg '{hooks: {SessionStart: [{matcher: "startup|resume|clear|compact", hooks: [$h[0], {type: "command", command: "echo mine"}]}]}}'
+run; ok $st "rerun over the old default matcher on a group shared with a user hook exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact" ]; ok $? "rerun: a group shared with a user hook keeps the old default matcher"
+ssg '{hooks: {SessionStart: [{matcher: "startup|resume|clear|compact", hooks: [$h[0]]}, {matcher: "startup|resume|clear|compact", hooks: [$h[0], {type: "command", command: "echo other"}]}]}}'
+run; ok $st "rerun over two old default SessionStart groups exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact|fork" ] && [ "$(jq -r '.hooks.SessionStart[1].matcher' "$S")" = "startup|resume|clear|compact" ] \
+  && [ "$(jq -c '.hooks.SessionStart[1].hooks' "$S")" = '[{"type":"command","command":"echo other"}]' ]
+ok $? "rerun: only the first Orca group gains fork; the second keeps its matcher and loses the duplicate"
 
 sk="$CLAUDE_CONFIG_DIR/skills"
 rm -rf "$sk/grilling"; mkdir -p "$sk/grilling"; printf -- '---\nname: grilling\n---\nthird party\n' > "$sk/grilling/SKILL.md"
