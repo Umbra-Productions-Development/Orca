@@ -1,9 +1,6 @@
-#!/usr/bin/env bash
 # orca-lc role start/retire against a fake herdr: reuse, name folding, extras replace, memory guard, retire keeps the tab, kept tabs are reused.
-# Run: tests/role-sessions.sh
-set -uo pipefail
-lc="$(cd "$(dirname "$0")/.." && pwd)/bin/orca-lc"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+lc="$ORCA_SRC/bin/orca-lc"
+tmp=$(mktemp -d)
 main="$tmp/main"; wt="$tmp/ABC-1"; H="$tmp/h"; mkdir -p "$main/.orca" "$H" "$tmp/bin"
 git -C "$main" init -q && git -C "$main" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
 git -C "$main" worktree add -q -b abc-1 "$wt"
@@ -41,13 +38,12 @@ esac
 EOF
 chmod +x "$tmp/bin/herdr"
 # The orchestrator has a session id, as a real one does, so its rerun may replace the live handoff it wrote (#48).
-export PATH="$tmp/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=orch CLAUDE_SESSION_ID=orch-sid ORCA_MEMINFO="$H/meminfo"
+export PATH="$tmp/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=orch HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=torch CLAUDE_SESSION_ID=orch-sid ORCA_MEMINFO="$H/meminfo"
 (cd "$main" && ORCA_PS_STOP=$$ "$lc" name --set >/dev/null 2>&1); : >"$H/log"
 
-fail=0
 run() { (cd "$main" && "$lc" "$@" <<<"do the job" >"$H/out" 2>&1); }
 check() { # check <description> <condition>
-  if eval "$2"; then echo "ok   $1"; else echo "FAIL $1"; sed 's/^/     /' "$H/out"; fail=1; fi
+  eval "$2" || fail "$1: $(cat "$H/out")"
 }
 agents() { jq -r '[.[].name] | sort | join(" ")' "$H/agents"; }
 set_status() { jq -c --arg n "$1" --arg s "$2" 'map(if .name==$n then .agent_status=$s else . end)' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"; }
@@ -99,4 +95,3 @@ check 'an agent inside another agent pane does not rename the pane' '! grep -q "
 (cd "$main" && "$tmp/bin/claude" -c '"$0" name --set >/dev/null; :' "$lc")
 check 'the pane own agent names it' 'grep -q "^rename" "$H/log"'
 rm -f "$tmp/bin/claude"
-exit $fail
