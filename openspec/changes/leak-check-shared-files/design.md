@@ -82,7 +82,7 @@ Added to `tests/leak-check.test.sh`:
 - `role start` with a denylisted role (`ORCA-9 zebra`) or ticket (`ZEBRA-9 apply`) exits 1, names `role start role` or `role start ticket` with the denylist line, never echoes the argument, makes no herdr call and writes no handoff.
 - Failed scan in `leak-check` itself: with the `awk` stub, `--file`, `--stdin`, range mode and `--pre-push` each exit 2 with `orca-lc: leak-check: scan failed` and never print the list's path.
 - Echo checks: `discover set` and `discover archive` on an unknown slug, `notify` to no target and to a ticket, and `inbox send` never print the denylisted slug, target or ticket.
-- The pretool cases feed JSON to `hooks/pretool.sh` the way `tests/pretool-merge.sh` does, with this checkout's `bin/` first on `PATH`. The hook calls `orca-lc` from `PATH`, and an installed copy without `--stdin` would exit 2 and block every write.
+- The pretool cases feed JSON to `hooks/pretool.sh` the way `tests/pretool-merge.test.sh` does, with this checkout's `bin/` first on `PATH`. The hook calls `orca-lc` from `PATH`, and an installed copy without `--stdin` would exit 2 and block every write.
 
 ## Decisions
 
