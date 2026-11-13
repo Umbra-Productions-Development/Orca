@@ -210,13 +210,13 @@ both t_legacycfg
 # 1.6 settings.json absent before install
 t_absent() {
   inst; assert_status "$st" 0 "$err"; [ -f "$C/settings.json" ] || fail "settings.json not created"
-  inst --uninstall; [ ! -e "$C/settings.json" ] || fail "settings.json left after uninstall"; }
+  inst --uninstall; assert_status "$st" 0 "$out $err"; [ ! -e "$C/settings.json" ] || fail "settings.json left after uninstall"; }
 one t_absent copy
 
 # 1.7 settings.json edited between install and uninstall
 t_edit_uninst() {
   seed_settings "$C/settings.json"; inst; add_key "$C/settings.json"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(n_orca "$C/settings.json")" 0 "hooks of Orca's left"
   assert_eq "$(jq .added "$C/settings.json")" true "added key lost"; foreign_kept "$C/settings.json"
   assert_contains "$out" "settings.json was edited after install; removed Orca's hooks only"; }
@@ -240,7 +240,7 @@ t_edit_inst() {
   assert_not_contains "$out" "was edited"
   ! has_rec settings-orig "" || fail "settings-orig record after a pull that grew the hook set"
   [ ! -e "$HOME/.local/state/orca/settings.json.orig" ] || fail "settings.json.orig saved from Orca's own hooks"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(jq .added "$C/settings.json")" true "added key lost"
   assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "echo foreign-start"
   assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "other-pretool"
@@ -252,7 +252,7 @@ t_legacy_settings() {
   seed_settings "$C/settings.json"; add_orca "$C/settings.json" '${CLAUDE_CONFIG_DIR:-$HOME/.claude}' post-read
   inst; assert_status "$st" 0 "$err"; four "$C/settings.json"
   ! has_rec settings-orig "" || fail "settings-orig record for a legacy file"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "echo foreign-start"
   assert_eq "$(n_orca "$C/settings.json")" 0 "hooks of Orca's left"; }
 both t_legacy_settings
@@ -275,7 +275,7 @@ EOF
     assert_contains "$(jq -r '.. | .command? // empty' "$C/settings.json")" "$CMD86$x.sh\""; done
   ! has_rec settings-orig "" || fail "settings-orig record for a pre-#86 file"
   [ ! -e "$HOME/.local/state/orca/settings.json.orig" ] || fail "settings.json.orig saved from a pre-#86 file"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(n_orca "$C/settings.json")" 0 "hooks of Orca's left"
   c=$(jq -r '.. | .command? // empty' "$C/settings.json")
   assert_contains "$c" "echo foreign-start"; assert_contains "$c" "stop.sh.disabled"; }
@@ -358,23 +358,23 @@ t_grilling() {
   assert_not_contains "$(calls)" "claude plugin install"
   assert_contains "$out" "grilling: using Orca's skill; fallback not installed (./install.sh --grilling-fallback to offer it)"
   assert_not_contains "$(grep '^recommended tools present' <<<"$out")" "mattpocock-skills"
-  rm -f "$d/calls"; inst --yes --grilling-fallback; assert_contains "$(calls)" "$pin"
+  rm -f "$d/calls"; inst --yes --grilling-fallback; assert_status "$st" 0 "$out $err"; assert_contains "$(calls)" "$pin"
   rm -f "$d/calls"; export ORCA_INSTALL_PROMPT_STDIN=1
-  IN=- inst --grilling-fallback < <(yes n | head -n 50); unset ORCA_INSTALL_PROMPT_STDIN
+  IN=- inst --grilling-fallback < <(yes n | head -n 50); assert_status "$st" 0 "$out $err"; unset ORCA_INSTALL_PROMPT_STDIN
   en=$(table_rows | awk -F'\t' '$1 == "mattpocock-skills" { print $2 }')
   assert_contains "$out" "mattpocock-skills: $en. Install with '$pin'? [y/N]"
   [ ! -e "$d/calls" ] || fail "declined prompt called: $(calls)"
   rm -rf "$HOME"; mkdir -p "$C/skills/grilling"; echo "third party" > "$C/skills/grilling/SKILL.md"
-  rm -f "$d/calls"; inst --yes
+  rm -f "$d/calls"; inst --yes; assert_status "$st" 0 "$out $err"
   assert_contains "$err" "install.sh: kept $C/skills/grilling, which Orca did not install"
   grep -qx 'third party' "$C/skills/grilling/SKILL.md" || fail "third-party grilling replaced"
   assert_contains "$(calls)" "$pin"
   export ORCA_TEST_PLUGINS='  ❯ mattpocock-skills@claude-plugins-official'
-  rm -f "$d/calls"; inst --yes --grilling-fallback
+  rm -f "$d/calls"; inst --yes --grilling-fallback; assert_status "$st" 0 "$out $err"
   assert_not_contains "$(calls)" "claude plugin install"
   assert_contains "$(grep '^recommended tools present' <<<"$out")" "mattpocock-skills"
   export ORCA_TEST_PLUGIN_LIST_STATUS=1
-  rm -f "$d/calls"; inst --yes --grilling-fallback
+  rm -f "$d/calls"; inst --yes --grilling-fallback; assert_status "$st" 0 "$out $err"
   assert_contains "$(calls)" "$pin"; assert_not_contains "$out" "claude plugin list"; }
 both t_grilling
 
@@ -401,7 +401,7 @@ t_adopt() {
   inst; assert_status "$st" 0 "$err"
   [ -f "$M" ] || fail "no manifest"
   assert_eq "$(snapshot "$HOME" | grep -v '^[DF] ./.local/state')" "$a" "adoption changed something besides the manifest"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   for t in $(targets "$C"); do [ ! -e "$t" ] && [ ! -L "$t" ] || fail "adopted target left: $t"; done; }
 both t_adopt
 t_stale_copy() {
@@ -450,7 +450,7 @@ t_checkout_records() {
   has_rec edited "$C/skills/orca$TAB$d/src2/skills/orca$" || fail "edited record not rewritten for src2"
   assert_contains "$err" "install.sh: kept $C/skills/orca, edited since install;"
   add_key "$C/settings.json"
-  SRC=$d/src2 inst --uninstall
+  SRC=$d/src2 inst --uninstall; assert_status "$st" 1 "$out $err"
   assert_eq "$(jq 'has("hooks")' "$C/settings.json")" false "hooks key left"
   assert_contains "$out" "left: $C/skills/orca (edited since install)"; }
 one t_checkout_records copy
@@ -481,7 +481,7 @@ t_copy_update() {
     cmp -s "$t/SKILL.md" "$d/mine" || fail "edited copy changed"
     has_rec edited "$t$TAB" || fail "no edited record"; ! has_rec copy "$t$TAB" || fail "copy record kept for an edited copy"
   done
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 1 "$out $err"
   assert_contains "$out" "left: $t (edited since install)"; assert_not_contains "$out" "left: $C/skills ("
   mv "$t" "$d/aside"; inst; assert_status "$st" 0 "$err"
   cmp -s "$t/SKILL.md" "$SRC/skills/orca/SKILL.md" || fail "Orca's copy not back"
@@ -538,7 +538,7 @@ t_perms() {
   assert_eq "$(perm "$HOME/.local/state/orca")" drwx------
   assert_eq "$(perm "$M")" -rw-------; assert_eq "$(perm "$HOME/.local/state/orca/settings.json.orig")" -rw-------
   assert_eq "$(perm "$C/settings.json")" -rw------- "settings.json mode after install"
-  inst --uninstall; assert_eq "$(perm "$C/settings.json")" -rw------- "settings.json mode after uninstall"; }
+  inst --uninstall; assert_status "$st" 0 "$out $err"; assert_eq "$(perm "$C/settings.json")" -rw------- "settings.json mode after uninstall"; }
 [ $links_ok = 1 ] && one t_perms copy || echo "  SKIP state permissions: modes unreliable"
 
 # 1.22 symlinked settings.json
@@ -547,7 +547,7 @@ t_symlink() {
   ln -s "$d/dotfiles/settings.json" "$C/settings.json"
   inst; assert_status "$st" 0 "$err"
   assert_eq "$(readlink "$C/settings.json")" "$d/dotfiles/settings.json"; four "$d/dotfiles/settings.json"; foreign_kept "$d/dotfiles/settings.json"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(readlink "$C/settings.json")" "$d/dotfiles/settings.json"
   cmp -s "$d/dotfiles/settings.json" "$d/saved" || fail "link target not restored"
   rm "$C/settings.json"; ln -s "$d/missing.json" "$C/settings.json"; a=$(snapshot "$HOME")
@@ -562,7 +562,7 @@ t_symlink_nof() {
   inst; assert_status "$st" 0 "$err"
   assert_eq "$(readlink "$C/settings.json")" "$d/hop1"; assert_eq "$(readlink "$d/hop1")" dotfiles/settings.json
   four "$d/dotfiles/settings.json"
-  inst --uninstall
+  inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(readlink "$C/settings.json")" "$d/hop1"; assert_eq "$(readlink "$d/hop1")" dotfiles/settings.json
   cmp -s "$d/dotfiles/settings.json" "$d/saved" || fail "two-hop target not restored"; }
 one t_symlink_nof link
@@ -600,7 +600,7 @@ t_orphan() { local v=$1 sk T s0
     kept|edited)
       assert_contains "$err" "install.sh: kept $T, which Orca no longer ships and did not install as it is now"
       assert_eq "$(snapshot "$T")" "$s0" "$v: target changed"
-      inst --uninstall
+      inst --uninstall; assert_status "$st" 1 "$out $err"
       assert_not_contains "$out" "removed $T" "$v: uninstall removed it"; assert_not_contains "$out" "left: $T" "$v: uninstall listed it"
       assert_eq "$(snapshot "$T")" "$s0" "$v: uninstall changed it";;
     gone) while IFS= read -r l; do
