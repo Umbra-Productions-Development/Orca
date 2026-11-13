@@ -561,11 +561,11 @@ init_langs() { local m="$1" t=() s=() IFS='|'
   [ -f "$m/Cargo.toml" ] && { t+=('(^|[/\\])tests[/\\].*\.rs$'); s+=('\.rs\b'); }
   [ ${#t[@]} -gt 0 ] || { t=('(^|[/\\])(tests?|__tests__|spec)[/\\]|[._-](test|spec)\.[^/\\]*$|(^|[/\\])test_[^/\\]*$'); s=(''); }
   jq -n --arg t "${t[*]}" --arg s "${s[*]}" '{testGlob: $t, sourceGlob: $s}'; }
-# The most common ticket prefix on at least 2 distinct branches (local and remote-tracking, origin/
-# stripped): a /-segment counts when it starts with <letters>-<digits> followed by its end, - or _.
+# The most common ticket prefix on at least 2 distinct branches (local and remote-tracking, <remote>/
+# stripped, so one branch on several remotes counts once): a /-segment counts when it starts with <letters>-<digits> followed by its end, - or _.
 init_ticket() { local p
   p=$(git -C "$1" for-each-ref --format='%(refname)' refs/heads refs/remotes \
-    | sed -E 's#^refs/heads/##; s#^refs/remotes/origin/##; s#^refs/remotes/##' | grep -vxE '(.*/)?HEAD' | LC_ALL=C sort -u \
+    | sed -E 's#^refs/heads/##; s#^refs/remotes/[^/]+/##' | grep -vxE '(.*/)?HEAD' | LC_ALL=C sort -u \
     | awk -F/ '{ delete seen; for (i = 1; i <= NF; i++) if ($i ~ /^[A-Za-z]+-[0-9]+$/ || $i ~ /^[A-Za-z]+-[0-9]+[-_]/) {
         k = toupper(substr($i, 1, index($i, "-") - 1)); if (!(k in seen)) { seen[k] = 1; n[k]++ } } }
       END { for (k in n) if (n[k] >= 2) print n[k], k }' | LC_ALL=C sort -k1,1nr -k2,2 | head -1 | cut -d' ' -f2)

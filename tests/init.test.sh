@@ -246,3 +246,8 @@ out=$(yes_init "$r" 2>&1); assert_eq "$out" "no changes"
 # 20. the npm init placeholder test script is not a gate
 r=$(fresh); echo '{"scripts":{"lint":"x","test":"echo \"Error: no test specified\" && exit 1"}}' > "$r/package.json"
 yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" gate)" "npm run lint" "placeholder test script proposed"
+
+# 21. one branch on two remotes counts once
+r=$(fresh); git init -q --bare -b main "$r.up.git"; git -C "$r" remote add upstream "$r.up.git"
+git -C "$r" push -q origin main:abc-1/x; git -C "$r" push -q upstream main:abc-1/x; git -C "$r" fetch -q upstream
+yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" ticketPattern)" "[A-Z]+-[0-9]+" "a branch on two remotes counted twice"
