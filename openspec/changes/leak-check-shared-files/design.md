@@ -116,7 +116,7 @@ Added to `tests/leak-check.test.sh`:
 ## Risks
 
 - A false positive in `role start` stops a role from starting until the denylist is fixed or a `!` line re-allows the term. This is intended: the denylist is the user's to tune.
-- Hook latency: the scan spawns `orca-lc` and awk only for writes under `handoffs/` or the discoveries directory with `leakCheck` on; every other tool call costs one `jq` read and a path compare.
+- Hook latency: with `leakCheck` on, every Edit, Write and MultiEdit, wherever it lands, runs `orca-lc config sharedDir` and `orca-lc config discoveriesDir` (each a bash process with a `git rev-parse` and a `jq`), one `jq` read of `leakCheck`, and three `abspath` walks (the target's directory, `handoffs/` and the discoveries directory), each forking a subshell per existing directory on its path, before the path compare. The scan itself spawns `orca-lc` and awk only for writes under `handoffs/` or the discoveries directory. With `leakCheck` off, an Edit, Write or MultiEdit pays only that one `jq` read on top of the hook's existing work.
 - Writes through Bash (`cat > .orca/handoffs/… <<EOF`, `tee`, `cp`) are not scanned: pretool scans only Write, Edit and MultiEdit. A session that writes a handoff or discovery through the shell bypasses the check.
 - `inbox send`'s ticket argument is never scanned, yet it becomes a directory name under `inbox/`. It is not echoed, but a denylisted ticket lands in the shared tree.
 - With `leakCheck` on, a broken install (an `orca-lc` on `PATH` without `leak-check --stdin`) blocks every handoff and discovery write until it is fixed. This is intended: an unchecked write is refused, not passed.
