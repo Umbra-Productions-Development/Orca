@@ -82,7 +82,7 @@ An empty tier says `none`. Verdict for posting: APPROVE when Blocker and Should 
 - `standardsFile`: path, relative to the repository root, to the project's coding standards. Absent: the standards pass is skipped.
 - `reviewExcludes`: regex; matching paths are removed from what every pass and `reviewChecks` entry reads and from what review-side `when` patterns (`reviewPasses`, `reviewChecks`) match. `applyChecks`, the gate and `orca-verifier` still see the whole diff; the verifier only drops excluded paths from its unasked-change findings.
 - `skipDefaultPasses`: array of default pass names (`orca-complexity`, `orca-spec`, `orca-standards`) not run. Absent: all three run. A skipped pass stays in the passes table as `skipped: off in skipDefaultPasses`. A skipped default also named in `reviewPasses` stays skipped, and its row says `skipped: off in skipDefaultPasses (also in reviewPasses)`. A name that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets a line `skipDefaultPasses: unknown pass <name>, ignored`. Independent of `reviewExcludes`.
-- `orca.example.json` gains `"standardsFile": "docs/standards.md"` and `"reviewExcludes": "\\.lock$|^dist/"`, and later `"skipDefaultPasses": []`.
+- `orca.example.json` carries `"standardsFile": "docs/standards.md"`, `"reviewExcludes": "\\.lock$|^dist/"` and `"skipDefaultPasses": []`.
 
 ## Verification
 
@@ -96,12 +96,12 @@ The fixture is not committed.
 ## Decisions
 
 - The review session reconciles, following a procedure in the orca skill; no reconciler agent — user (recommended, accepted).
-- The three default passes always run and `reviewPasses` adds to them; no opt-out key for now — user (recommended, accepted).
+- The three default passes always run and `reviewPasses` adds to them; no opt-out key for now — user (recommended, accepted); superseded by the `skipDefaultPasses` decision below.
 - Default passes are agents `orca-complexity`, `orca-spec`, `orca-standards`, report-only, built like `orca-verifier` — user (recommended, accepted).
 - Each finding carries location, claim, evidence and a suggested tier; reconcile sets the final tier — user (recommended, accepted).
 - The findings file is `<gitdir>/orca-findings.md`, headed with sha and base, no new command — user (recommended, accepted).
 - No `standardsFile`: the standards pass is skipped, no fallback to `CLAUDE.md`/`AGENTS.md` — user (recommended, accepted).
-- `reviewExcludes` is a regex applied to passes, `reviewChecks` and `when` matching, not to the gate or the verifier — user (recommended, accepted).
+- `reviewExcludes` is a regex applied to passes, `reviewChecks` and `when` matching, not to the gate or the verifier — user (recommended, accepted); narrowed by the verifier unasked-change decision below.
 - Tiers: Blocker (no `Keeping it`), Should fix (fix or `Keeping it`), Suggestion; APPROVE only with no Blocker and no Should fix; posting gains the Blocker opener, the rest of posting stays with #23 — user (recommended, accepted).
 - Review runs the gate from the ticket worktree on its stack; one skill line, no code change — user (recommended, accepted).
 - `orca-spec` without an openspec change falls back to the ticket's acceptance criteria, else is skipped — user (recommended, accepted).
