@@ -198,11 +198,14 @@ resolve() { local p=$1 l r n=0
   while [ -L "$p" ] && [ $n -lt 40 ]; do
     l=$(readlink "$p"); case $l in /*) p=$l;; *) p=$(dirname "$p")/$l;; esac; n=$((n + 1)); done
   printf '%s\n' "$p"; }
-# swrite <file>: write its content to $R atomically, keeping $R's mode (a new file gets 0666 under the umask).
-swrite() { local tmp m
+# swrite <file>: write its content to $R atomically, keeping $R's mode (a new file gets 0666 under the umask). A
+# read-only $R is replaced like any other: the temp file is made writable for the write only. A failed write removes it.
+swrite() { local tmp m ro=0
   tmp=$(mktemp "$R.XXXXXX")
-  if [ -e "$R" ]; then cp -p "$R" "$tmp"; else m=$(umask); chmod "$(printf '%o' $(( 0666 & ~(8#$m) )))" "$tmp"; fi
-  cat "$1" > "$tmp"; mv "$tmp" "$R"; }
+  if { if [ -e "$R" ]; then cp -p "$R" "$tmp"; else m=$(umask); chmod "$(printf '%o' $(( 0666 & ~(8#$m) )))" "$tmp"; fi; } \
+     && { [ -w "$tmp" ] || { ro=1; chmod u+w "$tmp"; }; } && cat "$1" > "$tmp" && { [ $ro = 0 ] || chmod u-w "$tmp"; } \
+     && mv "$tmp" "$R"; then return 0; fi
+  rm -f "$tmp"; return 1; }
 # settings_in: R (the file to write), sexists, SDOCS (its JSON document count; empty when it does not parse) and SIN
 # (the content to read). An absent file and one with 0 documents are read as {} (design.md, settings.json).
 settings_in() {

@@ -783,3 +783,14 @@ t_parent_in_checkout() {
   inst --uninstall; assert_status "$st" 1 "$out $err"; assert_contains "$out" "left: $C/skills/orca (not created by Orca)"
   assert_eq "$(snapshot "$SRC/skills")" "$s0" "uninstall changed the checkout's skills"; }
 both t_parent_in_checkout
+
+# R3 (review 3) a read-only settings.json is written through and keeps its mode, with no temp file left
+t_readonly_settings() { perm() { ls -ld "$1" | cut -c1-10; }
+  seed_settings "$C/settings.json"; cp "$C/settings.json" "$d/saved"; chmod 0444 "$C/settings.json"
+  inst --no-optional; assert_status "$st" 0 "$err"; four "$C/settings.json"
+  assert_eq "$(perm "$C/settings.json")" -r--r--r-- "settings.json mode after install"
+  assert_eq "$(find "$C" -maxdepth 1 -name 'settings.json.*')" "" "temp file left"
+  inst --uninstall; assert_status "$st" 0 "$out $err"
+  cmp -s "$C/settings.json" "$d/saved" || fail "settings.json not restored"
+  assert_eq "$(perm "$C/settings.json")" -r--r--r-- "settings.json mode after uninstall"; }
+[ "$(id -u)" = 0 ] || one t_readonly_settings link
