@@ -234,3 +234,11 @@ for w in super/sub sw bl/main; do
   out=$(yes_init "$d/$w" 2>&1); assert_status $? 1 "$w: $out"
   assert_contains "$out" "init does not support this layout (nothing written)"; done
 [ -z "$(find "$d" -name .orca -o -name .gitignore)" ] || fail "wrote in an unsupported layout: $(find "$d" -name .orca -o -name .gitignore)"
+
+# 19. a stored sharedDir that is no longer a directory (the checkout moved) is re-proposed as <main>/.orca, with a warning
+r=$(fresh); f="$r/.orca/config.json"; yes_init "$r" >/dev/null 2>&1
+jq --indent 2 '.sharedDir = "/nonexistent/old/.orca"' "$f" > "$f.t" && mv "$f.t" "$f"
+out=$(yes_init "$r" 2>&1); assert_status $? 0 "$out"
+assert_contains "$out" "sharedDir /nonexistent/old/.orca is not a directory; proposing $(top "$r")/.orca"
+assert_eq "$(cfgv "$r" sharedDir)" "$(top "$r")/.orca"
+out=$(yes_init "$r" 2>&1); assert_eq "$out" "no changes"

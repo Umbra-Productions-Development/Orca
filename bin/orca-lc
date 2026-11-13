@@ -633,6 +633,10 @@ cmd_init() {
   local ask=0; [ $yes = 0 ] && { [ -t 0 ] || [ "${ORCA_INIT_PROMPT_STDIN:-}" = 1 ]; } && ask=1
   # The existing config plus the defaults it lacks, appended in the example's order; answers keep each key's slot.
   local cur k p ans; cur=$(jq -c --argjson d "$(init_defaults "$m" "$(init_langs "$m")")" '. as $o | $o + ($d | with_entries(select(.key as $k | $o | has($k) | not)))' <<<"$was")
+  # sharedDir is never prompted; a stored one that is no longer a directory (the checkout moved) goes back to the default.
+  local sd; sd=$(jq -r '.sharedDir // "" | strings' <<<"$was")
+  if [ -n "$sd" ] && [ ! -d "$sd" ]; then echo "sharedDir $sd is not a directory; proposing $m/.orca" >&2
+    cur=$(jq -c --arg s "$m/.orca" '.sharedDir = $s' <<<"$cur"); fi
   for k in project baseBranch ticketPattern tracker testCommand gate stackUp stackDown ports; do
     # A key already in the config proposes its value, even empty; detection runs only for missing keys.
     if jq -e --arg k "$k" 'has($k)' <<<"$was" >/dev/null; then p=$(jq -c --arg k "$k" '.[$k]' <<<"$was"); else p=$(init_detect "$m" "$k" "$cur"); fi
