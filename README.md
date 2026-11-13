@@ -26,6 +26,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
 - **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
+- **Leak check:** `orca-lc leak-check [range]` scans commits no remote has yet (or the given range) for terms from the untracked denylists `~/.config/orca/denylist` and `.orca/denylist`, and names each hit by location and denylist line. With `leakCheck: true` the gate runs it, so a hit leaves no marker and the push is refused. To cover pushes from a terminal too, add the one-line hook: `printf '#!/bin/sh\nexec orca-lc leak-check --pre-push\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push`.
 - **Discoveries:** `/discover` records a rule learned on one ticket so later sessions don't relearn it.
 
 `orca-lc help` lists every command.
@@ -74,6 +75,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `sharedDir` | Absolute path to the main checkout's `.orca`, shared by every worktree |
 | `baseBranch` | Branch new worktrees start from |
 | `gate` | Command that must pass before a push |
+| `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has; a hit fails it. Default off |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
@@ -103,7 +105,7 @@ See [PROJECT_PLAN.md](PROJECT_PLAN.md) for goals, rules and how changes land.
 
 Run the tests with `bash tests/run.sh`, or name files to run only those. The suite needs only bash, git and jq; each file runs in throwaway repos under a temp dir with its own `HOME`.
 
-Turn on the leak check once per clone: `git config core.hooksPath .githooks`. The pre-push hook refuses commits carrying any term from `~/.config/orca/denylist` or `.orca/denylist`, both untracked. Syntax follows `.gitignore`: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, last match wins; matching ignores case and hits whole words only.
+Turn on the leak check once per clone: `git config core.hooksPath .githooks`. The pre-push hook runs this checkout's own `bin/orca-lc leak-check --pre-push`, so it needs no install, and refuses commits carrying any term from `~/.config/orca/denylist` or `.orca/denylist`, both untracked. Syntax follows `.gitignore`: one pattern per line, `#` comments, `*` wildcard, `!` re-allows, last match wins; matching ignores case and hits whole words only.
 
 ## License
 
