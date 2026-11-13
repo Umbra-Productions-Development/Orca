@@ -15,7 +15,7 @@ A ticket gets one terminal tab per session, managed through herdr.
 | Orchestrator | The user's entry point. Environment, starting sessions, routing findings, PRs | Explores, writes specs or code, reviews |
 | Propose | Exploration, grilling, the proposal artifacts | Writes code, reviews its own proposal |
 | Apply | Implementing the committed proposal, the gate, fixes for review findings | Changes what the proposal means |
-| Review | Reviewing the proposal and the code, the verifier, the findings report | Fixes what it finds |
+| Review | Reviewing the proposal and the code, the verifier, reconcile and the tiered findings file | Fixes what it finds |
 
 Ownership moves forward only: propose, then apply, then review until merge. Only the owner edits the tree.
 
