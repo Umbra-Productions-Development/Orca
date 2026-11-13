@@ -99,18 +99,27 @@ case "$tool" in
     fi
     [ -n "$root" ] || exit 0
     # A sleep whose answer is already on its way: the runtime wakes the session when the turn ends. Every other sleep passes.
-    if [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" != true ] && grep -qE '(^|[^[:alnum:]_-])sleep\s+[0-9]' <<<"$cmd"; then
+    # Matching skips quoted text (a commit message naming a sleep) and reads only what runs after the sleep,
+    # except in a loop, where the check before the sleep runs again after it. Double quotes go first: an
+    # apostrophe inside them ("the server's log") would otherwise pair with the next single quote.
+    sl='(^|[^[:alnum:]_-])sleep\s+[0-9]'
+    flat=$(tr '\n' ' ' <<<"$cmd"); nq=$(sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g" <<<"$flat")
+    if [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" != true ] && grep -qE "$sl" <<<"$nq"; then
       wake="End the turn instead: its completion wakes this session, inside a subagent too"
-      grep -qE '/tasks/[^[:space:]]+\.output' <<<"$cmd" && block "sleep before reading a background task's output. $wake"
+      loop=""; grep -qE '(^|[;&|(]\s*)(while|until|for)\s' <<<"$nq" && loop=1
+      if [ -n "$loop" ]; then after=$nq raw=$flat; else after=$(grep -oE "$sl.*" <<<"$nq"); raw=$(grep -oE "$sl.*" <<<"$flat"); fi
+      grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
       tp=$(jq -r '.transcript_path // empty' <<<"$in")
-      if [ -f "$tp" ]; then
-        for f in $(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$cmd" | sort -u); do
+      # A loop polling a file for a condition (a server's readiness line) passes: a server never completes.
+      if [ -z "$loop" ] && [ -f "$tp" ]; then
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
           grep -F -- "$f" "$tp" | jq -e --arg f "$f" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1 \
-            && block "sleep before reading $f, which a background command of this session writes. $wake"
-        done
+            && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
+        done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)
       fi
-      grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox))\b' <<<"$cmd" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
-      grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$cmd" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
+      grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
+      grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
     fi
     grep -qE '(^|[;&|]\s*)git\s+rebase\b' <<<"$cmd" && advise "After the rebase, run the gate's type check even when git reports no conflict: two edits to different lines of one logic rebase clean and still break the build."
     # discovery-shaped commands over source: the graph answers cheaper. Off until sourceGlob is set.
