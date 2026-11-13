@@ -25,6 +25,11 @@ out=$(read_as "$f" writer)
 assert_eq "$out" "" "writer's own handoff: nothing printed"
 [ -f "$f" ] || fail "writer's own handoff: not archived"
 
+f=$(write ABC-3)
+F=$f payload PostToolUse "$r" '{tool_input: {file_path: $ENV.F}}' '{session_id: "writer", agent_id: "sub-1"}' \
+  | HERDR_PANE_ID=pane-r bash "$hook" >/dev/null
+[ ! -e "$f" ] || fail "writer's subagent: handoff consumed"
+
 out=$(read_as "$r/README" reader)
 assert_eq "$out" "" "non-handoff file: nothing printed"
 [ -f "$r/README" ] || fail "non-handoff file: untouched"
