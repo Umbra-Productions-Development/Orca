@@ -83,7 +83,11 @@ Never: fixes what it finds; findings go to the orchestrator.
 This is the review of the code after apply; proposal review keeps its own form and may write to the same findings file, which the code review overwrites. After `orca-lc evidence`, the review session:
 
 1. Computes the review paths: the diff's paths since the merge-base with the base, minus those matching `reviewExcludes` from `.orca/config.json`. The `when` patterns of `reviewPasses` and `reviewChecks` match against these paths.
-2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. A `reviewPasses` entry naming a default pass is not run again, and one naming a skipped default is not run at all. A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too. A name in `skipDefaultPasses` that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets the line `skipDefaultPasses: unknown pass <name>, ignored`. Then runs every `reviewChecks` entry over the review paths.
+2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. Then runs every `reviewChecks` entry over the review paths. For the default passes:
+   - A `reviewPasses` entry naming a default pass is not run again.
+   - A `reviewPasses` entry naming a skipped default is not run at all.
+   - A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too.
+   - A name in `skipDefaultPasses` that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets the line `skipDefaultPasses: unknown pass <name>, ignored`.
 3. Dispatches `orca-verifier` from the ticket's worktree. Its gate run is the review's only gate run, on the ticket's stack; the session runs no gate of its own. The verifier runs the gate and the task check over the whole diff, not the review paths; a change at a path matching `reviewExcludes` is never one of its unasked-change findings, only listed as excluded.
 4. Reconciles and writes the findings file.
 
