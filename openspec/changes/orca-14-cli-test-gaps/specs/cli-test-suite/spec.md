@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: The suite covers every command group named in issue #14
-`tests/run.sh` SHALL run a test file for each of: `config`, `worktree up/down`, `gate`/`gate-fresh`, `handoff`, `role owner`, `notify` inbox fallback, `inbox read`, `test-lock`, `discover`/`triage`, `ports_for` with default and custom `portScheme`, and the pretool push, merge and test-edit blocks. It SHALL need only bash, git and jq, and no running herdr.
+`tests/run.sh` SHALL run a test file for each of: `config`, `worktree up/down`, `gate-fresh`, `handoff`, `role owner`, `notify` inbox fallback, `inbox read`, `test-lock`, `discover`/`triage`, `ports_for` with default and custom `portScheme`, and the pretool push, merge and test-edit blocks. The `gate` command itself (exit status, marker, timeout) is covered by `tests/gate.test.sh` from PR #106, not by this change. It SHALL need only bash, git and jq, and no running herdr.
 
 #### Scenario: Clean machine
 - **WHEN** `bash tests/run.sh` runs on a machine with bash, git and jq and `HERDR_ENV` unset
