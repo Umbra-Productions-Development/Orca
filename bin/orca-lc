@@ -703,33 +703,35 @@ cmd_role() {
       name="$(ticket_slug "$t")-$r"
       # One live session per role: an idle one is cleared and reused, so each job gets a fresh context without a second process.
       # This also makes a rerun after answering a startup prompt skip to the handoff and first prompt.
+      # Every refusal, the handoff's own included, comes before /clear or a replace: a refused start never costs a session its context.
       local all ag; all=$(ticket_agents "$(ticket_slug "$t")"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
       if [ -n "$ag" ]; then
         case "$(jq -r .status <<<"$ag")" in
           working) die "$name is working; let it finish, or retire it (orca-lc role retire $t $r), then rerun";;
           blocked) die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command";;
         esac
-        herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"
-        herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
       else
-        case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
-          local other; other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
-          if [ -n "$other" ]; then
-            { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
-            exit_role_agent "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")"
-          fi;;
+        local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
+          other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
+          [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first";;
         esac
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         [ "${free:-0}" -lt "$min" ] && die "only ${free:-?} MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
+      fi
+      local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
+      if [ -n "$ag" ]; then
+        herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"
+        herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
+      else
+        [ -n "$other" ] && exit_role_agent "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")"
         local pane; pane=$(role_tab_pane "$ws" "$r")
         [ -n "$pane" ] || pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --env "ORCA_TICKET=$t" --no-focus | jq -r '.result.root_pane.pane_id // empty')
         [ -n "$pane" ] || die "herdr tab create returned no pane"
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
           die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
+        [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
       fi
-      [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
-      local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
       case "$r" in propose|apply|review) cmd_role owner "$t" --set "$r" >/dev/null;; esac
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
