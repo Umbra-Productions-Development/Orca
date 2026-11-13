@@ -341,11 +341,15 @@ if [ $force = 0 ]; then
   [ ${#problems[@]} = 0 ] || problems+=("run ./install.sh --force to switch the install to $here")
 fi
 # Records of targets no longer shipped (a skill removed upstream): removed when still Orca's, else kept.
-ORPH=()
+# A record that names a target in another spelling (HOME with a trailing slash, say) is that target, not an orphan.
+npath() { printf '%s/%s\n' "$(norm "$(dirname "$1")")" "$(basename "$1")"; }
+ORPH=() PN=()
 for l in ${MREC[@]+"${MREC[@]}"}; do
   IFS=$TAB read -r -a f <<< "$l"
   case ${f[0]} in link|copy|edited) ;; *) continue;; esac
-  in_list "${f[1]}" "${P[@]}" || ORPH+=("$l")
+  in_list "${f[1]}" "${P[@]}" && continue
+  if [ ${#PN[@]} = 0 ]; then for ((i = 1; i < ${#P[@]}; i += 2)); do PN+=("$(npath "${P[i]}")"); done; fi
+  in_list "$(npath "${f[1]}")" "${PN[@]}" || ORPH+=("$l")
 done
 
 S=$cfg/settings.json
