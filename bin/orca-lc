@@ -453,7 +453,7 @@ ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(p
 stack_ports() { local f; f="$(wt_dir "$1")/.env.local"; if [ -f "$f" ]; then grep -E '^[A-Z0-9_]+_PORT=' "$f"; else ports_for "$1"; fi; }
 # Runs a project command from config in the worktree, with its ticket, path and ports exported.
 stack_run() { local t="$1" dir="$2" c; c=$(cfg ".$3"); [ -n "$c" ] || return 0
-  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET="$t" ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
+  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET="$(tkey "$t")" ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
 # Untracked local config the main checkout owns; a worktree points at it instead of holding a copy,
 # so editing it once in the main checkout reaches every worktree.
 wt_link() { local main="$1" dir="$2" p
