@@ -595,7 +595,8 @@ init_gate() { local m="$1" g=() s pm o i
   grep -qE '^test[[:space:]]*:([^=:]|:([^=]|$)|$)' "$m/Makefile" 2>/dev/null && { echo "make test"; return; }
   if [ -f "$m/package.json" ]; then
     if [ -f "$m/pnpm-lock.yaml" ]; then pm="pnpm run"; elif [ -f "$m/yarn.lock" ]; then pm=yarn; else pm="npm run"; fi
-    for s in lint typecheck test; do jq -e --arg s "$s" '.scripts[$s] // empty' "$m/package.json" >/dev/null 2>&1 || continue
+    # The npm init placeholder ("Error: no test specified" && exit 1) fails every run: not a test script.
+    for s in lint typecheck test; do jq -e --arg s "$s" '.scripts[$s] // empty | strings | select(test("no test specified") | not)' "$m/package.json" >/dev/null 2>&1 || continue
       if [ "$s" = test ] && [ "$pm" = "npm run" ]; then g+=("npm test"); else g+=("$pm $s"); fi; done; fi
   [ -f "$m/Cargo.toml" ] && g+=("cargo test")
   [ -f "$m/go.mod" ] && g+=("go test ./...")

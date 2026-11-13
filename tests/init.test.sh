@@ -242,3 +242,7 @@ out=$(yes_init "$r" 2>&1); assert_status $? 0 "$out"
 assert_contains "$out" "sharedDir /nonexistent/old/.orca is not a directory; proposing $(top "$r")/.orca"
 assert_eq "$(cfgv "$r" sharedDir)" "$(top "$r")/.orca"
 out=$(yes_init "$r" 2>&1); assert_eq "$out" "no changes"
+
+# 20. the npm init placeholder test script is not a gate
+r=$(fresh); echo '{"scripts":{"lint":"x","test":"echo \"Error: no test specified\" && exit 1"}}' > "$r/package.json"
+yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" gate)" "npm run lint" "placeholder test script proposed"
