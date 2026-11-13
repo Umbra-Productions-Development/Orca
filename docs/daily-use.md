@@ -57,6 +57,10 @@ EOF
 
 `role start` opens a `propose` tab in the ticket's workspace, starts a named Claude session there (`abc12-propose`), writes the handoff (the text above plus the role's own rules, taken from the skill), records propose as the ticket's owner, and sends the first prompt.
 
+Each role has one live session. When `abc12-propose` is already live and idle, `role start` sends it `/clear` and the new handoff instead of opening a second process; it refuses while the session is working. Role names fold by prefix or suffix: `review2`, `reviewer` and `code-review` all start the `review` role. Any other name is an extra session; only one is live per ticket, and `--replace <name>` exits the current one first. A new session is refused when available memory is under `minFreeMemMb` (default 3000).
+
+When a role reports, the orchestrator retires it: `orca-lc role retire ABC-12 propose --wait` waits for a working session to go idle, then exits it. The tab stays, so the next `role start` for that role runs in it and `claude --resume` there lists its history.
+
 Propose reads the ticket, explores the code, grills the user on the decisions the ticket leaves open (the `grilling` skill, Orca's or a third-party one of the same name: rounds of numbered questions, each with a recommended answer, until nothing is assumed; the settled decisions go into the change's `design.md` under `## Decisions`, and decisions outside the ticket go to the orchestrator as follow-ups), writes the change proposal (openspec: proposal, design, tasks), commits it, and reports back to the orchestrator.
 
 ### 3. Apply
