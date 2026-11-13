@@ -28,7 +28,7 @@ In the project's main checkout:
 orca-lc init
 ```
 
-`init` asks for each key with a value it detected from the repository (Enter accepts, `-` leaves it empty), shows the config, and writes it after you confirm; it also adds `.orca` to `.gitignore`. `--yes` accepts every proposal. Run it again to edit the config. Check at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database), and `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
+`init` asks for each key with a value it detected from the repository (Enter accepts, `-` leaves it empty), shows the config, and writes it after you confirm; it also adds `.orca` to `.gitignore`. `--yes` accepts every proposal. Run it again to edit the config. Check at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database); `examples/stack/` has docker compose scripts to copy for them. Add `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
 
 `.orca/` holds the config and the state shared by every session of the project: handoffs, inbox, ticket owners, discoveries. It is never committed.
 

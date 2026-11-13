@@ -92,7 +92,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `envCommand` | Command printing the worktree stack's env vars for the gate |
 | `ports` | Port names a ticket's stack needs; each becomes `<NAME>_PORT` in the worktree's `.env.local` |
 | `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10`. A ticket id with no trailing number uses `cksum` of the uppercased id in place of the number |
-| `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET` (the lowercase ticket id, safe for compose project, container and volume names), `ORCA_WORKTREE` and the ports exported |
+| `stackUp` / `stackDown` | Commands that start and stop a worktree's stack, run with `ORCA_TICKET` (the lowercase ticket id, safe for compose project, container and volume names), `ORCA_WORKTREE` and the ports exported. Docker Compose examples in `examples/stack/` |
 | `migrateCommand` | Command run after `stackUp`, with the same `ORCA_TICKET`, `ORCA_WORKTREE` and ports exported |
 | `stackTool` | What `orca-lc stack` drives: `gh-stack` ([github/gh-stack](https://github.com/github/gh-stack)), `git` (plain git + `gh pr`), or `auto` (gh-stack when installed). Default `auto` |
 | `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
