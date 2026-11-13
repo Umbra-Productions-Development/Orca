@@ -96,6 +96,10 @@ jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents
 jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
 run role retire ABC-1 mine
 check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
+run role start ABC-1 code-review
+check 'code-review folds into review' 'grep -q "^handoff .*/review-" "$H/out"'
+for n in preview reapply; do run role start ABC-1 $n
+  check "$n stays an extra session" 'grep -q "extra session is live on ABC-1: abc1-mine" "$H/out"'; done
 set_status abc1-propose done; run role start ABC-1 propose
 check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
 cp "$(command -v bash)" "$tmp/bin/claude"; export ORCA_PS_STOP=$$
