@@ -720,7 +720,7 @@ init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson 
   ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
   roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
   reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
-  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
+  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [], claude: {disabledMcpServers: []},
   envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
   migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
 # testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
