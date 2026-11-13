@@ -664,7 +664,7 @@ owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 canon_role() { case "$1" in *review*) echo review;; *propos*) echo propose;; *apply*) echo apply;; *) echo "$1";; esac; }
 ticket_slug() { tkey "${1//-/}"; }
 ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
-mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}"; }
+mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
 exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab (label = the name's role part)
   local name tab; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
   [ "$(herdr tab get "$tab" 2>/dev/null | jq -r '.result.tab.label // empty')" = "${name#*-}" ] || die "tab $tab of $name was not opened by role start; exit it yourself"
@@ -716,7 +716,8 @@ cmd_role() {
           [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first";;
         esac
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
-        [ "${free:-0}" -lt "$min" ] && die "only ${free:-?} MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
+        # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
+        [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
       fi
       local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
       if [ -n "$ag" ]; then
