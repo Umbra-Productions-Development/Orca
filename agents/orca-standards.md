@@ -15,7 +15,7 @@ End your report with a `## Findings` list, one entry per finding:
 - `path:line[-line]` — <claim, with the quoted rule> — <evidence: what in the code shows it> — suggested: blocker|should fix|suggestion
 ```
 
-A finding with no single location uses the closest file, or `—` for the whole change. Write `none` under the heading when you find nothing, or the `skipped:` line above.
+A finding with no single location uses the closest file, or `—` for the whole change. Write `none` under the heading when you find nothing, the `skipped:` line above, or `skipped: <reason>` when no review path is left to read.
 
 Never run `install.sh`, in the repository or in any clone: it relinks the global orca install to wherever it runs.
 
