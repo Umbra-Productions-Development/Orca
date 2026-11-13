@@ -23,7 +23,7 @@ case "$1 $2" in
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
                  [ "$st" = working ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
                  grep -qw "$st" <<<"$u";;
-  "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && put agents --arg n "$3" 'map(select(.name!=$n))'
+  "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(select(.name!=$n))'
                   [ "$4" = /clear ] && put agents --arg n "$3" 'map(if .name==$n then .agent_status="done" else . end)'; :;;
   "agent start") put agents --arg n "$3" --arg p "$7" --arg c "$wt" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c}]'; echo "start $3" >>"$H/log";;
   "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
@@ -96,6 +96,11 @@ jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents
 jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
 run role retire ABC-1 mine
 check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
+jq -c '. + [{name:"abc1-stuck", agent_status:"idle", tab_id:"tstuck"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+jq -c '. + [{tab_id:"tstuck", label:"stuck"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
+run role retire ABC-1 stuck
+check 'retire fails when the session does not exit' '! grep -q "^retired" "$H/out" && grep -q "abc1-stuck did not exit" "$H/out"'
+jq -c 'map(select(.name!="abc1-stuck"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
 run role start ABC-1 code-review
 check 'code-review folds into review' 'grep -q "^handoff .*/review-" "$H/out"'
 for n in preview reapply; do run role start ABC-1 $n

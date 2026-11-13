@@ -671,6 +671,7 @@ exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) an
   [ "$(herdr tab get "$tab" 2>/dev/null | jq -r '.result.tab.label // empty')" = "${name#*-}" ] || die "tab $tab of $name was not opened by role start; exit it yourself"
   herdr agent prompt "$name" "/exit" >/dev/null 2>&1
   herdr agent wait "$name" --until unknown --timeout 10000 >/dev/null 2>&1
+  ! herdr agent list 2>/dev/null | jq -e --arg n "$name" 'any(.result.agents[]; (.agent_name // .name)==$n)' >/dev/null || die "$name did not exit after /exit; close it in tab '${name#*-}'"
 }
 # <workspace> <label>: first pane of the tab role start opened with that label (kept after retire), empty when none
 role_tab_pane() {
