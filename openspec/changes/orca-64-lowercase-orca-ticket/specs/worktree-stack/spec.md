@@ -2,7 +2,7 @@
 
 ### Requirement: Stack commands receive the lowercase ticket
 
-`orca-lc worktree up <ticket> --stack` and `orca-lc worktree down <ticket>` SHALL run `stackUp`, `migrateCommand` and `stackDown` with `ORCA_TICKET` set to the ticket in lowercase, whatever case it was typed in. The worktree directory keeps its uppercase name.
+`orca-lc worktree up <ticket> --stack` SHALL run `stackUp` and `migrateCommand`, and `orca-lc worktree down <ticket>` SHALL run `stackDown`, each with `ORCA_TICKET` set to the ticket in lowercase, whatever case it was typed in. The worktree directory keeps its uppercase name.
 
 #### Scenario: Ticket typed in lowercase
 
