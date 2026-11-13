@@ -44,6 +44,7 @@ if [ $uninst = 1 ] && [ $nflags -gt 1 ]; then usage_error "--uninstall takes no 
 
 TAB=$'\t'
 here=$(cd "$(dirname "$0")" && pwd)
+here_p=$(cd "$here" && pwd -P)
 cur=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
 if command -v cygpath >/dev/null; then cur=$(cygpath -u "$cur"); fi
 state=${XDG_STATE_HOME:-$HOME/.local/state}/orca
@@ -119,6 +120,10 @@ copied() { local f
 link_root() { local l root; l=$(readlink "$1"); root=${l%/"$2"}
   [ "$root" != "$l" ] && [ -f "$root/bin/orca-lc" ] && printf '%s\n' "$root"; }
 
+# in_here <path>: the path, its parents resolved, lies inside this checkout (a config subdir linked into it), so it is the
+# checkout's own file and never Orca's to remove.
+in_here() { local p; p=$(cd "$(dirname "$1")" 2>/dev/null && pwd -P) || return 1
+  case $p/ in "$here_p"/*) return 0;; esac; return 1; }
 # pairs_for <cfg>: P holds source, target, source, target, ...
 pairs_for() { local s
   P=("$here/bin/orca-lc" "$HOME/.local/bin/orca-lc" "$here/hooks" "$1/hooks/orca")
@@ -134,6 +139,7 @@ classify() { local s=$1 t=$2 rel=${1#"$here"/} h rh=
     if croot=$(link_root "$t" "$rel"); then
       if [ "$croot" = "$here" ]; then cls=current; else cls=other; fi
     else cls=kept; croot=; fi
+  elif in_here "$t"; then cls=kept
   else
     h=$(hpath "$t"); rh=$(recf copy 3 "$t" || true)
     if [ $mode = copy ] && [ "$h" = "$(hpath "$s")" ]; then cls=current
@@ -245,7 +251,7 @@ if [ $uninst = 1 ]; then
         link) if [ -L "$t" ] && link_root "$t" "$rel" >/dev/null; then rm "$t"; echo "removed $t"
               else left "$t" "not created by Orca"; fi;;
         copy|edited)
-          if [ -L "$t" ]; then left "$t" "not created by Orca"
+          if [ -L "$t" ] || in_here "$t"; then left "$t" "not created by Orca"
           elif { [ "${f[0]}" = copy ] && [ "$(hpath "$t")" = "${f[3]:-}" ]; } || copied "$here/$rel" "$t"; then
             rm -rf "$t"; echo "removed $t"
           else left "$t" "edited since install"; fi;;
@@ -371,7 +377,7 @@ for l in ${ORPH[@]+"${ORPH[@]}"}; do
   IFS=$TAB read -r -a f <<< "$l"; t=${f[1]}; rel=${f[2]#"${m_checkout:-$here}"/}
   if [ ! -e "$t" ] && [ ! -L "$t" ]; then continue; fi
   if { [ -L "$t" ] && link_root "$t" "$rel" >/dev/null; } \
-     || { [ ! -L "$t" ] && { [ "$(hpath "$t")" = "${f[3]:-}" ] || copied "$here/$rel" "$t"; }; }; then
+     || { [ ! -L "$t" ] && ! in_here "$t" && { [ "$(hpath "$t")" = "${f[3]:-}" ] || copied "$here/$rel" "$t"; }; }; then
     drop "$t"; echo "removed $t, no longer shipped"
   else KEPT+=("kept $t, which Orca no longer ships and did not install as it is now"); fi
 done

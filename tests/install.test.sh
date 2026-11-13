@@ -766,3 +766,20 @@ t_multi() { local j
     multi_run "uninstall $j" "$j" --uninstall
   done; }
 both t_multi
+
+# R1/R2 (review 1, 2) a config subdir that is a symlink into the checkout: neither install nor uninstall touches the checkout
+t_parent_in_checkout() {
+  mkdir -p "$C"; ln -s "$SRC/skills" "$C/skills"; ln -s "$SRC/agents" "$C/agents"
+  s0=$(snapshot "$SRC/skills"); a0=$(snapshot "$SRC/agents")
+  inst --no-optional; assert_status "$st" 0 "$err"
+  assert_eq "$(snapshot "$SRC/skills")" "$s0" "install changed the checkout's skills"
+  assert_eq "$(snapshot "$SRC/agents")" "$a0" "install changed the checkout's agents"
+  rm -f "$M"
+  inst --uninstall; assert_status "$st" 0 "$out $err"
+  assert_eq "$(snapshot "$SRC/skills")" "$s0" "no-manifest uninstall changed the checkout's skills"
+  assert_eq "$(snapshot "$SRC/agents")" "$a0" "no-manifest uninstall changed the checkout's agents"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"
+  rm -rf "$C/skills"; ln -s "$SRC/skills" "$C/skills"
+  inst --uninstall; assert_status "$st" 1 "$out $err"; assert_contains "$out" "left: $C/skills/orca (not created by Orca)"
+  assert_eq "$(snapshot "$SRC/skills")" "$s0" "uninstall changed the checkout's skills"; }
+both t_parent_in_checkout
