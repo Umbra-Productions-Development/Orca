@@ -31,6 +31,12 @@ r=$(cfgr 'kill -9 $$'); out=$(HERDR_ENV=1 gate "$r"); rc=$?
 [ "$rc" != 0 ] || fail "killed gate in pane mode returned 0"; assert_contains "$out" "left open"
 assert_eq "$(cat "$r/.git/orca-gate-pane")" p1
 
+# The pane only displays: a pane that is gone (its run fails) leaves the result to the gate process.
+r=$(cfgr 'echo fine'); out=$(HERDR_ENV=1 HERDR_STUB_RUN_FAIL=1 gate "$r"); assert_status $? 0
+assert_contains "$out" ORCA_GATE_PASS
+r=$(cfgr 'exit 4'); out=$(HERDR_ENV=1 HERDR_STUB_RUN_FAIL=1 gate "$r"); assert_status $? 4
+assert_contains "$out" ORCA_GATE_FAIL
+
 # A gate exiting 124 on its own, well before gateTimeoutMin, is a failure, not a timeout.
 r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
 assert_contains "$out" ORCA_GATE_FAIL
