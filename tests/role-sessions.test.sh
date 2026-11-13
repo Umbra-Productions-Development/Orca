@@ -55,6 +55,12 @@ check 'a session names itself from the tab ticket, whatever the folder' '[ "$(cd
 run role start ABC-1 review2
 check 'review2 folds into review and reuses it with /clear' '[ "$(agents)" = abc1-review ] && grep -q "prompt abc1-review /clear" "$H/log" && [ "$(grep -c "^start" "$H/log")" = 1 ]'
 check 'reuse sends the first prompt' 'grep -q "prompt abc1-review .*handoff read ABC-1 review" "$H/log"'
+# A live handoff from another session refuses the start (#48); the reused session must keep its context.
+other() { (cd "$main" && HERDR_ENV= HERDR_PANE_ID=other CLAUDE_SESSION_ID=other-sid "$lc" "$@"); }
+other name --set >/dev/null; hf=$(other handoff write ABC-1 review --as other); clears=$(grep -c /clear "$H/log")
+run role start ABC-1 review
+check 'a refused handoff leaves the reused session uncleared' 'grep -q "from session other-sid" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
+other handoff consume "$hf" >/dev/null
 set_status abc1-review working; run role start ABC-1 reviewer
 check 'a working session refuses reuse' '[ "$(grep -c /clear "$H/log")" = 1 ] && grep -q "is working" "$H/out"'
 set_status abc1-review idle
