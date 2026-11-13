@@ -14,4 +14,4 @@
 
 ## 4. PR
 
-- [ ] 4.1 PR body carries the migration note: a project that used the uppercase `ORCA_TICKET` runs `docker compose -p <old name> down` once for each existing stack.
+- [x] 4.1 PR body carries the migration note: a project that used the uppercase `ORCA_TICKET` runs `docker compose -p <old name> down` once for each existing stack.
