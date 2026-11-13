@@ -24,11 +24,12 @@ r=$(new_repo '{"project":"p","gate":"true","stackUp":"./scripts/up.sh"}'); d=$(d
 out=$(cd "$r" && orca-lc worktree up S-2 --stack 2>&1); assert_status $? 1
 assert_contains "$out" "'./scripts/up.sh' is missing or not executable"; [ ! -e "$d/S-2" ] || fail "worktree created despite missing stack script"
 git -C "$r" show-ref -q --verify refs/heads/s-2/work && fail "branch created despite missing stack script"
-mkdir -p "$r/scripts"; printf '#!/bin/sh\necho "up $ORCA_TICKET"\n' > "$r/scripts/up.sh"
+mkdir -p "$r/scripts"; printf '#!/bin/sh\necho "up $ORCA_TICKET"\necho "in $ORCA_WORKTREE"\n' > "$r/scripts/up.sh"
 out=$(cd "$r" && orca-lc worktree up S-3 --stack 2>&1); assert_status $? 1 "non-executable stack script accepted"
 chmod +x "$r/scripts/up.sh"; git -C "$r" add scripts; git -C "$r" commit -qm stack; git -C "$r" push -q origin main
 out=$(cd "$r" && orca-lc worktree up S-4 --stack 2>&1); assert_status $? 0
 assert_contains "$out" "up s-4"; assert_contains "$out" "stack up"
+assert_contains "$out" "in $(native "$d")/S-4"
 r=$(new_repo '{"project":"p","gate":"true","stackUp":"FOO=1 nosuchcmd-orca"}')
 out=$(cd "$r" && orca-lc worktree up S-6 --stack 2>&1); assert_status $? 1; assert_contains "$out" "'nosuchcmd-orca' is missing"
 
@@ -49,6 +50,7 @@ assert_contains "$out" "up abc-1"; assert_contains "$out" "migrate abc-1"
 # --stack whose command fails after creation: says what exists, how to retry or tear down, exits non-zero
 r=$(new_repo '{"project":"p","gate":"true","stackUp":"false"}'); d=$(dirname "$r")
 out=$(cd "$r" && orca-lc worktree up S-7 --stack 2>&1); assert_status $? 1
+assert_contains "$out" "stackUp failed"
 assert_contains "$out" "worktree $(native "$d")/S-7 on s-7/work"
 assert_contains "$out" "orca-lc worktree up S-7 --stack"
 assert_contains "$out" "orca-lc worktree down S-7 --force"

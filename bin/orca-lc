@@ -41,7 +41,7 @@ cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r 
 shared() { cfg '.sharedDir' "$(root)/.orca"; }
 ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); tkey "$( { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1)"; }
 # The one case a ticket takes wherever it keys shared state (handoffs, inbox, owners, identity).
-tkey() { echo "$1" | tr 'A-Z' 'a-z'; }
+tkey() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
 # A handoff's front-matter field (between the opening --- and the next), never a body line that looks like one.
 fm() { sed -n "2,/^---\$/{s/^$1: //p;}" "$2" | head -1; }
 # A free path for name in dir: name, then name-2, name-3, ... before the extension.
@@ -113,6 +113,8 @@ me_tag() { local i n; i=$(me id | cut -c1-8); n=$(me name); echo "${i:-pane:${HE
 cmd_config() { need key "${1:-}"; cfg ".$1"; }
 cmd_gate_fresh() { [ -f "$(marker)" ] && [ "$(cat "$(marker)")" = "$(tree_sig)" ]; }
 
+# The project's own .env, never known to shellcheck.
+# shellcheck source=/dev/null
 load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
   local ec; ec=$(cfg '.envCommand'); [ -n "$ec" ] || return 0
   local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && { set -a; eval "$kv"; set +a; echo "orca-lc: env: $kv"; }; }
@@ -334,7 +336,7 @@ cmd_notify() {
   need target "${1:-}"; local target="$1"; shift; local role=""
   [ "${1:-}" = "--role" ] && { role="$2"; shift 2; }
   need text "${1:-}"; local text="$*"
-  local hdr="[orca from $(me_tag)]"
+  local hdr; hdr="[orca from $(me_tag)]"
   if inherdr; then
     local hit rc; hit=$(resolve_target "$target" "$role"); rc=$?
     [ $rc = 2 ] && exit 2
@@ -386,9 +388,12 @@ cmd_handoff() {
            local b; b=$(awk -v h="### $r" '$0==h{on=1;next} on&&/^#/{exit} on&&NF' "$(dirname "$(readlink -f "$0")")/../skills/orca/SKILL.md" 2>/dev/null)
            [ -n "$b" ] && printf '## Role: %s\n%s\nPush, PRs, and tracker writes happen only when the user asks for them in the current turn.\n\n' "$r" "$b" >> "$f"
            # Apply and review work against the ticket's own stack; name its ports so nobody guesses.
-           case "$r" in apply|review) local sp; sp=$(stack_ports "$t"); [ -n "$sp" ] && printf 'Stack ports: %s\n\n' "$(echo $sp)" >> "$f";; esac
+           case "$r" in apply|review) local sp; sp=$(stack_ports "$t" | paste -sd' ' -); [ -n "$sp" ] && printf 'Stack ports: %s\n\n' "$sp" >> "$f";; esac
            echo "$f";;
-    read)  need ticket "${2:-}"; local t r="${3:-}" f; t=$(tkey "$2"); f=$(ls -t "$(tdir "$d" "$t")"/${r:+$r-[0-9]}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
+    read)  need ticket "${2:-}"; local t r="${3:-}" f; t=$(tkey "$2")
+           # Newest by mtime across roles: names sort by time only within one role, and find -printf is GNU-only.
+           # shellcheck disable=SC2012
+           f=$(ls -t "$(tdir "$d" "$t")"/${r:+$r-[0-9]}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
            cat "$f"; cmd_handoff consume "$f" >/dev/null;;
     consume) need file "${2:-}"; local f="$2"; case "$f" in */archive/*) return 0;; esac; [ -f "$f" ] || die "no handoff at $f"
            # Archived by role and the second it was written, with -2, -3 on a tie, so same-day handoffs never collide.
@@ -438,7 +443,7 @@ cmd_test_lock() { local f; f="$(gitdir)/orca-allow-test-edits"
   case "${1:-status}" in on) touch "$f"; echo "test edits allowed in this worktree";; off) rm -f "$f"; echo "test edits locked";; status) [ -f "$f" ] && echo unlocked || echo locked;; *) usage "test-lock on|off|status";; esac; }
 
 # ---- worktree lifecycle
-wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
+wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr '[:lower:]' '[:upper:]')"; }
 # The workspace a worktree is open in. Read from `workspace list`: `worktree list` reports a null
 # workspace_id even for worktrees that have one.
 wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspaces[] | select(.worktree.checkout_path==$d) | .workspace_id' | head -1; }
@@ -446,14 +451,14 @@ wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspa
 # 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets. A ticket
 # with no trailing number takes its slot from `cksum` of the uppercased id instead: same scheme, same
 # ports on every run, though two such tickets can share a slot.
-ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr 'a-z' 'A-Z' | cksum | cut -d' ' -f1)
+ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | cksum | cut -d' ' -f1)
   local base slots step i=0 p; base=$(cfg '.portScheme.base' 3000) slots=$(cfg '.portScheme.slots' 100) step=$(cfg '.portScheme.step' 10)
   for p in $(cfg '.ports[]'); do echo "$(echo "$p" | tr 'a-z-' 'A-Z_')_PORT=$((base + (10#$n % slots) * step + i))"; i=$((i+1)); done; }
 # The worktree's .env.local is the ports' truth once written: they may be edited by hand there.
 stack_ports() { local f; f="$(wt_dir "$1")/.env.local"; if [ -f "$f" ]; then grep -E '^[A-Z0-9_]+_PORT=' "$f"; else ports_for "$1"; fi; }
 # Runs a project command from config in the worktree, with its ticket, path and ports exported.
 stack_run() { local t="$1" dir="$2" c; c=$(cfg ".$3"); [ -n "$c" ] || return 0
-  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET="$(tkey "$t")" ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
+  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET=$(tkey "$t") && export ORCA_TICKET ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
 # Untracked local config the main checkout owns; a worktree points at it instead of holding a copy,
 # so editing it once in the main checkout reaches every worktree.
 wt_link() { local main="$1" dir="$2" p
@@ -472,7 +477,7 @@ cmd_worktree() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     up)
-      need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
+      need ticket "${1:-}"; local t; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
       [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(tkey "$t")/work"
       local main; main=$(main_root) || die "not in a repo"; local dir; dir=$(wt_dir "$t")
       # Refuse --stack before creating anything when its command cannot run.
@@ -502,18 +507,19 @@ cmd_worktree() {
       # Keep the generated .env.local out of `git status`. info/exclude is shared by every worktree.
       local ex; ex=$(git -C "$dir" rev-parse --path-format=absolute --git-path info/exclude)
       mkdir -p "$(dirname "$ex")"; grep -qxF .env.local "$ex" 2>/dev/null || echo .env.local >> "$ex"
-      echo "worktree $dir on $branch${ports:+; ports $(echo $(stack_ports "$t"))}"
+      local sp; sp=$(stack_ports "$t" | paste -sd' ' -)
+      echo "worktree $dir on $branch${ports:+; ports $sp}"
       if [ $stack = 1 ]; then
-        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed; worktree $dir on $branch is in place without a stack.
+        if stack_run "$t" "$dir" stackUp; then echo "stack up"; else die "stackUp failed; worktree $dir on $branch is in place without a stack.
   retry:     orca-lc worktree up $t --stack
-  tear down: orca-lc worktree down $t --force"
+  tear down: orca-lc worktree down $t --force"; fi
         # The stack's data can predate this branch's migrations.
         if [ -z "$(cfg '.migrateCommand')" ]; then echo "note: no migrateCommand; the stack's data may be behind this branch's migrations"
         else stack_run "$t" "$dir" migrateCommand && echo "migrated" || echo "WARNING: migrateCommand failed"; fi
       else echo "stack not started (add --stack)"; fi
       (cd "$dir" && ensure_graphs) ;;
     down)
-      need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local force=0; [ "${2:-}" = --force ] && force=1
+      need ticket "${1:-}"; local t; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); local force=0; [ "${2:-}" = --force ] && force=1
       local dir; dir=$(wt_dir "$t"); [ -d "$dir" ] || die "no worktree at $dir"
       local branch; branch=$(git -C "$dir" branch --show-current)
       if [ $force = 0 ]; then
@@ -666,7 +672,7 @@ cmd_role() {
       [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start <ticket> <role> <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       leak_guard "role start handoff" "$body" || exit $?
-      local t r as="" dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
+      local t r as="" dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r="$2"; dir=$(wt_dir "$t")
       [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
@@ -682,7 +688,7 @@ cmd_role() {
       fi
       [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
       local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
-      case " propose apply review " in *" $r "*) cmd_role owner "$t" --set "$r" >/dev/null;; esac
+      case "$r" in propose|apply|review) cmd_role owner "$t" --set "$r" >/dev/null;; esac
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
     *) usage "role start|owner";;
@@ -763,7 +769,7 @@ init_detect() { local m="$1" v
     tracker) v=$(init_tracker "$m" "$(jq -r '.ticketPattern // ""' <<<"$3")");;
     testCommand) v=$(init_testcmd "$m");;
     gate) v=$(init_gate "$m" "$(jq -r '.testCommand // ""' <<<"$3")");;
-    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr 'A-Z' 'a-z').sh");;
+    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr '[:upper:]' '[:lower:]').sh");;
     ports) echo '[]'; return;;
   esac
   jq -n --arg v "$v" '$v'; }
@@ -806,9 +812,10 @@ cmd_init() {
   local new; new=$(jq --indent 2 . <<<"$cur")
   echo "$new"; [ $gich = 1 ] && echo ".gitignore: add .orca"
   if [ $yes = 0 ]; then local c=""; printf 'Write %s? [y/N] ' "$f" >&2; read -r c || c=""
-    case "$(echo "$c" | tr 'A-Z' 'a-z')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
+    case "$(echo "$c" | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
   mkdir -p "$m/.orca" || die "could not create $m/.orca"
   local tmp="$f.tmp.$$"; { printf '%s\n' "$new" > "$tmp" && mv "$tmp" "$f"; } || { rm -f "$tmp"; die "could not write $f"; }
+  # shellcheck disable=SC2094 # tail -c1 reads the last byte before the append opens the file
   if [ $gich = 1 ]; then { [ -s "$gi" ] && [ -n "$(tail -c1 "$gi")" ] && echo; echo .orca; } >> "$gi" || die "could not write $gi"; fi
   echo "wrote $f"
   if [ "$r" != "$m" ] && [ $gich = 1 ]; then
@@ -818,7 +825,7 @@ cmd_init() {
 cmd_context() {
   echo "orca-lc: project=$(cfg '.project') session=$(me id | cut -c1-8) name=$(me name) ticket=$(me ticket) role=$(me role) gate=$(cmd_gate_fresh && echo fresh || echo stale) test-edits=$(cmd_test_lock status)"
   local p; p=$(cmd_peers); [ -n "$p" ] && { echo "peers (this repo, all worktrees; first column is the notify target):"; echo "$p"; }
-  local t; t=$(me ticket); [ -n "$t" ] && { local h; h=$(ls "$(tdir "$(shared)/handoffs" "$t")"/*.md 2>/dev/null | sort | tail -3); [ -n "$h" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; echo "$h"; }; }
+  local t; t=$(me ticket); [ -n "$t" ] && { set -- "$(tdir "$(shared)/handoffs" "$t")"/*.md; [ -e "$1" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; shift $(( $# > 3 ? $# - 3 : 0 )); printf '%s\n' "$@"; }; }
   cmd_inbox read
   local u; u=$(cmd_triage | wc -l); [ "$u" -gt 0 ] && echo "discoveries awaiting enforcement: $u (orca-lc triage)"
   local ec; ec=$(cfg '.envCommand'); if [ -n "$ec" ]; then local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && echo "gate env: $kv" || echo "WARNING: no stack for this worktree; gate tests will fail (orca-lc worktree up <ticket> --stack)"; fi
