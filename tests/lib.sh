@@ -4,9 +4,9 @@ export PATH="$ORCA_SRC/bin:$PATH" HERDR_ENV=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CO
 export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
 unset ORCA_ROLE HERDR_PANE_ID HERDR_WORKSPACE_ID HERDR_TAB_ID CLAUDE_SESSION_ID
 # Every mktemp lands under the empty dir run.sh hands in and removes after the file; HOME sits there
-# too, so nothing reads or writes ~.
+# too, so nothing reads or writes ~. CLAUDE_CONFIG_DIR would outrank HOME for Claude Code's config.
 TMPDIR=${ORCA_TEST_TMP:?lib.sh is sourced by tests/run.sh, which sets ORCA_TEST_TMP}
-export TMPDIR HOME="$TMPDIR/home"; mkdir "$HOME"
+export TMPDIR HOME="$TMPDIR/home"; mkdir "$HOME"; unset CLAUDE_CONFIG_DIR
 # codegraph and codebase-memory-mcp are stubbed: worktree up would index each temp repo into the real store.
 mkdir "$TMPDIR/bin"; for t in codegraph codebase-memory-mcp; do printf '#!/bin/sh\nexit 0\n' > "$TMPDIR/bin/$t"; chmod +x "$TMPDIR/bin/$t"; done
 export PATH="$TMPDIR/bin:$PATH"
