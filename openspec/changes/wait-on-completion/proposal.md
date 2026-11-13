@@ -8,7 +8,7 @@ Sessions sit idle while the result they wait for is already queued. Claude Code 
 - `bin/orca-lc`: `gate` skips when the marker is fresh; `--force` reruns it. `tree_sig` hashes untracked contents and runs from the repository root.
 - `skills/orca/SKILL.md`: a "Waiting" section, and one sentence on the skip in "Gate".
 - `README.md`: the skip and the sleep block in "What it enforces".
-- `tests/wait-on-completion.sh`: runnable check for the hook and the skip.
+- `tests/wait-on-completion.test.sh`: check, run by `tests/run.sh`, for the hook and the skip.
 - `docs/session-wait-audit.md`: the audit and its numbers.
 
 ## Impact
