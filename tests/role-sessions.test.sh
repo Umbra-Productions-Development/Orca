@@ -103,6 +103,8 @@ check 'retire fails when the session does not exit' '! grep -q "^retired" "$H/ou
 jq -c 'map(select(.name!="abc1-stuck"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
 run role start ABC-1 code-review
 check 'code-review folds into review' 'grep -q "^handoff .*/review-" "$H/out"'
+clears=$(grep -c /clear "$H/log"); run role start ABC-1 review --replace abc1-mine
+check '--replace on a core role refuses' 'grep -q "replace is for extra sessions" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
 for n in preview reapply; do run role start ABC-1 $n
   check "$n stays an extra session" 'grep -q "extra session is live on ABC-1: abc1-mine" "$H/out"'; done
 set_status abc1-propose done; run role start ABC-1 propose
