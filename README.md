@@ -80,7 +80,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |
 | `roles` | Map of tab labels to role names |
-| `reviewPasses` | Review passes run in addition to the three default passes `orca-complexity`, `orca-spec` and `orca-standards` (see the entry format below); naming a default pass does not run it twice, and a default `skipDefaultPasses` names stays off |
+| `reviewPasses` | Review passes run in addition to the three default passes `orca-complexity`, `orca-spec` and `orca-standards` (see the entry format below); naming a default pass does not run it twice |
 | `applyChecks` | Checks the apply session runs before the gate |
 | `reviewChecks` | Checks the review session runs on its own stack |
 | `standardsFile` | Path, relative to the repository root, to the project's coding standards, read by the `orca-standards` pass. Absent: that pass is skipped |
