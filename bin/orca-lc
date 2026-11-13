@@ -619,7 +619,12 @@ init_detect() { local m="$1" v
   jq -n --arg v "$v" '$v'; }
 cmd_init() {
   local yes=0 a; for a in "$@"; do case "$a" in --yes) yes=1;; *) usage "init: unknown argument '$a'";; esac; done
-  local r m; r=$(root) || die "not in a repo"; m=$(main_root) || die "not in a repo"
+  local r m c; r=$(root) || die "not in a repo"; m=$(main_root) || die "not in a repo"
+  # Every worktree reads <main checkout>/.orca, and main_root takes it as the parent of git's common dir. That only
+  # holds when the parent is a work tree whose .git is that dir: not in a submodule, --separate-git-dir or bare repo.
+  c=$(git rev-parse --path-format=absolute --git-common-dir)
+  [ "$(git -C "$m" rev-parse --path-format=absolute --git-dir 2>/dev/null)" = "$c" ] && [ "$(git -C "$m" rev-parse --show-toplevel 2>/dev/null)" = "$m" ] \
+    || die "git's common dir $c is not the .git of a main checkout (submodule, --separate-git-dir or bare repository); init does not support this layout (nothing written)"
   local f="$m/.orca/config.json" was='{}'
   if [ -f "$f" ]; then was=$(jq -sc 'if length == 1 and (.[0] | type) == "object" then .[0] else error("") end' "$f" 2>/dev/null) \
     || die "$f is not a valid JSON object; fix or remove it (nothing written)"; fi

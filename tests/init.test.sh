@@ -222,3 +222,15 @@ r=$(fresh)
 (cd "$r" && orca-lc init --yes extra </dev/null >/dev/null 2>&1); assert_status $? 2
 mkdir "$TMPDIR/norepo"; out=$(cd "$TMPDIR/norepo" && orca-lc init --yes </dev/null 2>&1); assert_status $? 1
 assert_contains "$out" "not in a repo"
+
+# 18. a common git dir that is not <main checkout>/.git (submodule, --separate-git-dir, bare with a worktree): refused, nothing written
+d=$(mktemp -d); git init -q -b main "$d/up"; git -C "$d/up" commit -q --allow-empty -m s
+git init -q -b main "$d/super"; git -C "$d/super" commit -q --allow-empty -m s
+git -C "$d/super" -c protocol.file.allow=always submodule add -q "$d/up" sub >/dev/null 2>&1
+git init -q -b main --separate-git-dir "$d/sep.git" "$d/sw"
+git clone -q --bare "$d/up" "$d/bl/.bare"; git -C "$d/bl/.bare" worktree add -q ../main main >/dev/null 2>&1
+for w in super/sub sw bl/main; do
+  [ -d "$d/$w" ] || { fail "setup: $w missing"; continue; }
+  out=$(yes_init "$d/$w" 2>&1); assert_status $? 1 "$w: $out"
+  assert_contains "$out" "init does not support this layout (nothing written)"; done
+[ -z "$(find "$d" -name .orca -o -name .gitignore)" ] || fail "wrote in an unsupported layout: $(find "$d" -name .orca -o -name .gitignore)"
