@@ -757,7 +757,7 @@ init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson 
   reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
   standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
   envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
-  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
+  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7, minFreeMemMb: 3000}'; }
 # testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
 init_langs() { local m="$1" t=() s=() IFS='|'
   [ -f "$m/tsconfig.json" ] && { t+=('\.test\.tsx?$'); s+=('src/|\.tsx?\b'); }
