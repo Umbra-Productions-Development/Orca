@@ -251,3 +251,7 @@ yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" gate)" "npm run lint" "pla
 r=$(fresh); git init -q --bare -b main "$r.up.git"; git -C "$r" remote add upstream "$r.up.git"
 git -C "$r" push -q origin main:abc-1/x; git -C "$r" push -q upstream main:abc-1/x; git -C "$r" fetch -q upstream
 yes_init "$r" >/dev/null 2>&1; assert_eq "$(cfgv "$r" ticketPattern)" "[A-Z]+-[0-9]+" "a branch on two remotes counted twice"
+
+# 22. version-style prefixes are not tickets
+assert_eq "$(tp release-1 release-2 hotfix-1 hotfix-2 v-1 v-2)" "[A-Z]+-[0-9]+" "a version-style prefix gave a pattern"
+assert_eq "$(tp release-1 release-2 release-3 abc-1 abc-2)" "ABC-[0-9]+" "a version-style prefix outranked a ticket prefix"

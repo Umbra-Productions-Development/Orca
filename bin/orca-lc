@@ -563,11 +563,12 @@ init_langs() { local m="$1" t=() s=() IFS='|'
   jq -n --arg t "${t[*]}" --arg s "${s[*]}" '{testGlob: $t, sourceGlob: $s}'; }
 # The most common ticket prefix on at least 2 distinct branches (local and remote-tracking, <remote>/
 # stripped, so one branch on several remotes counts once): a /-segment counts when it starts with <letters>-<digits> followed by its end, - or _.
+# Version-style prefixes (release-1, hotfix-2, v-3) are not tickets.
 init_ticket() { local p
   p=$(git -C "$1" for-each-ref --format='%(refname)' refs/heads refs/remotes \
     | sed -E 's#^refs/heads/##; s#^refs/remotes/[^/]+/##' | grep -vxE '(.*/)?HEAD' | LC_ALL=C sort -u \
     | awk -F/ '{ delete seen; for (i = 1; i <= NF; i++) if ($i ~ /^[A-Za-z]+-[0-9]+$/ || $i ~ /^[A-Za-z]+-[0-9]+[-_]/) {
-        k = toupper(substr($i, 1, index($i, "-") - 1)); if (!(k in seen)) { seen[k] = 1; n[k]++ } } }
+        k = toupper(substr($i, 1, index($i, "-") - 1)); if (k !~ /^(RELEASE|HOTFIX|V)$/ && !(k in seen)) { seen[k] = 1; n[k]++ } } }
       END { for (k in n) if (n[k] >= 2) print n[k], k }' | LC_ALL=C sort -k1,1nr -k2,2 | head -1 | cut -d' ' -f2)
   if [ -n "$p" ]; then echo "$p-[0-9]+"; else echo '[A-Z]+-[0-9]+'; fi; }
 # GitHub issues when origin is on GitHub with issues on (gh failing is skipped silently), else a
