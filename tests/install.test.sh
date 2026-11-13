@@ -804,3 +804,16 @@ t_home_spelling() { local H=$HOME
     [ -e "$H/.local/bin/orca-lc" ] || fail "orca-lc gone after HOME=$sp"
   done; }
 both t_home_spelling
+
+# R5 (review 5) a jq that ends lines with CRLF, as a native jq.exe does under Git Bash
+t_crlf_jq() {
+  printf '#!/bin/sh\no=$("%s" "$@"); s=$?; [ -z "$o" ] || printf "%%s\\n" "$o" | "%s" "s/\\$/\\r/"; exit $s\n' \
+    "$(command -v jq)" "$(command -v sed)" > "$d/bin/jq"
+  inst --no-optional; assert_status "$st" 0 "$err"; assert_not_contains "$err" "arithmetic"
+  assert_eq "$(grep -c "^hook$TAB.*${TAB}1\$" "$M")" 4 "four hook records with a new event array"
+  rm -rf "$HOME"; mkdir -p "$C"; : > "$C/settings.json"
+  inst --no-optional; assert_status "$st" 0 "$err"
+  assert_eq "$(n_orca "$C/settings.json" | tr -d '\r')" 4 "empty settings.json: four hooks of Orca's"
+  seed_settings "$C/settings.json"; rm -f "$M"; inst --no-optional; assert_status "$st" 0 "$err"
+  ! has_rec hooks-key "" || fail "hooks-key recorded for a file that had .hooks"; }
+one t_crlf_jq link
