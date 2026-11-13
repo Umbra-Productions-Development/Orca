@@ -2,13 +2,15 @@
 ex="$ORCA_SRC/examples/stack"
 log="$TMPDIR/docker.log"
 # Stub docker: logs every call; STUB_VERSION answers `compose version --short`; STUB_VOLUMES lists
-# the volumes `volume inspect` finds; STUB_RUN_FAIL=1 fails `run`.
+# the volumes `volume inspect` finds; STUB_RUN_FAIL=1 fails `run`; STUB_DOWN=1 makes `volume inspect`
+# fail as with the daemon stopped.
 cat > "$TMPDIR/bin/docker" <<'EOF'
 #!/usr/bin/env bash
 echo "$*" >> "$STUB_LOG"
 case "$1 $2" in
   "compose version") echo "${STUB_VERSION:-2.29.0}" ;;
-  "volume inspect") for v in ${STUB_VOLUMES:-}; do [ "$v" = "$3" ] && exit 0; done; exit 1 ;;
+  "volume inspect") [ "${STUB_DOWN:-}" = 1 ] && { echo "Cannot connect to the Docker daemon" >&2; exit 1; }
+    for v in ${STUB_VOLUMES:-}; do [ "$v" = "$3" ] && exit 0; done; exit 1 ;;
   "run "*) [ "${STUB_RUN_FAIL:-}" = 1 ] && exit 1 ;;
 esac
 exit 0
@@ -178,3 +180,11 @@ for m in 'my-port=web:80' '=web:80' '1X=web:80'; do
   assert_contains "$out" "VAR=service:containerPort"
   assert_not_contains "$out" "invalid variable name"
 done
+
+# Daemon down at the seed step: docker's error shows, and the volume is not called missing
+up SEED_VOLUME=seed SEED_TARGET=data STUB_VOLUMES=seed STUB_DOWN=1
+assert_status "$st" 1 "seed ran with the daemon down"
+assert_contains "$out" "Cannot connect to the Docker daemon"
+assert_contains "$out" "SEED_VOLUME"
+assert_not_contains "$out" "does not exist"
+assert_not_contains "$(cat "$log")" "volume create"

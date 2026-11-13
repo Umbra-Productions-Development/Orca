@@ -92,8 +92,9 @@ if [ -n "$SEED_VOLUME" ]; then
   [ -n "$SEED_TARGET" ] || die "SEED_VOLUME is set but SEED_TARGET is not; name the compose volume to fill"
   vol="${name}_$SEED_TARGET"
   if ! docker volume inspect "$vol" >/dev/null 2>&1; then
-    docker volume inspect "$SEED_VOLUME" >/dev/null 2>&1 \
-      || die "SEED_VOLUME '$SEED_VOLUME' does not exist; create it or fix SEED_VOLUME"
+    # stderr kept: a stopped daemon fails here too, and docker's own message says which it is.
+    docker volume inspect "$SEED_VOLUME" >/dev/null \
+      || die "cannot inspect SEED_VOLUME '$SEED_VOLUME' (docker's error above); create it, fix SEED_VOLUME, or start docker"
     docker volume create --label "com.docker.compose.project=$name" \
       --label "com.docker.compose.volume=$SEED_TARGET" "$vol" >/dev/null
     if ! docker run --rm -v "$SEED_VOLUME":/from:ro -v "$vol":/to alpine:3.20 cp -a /from/. /to/; then
