@@ -140,7 +140,7 @@ has "pre-push: denylisted terms found, push refused."; ok $? "--pre-push prints 
 out=$(printf '(delete) %040d refs/heads/gone %s\n' 0 "$(git rev-parse HEAD)" | bin/orca-lc leak-check --pre-push 2>&1); st=$?
 ok $st "--pre-push deletion skipped"
 out=$(printf 'refs/heads/topic3 %s refs/heads/topic3 %s\n' "$(git rev-parse HEAD)" 1111111111111111111111111111111111111111 | bin/orca-lc leak-check --pre-push 2>&1); st=$?
-ok $(( st == 2 ? 0 : 1 )) "--pre-push with an unknown remote sha exits 2, not clean"
+ok $(( st == 2 ? 0 : 1 )) "--pre-push with an unknown remote sha exits 2, not clean"; has "leak-check: bad range"; ok $? "--pre-push with an unknown remote sha says bad range"
 
 # Through the repository hook.
 git push -q origin topic3 2>"$TMPDIR/push.err"; ok $(( $? == 0 ? 1 : 0 )) "git push with a hit is refused by the hook"
