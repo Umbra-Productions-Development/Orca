@@ -73,7 +73,7 @@ The block message names the alternative: end the turn (this holds inside a subag
 
 ### P2. A "Waiting" section in the `orca` skill
 
-The same rules, plus: run `orca-lc gate` in the foreground with `timeout: 600000`, because the gate commonly takes longer than the default 120 s.
+The same rules, plus: run `orca-lc gate` in the foreground with `timeout: 1800000` (above the 20-minute pane wait in `orca-lc`), because the gate commonly takes longer than the default 120 s.
 
 ### P3. Skip a gate whose marker is fresh
 

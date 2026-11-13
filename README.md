@@ -21,7 +21,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 ## What it enforces
 
-- **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree, and skips when that tree already passed. `git push` is refused without a fresh marker; `git merge` is always refused.
+- **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree, and skips when that tree already passed (`--force` reruns it). `git push` is refused without a fresh marker; `git merge` is always refused.
 - **Waiting:** a `sleep` before reading a background task's output, checking a peer, or polling CI is refused; ending the turn gets the result sooner.
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
