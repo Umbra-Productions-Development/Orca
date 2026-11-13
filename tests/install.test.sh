@@ -827,3 +827,16 @@ t_parent_notdir() {
   assert_contains "$err" "install.sh: nothing changed"
   assert_eq "$(snapshot "$HOME")" "$a" "a stopped install changed \$HOME"; }
 one t_parent_notdir link
+
+# R8 (review 8) a link or an empty dir added inside an Orca copy makes it edited
+t_copy_nonregular() {
+  inst --no-optional; assert_status "$st" 0 "$err"
+  mkdir "$d/notes"; ln -s "$d/notes" "$C/skills/orca/my-notes"; mkdir "$C/skills/orca/emptydir"
+  inst --no-optional; assert_status "$st" 0 "$err"
+  assert_contains "$err" "install.sh: kept $C/skills/orca, edited since install"
+  inst --uninstall; assert_status "$st" 1 "$out $err"
+  assert_contains "$out" "left: $C/skills/orca (edited since install)"
+  [ -L "$C/skills/orca/my-notes" ] || fail "user link removed"; [ -d "$C/skills/orca/emptydir" ] || fail "user dir removed"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; mkdir "$C/skills/orca/emptydir"
+  inst --uninstall; assert_status "$st" 1 "$out $err"; [ -d "$C/skills/orca/emptydir" ] || fail "user empty dir removed"; }
+one t_copy_nonregular copy

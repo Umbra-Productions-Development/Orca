@@ -93,11 +93,14 @@ stop_if_problems
 
 if command -v sha256sum >/dev/null; then hcmd=(sha256sum); else hcmd=(shasum -a 256); fi
 hstream() { local o; o=$("${hcmd[@]}"); printf '%s\n' "${o%% *}"; }
-# hpath <path>: a file's hash, or for a directory the hash of its sorted file list with each file's hash. Modes are left
-# out: Git Bash reports them unreliably, and ownership is about content.
+# hpath <path>: a file's hash, or for a directory the hash of its sorted file list with each file's hash, then its
+# links (with their targets), empty dirs and other non-regular entries; a directory of files alone hashes as it did
+# before those were counted. Modes are left out: Git Bash reports them unreliably, and ownership is about content.
 hpath() {
   if [ -d "$1" ] && [ ! -L "$1" ]; then
-    (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(hstream < "$f")" "$f"; done) | hstream
+    (cd "$1" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do printf '%s  %s\n' "$(hstream < "$f")" "$f"; done
+     find . -mindepth 1 \( -type d -empty -o ! -type d ! -type f \) | LC_ALL=C sort | while IFS= read -r f; do
+       if [ -L "$f" ]; then printf 'link  %s -> %s\n' "$f" "$(readlink "$f")"; else printf 'other  %s\n' "$f"; fi; done) | hstream
   else hstream < "$1"; fi; }
 
 probe=$(mktemp -d); : > "$probe/f"; ln -s "$probe/f" "$probe/l" 2>/dev/null || true
@@ -108,14 +111,15 @@ rm -rf "$probe"
 # repository has committed. Copies are what ln -s makes in Git Bash on Windows without Developer Mode.
 shipped() { cmp -s "$1" "$2" && return 0; local h; h=$(git -C "$here" hash-object --no-filters "$1" 2>/dev/null) || return 1
   git -C "$here" log --all --format= --raw --no-abbrev -- "${2#"$here"/}" 2>/dev/null | awk -v h="$h" '$4 == h { f = 1 } END { exit !f }'; }
-# copied <source> <target>: the target is a copy of Orca's: a regular file that is shipped, or a directory whose every
-# entry, checked recursively, is.
-copied() { local f
+# copied <source> <target>: the target is a copy of Orca's: a regular file that is shipped, or a non-empty directory
+# whose every entry, checked recursively, is (git ships no empty directory).
+copied() { local f n=0
   if [ -L "$2" ]; then return 1; fi
   if [ -f "$2" ]; then shipped "$2" "$1"; return; fi
   [ -d "$2" ] || return 1
   for f in "$2"/* "$2"/.[!.]* "$2"/..?*; do [ -e "$f" ] || [ -L "$f" ] || continue
-    copied "$1/${f#"$2"/}" "$f" || return 1; done; }
+    n=1; copied "$1/${f#"$2"/}" "$f" || return 1; done
+  [ $n = 1 ]; }
 # link_root <link> <rel>: the Orca checkout (a directory holding bin/orca-lc) the link points into at <rel>, if any.
 link_root() { local l root; l=$(readlink "$1"); root=${l%/"$2"}
   [ "$root" != "$l" ] && [ -f "$root/bin/orca-lc" ] && printf '%s\n' "$root"; }
