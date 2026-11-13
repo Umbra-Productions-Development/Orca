@@ -54,20 +54,24 @@ tmp=$(mktemp)
 # ensure: a hook is Orca's when its command names hooks/orca/<script>.sh (either separator), followed by the end or a
 # character that cannot continue a file name, so a stop.sh.bak is not Orca's. The first one in the event gets Orca's
 # command and keeps its other fields; later ones go, and so does a group they leave empty. None: append one.
+# A kept hook's group matcher is left as found (#56), except when it still equals one of the event's old default
+# matchers (olds) and the group holds only Orca's hook: then it becomes the new default m. A hand-edited matcher,
+# or a group shared with another hook, survives.
 jq '
   def orca(s): (.command? // "") | type == "string" and test("hooks[/\\\\]orca[/\\\\]" + s + "\\.sh([^A-Za-z0-9_.-]|$)");
-  def ensure(ev; m; s): ("bash \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/orca/" + s + ".sh\"") as $cmd
+  def ensure(ev; m; s; olds): ("bash \"${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/orca/" + s + ".sh\"") as $cmd
     | .hooks[ev] = ((.hooks[ev] // []) | reduce .[] as $g ({seen: false, out: []};
         if ($g | type) != "object" or ($g.hooks | type) != "array" or ($g.hooks | length) == 0 then .out += [$g]
         else (reduce $g.hooks[] as $h ({seen: .seen, hs: []};
                 if ($h | orca(s)) then (if .seen then . else .seen = true | .hs += [$h | .command = $cmd] end)
                 else .hs += [$h] end)) as $r
+          | (if ($r.seen and (.seen | not) and (olds | index([$g.matcher])) and ($g.hooks | all(orca(s)))) then $g | .matcher = m else $g end) as $g
           | .seen = $r.seen | if ($r.hs | length) == 0 then . else .out += [$g | .hooks = $r.hs] end end)
       | if .seen then .out else .out + [{matcher: m, hooks: [{type: "command", command: $cmd, timeout: 15}]}] end);
-  ensure("PreToolUse"; "Bash|Edit|Write|MultiEdit"; "pretool")
-  | ensure("SessionStart"; "startup|resume|clear|compact"; "session-start")
-  | ensure("PostToolUse"; "Read"; "post-read")
-  | ensure("Stop"; "*"; "stop")
+  ensure("PreToolUse"; "Bash|Edit|Write|MultiEdit"; "pretool"; [])
+  | ensure("SessionStart"; "startup|resume|clear|compact|fork"; "session-start"; ["startup|resume|clear|compact"])
+  | ensure("PostToolUse"; "Read"; "post-read"; [])
+  | ensure("Stop"; "*"; "stop"; [])
 ' "$S" > "$tmp" && mv "$tmp" "$S"
 echo "hooks registered in $S"
 for t in jq herdr gh; do command -v "$t" >/dev/null || echo "missing (required): $t"; done

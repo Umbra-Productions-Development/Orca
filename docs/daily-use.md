@@ -100,4 +100,4 @@ Apply fixes the findings. When the user approves, the review is posted to the PR
 
 ## When a session starts
 
-The SessionStart hook names the session (ticket + role), prints its context (gate state, test lock, live peers, unread handoffs and inbox, discoveries awaiting enforcement, stack env) and points it at the `orca` skill. The Stop hook names anything left undone: a stale gate, uncommitted changes, the test lock still on.
+The SessionStart hook names the session (ticket + role), prints its context (gate state, test lock, live peers, unread handoffs and inbox, discoveries awaiting enforcement, stack env) and points it at the `orca` skill. When a turn ends, the Stop hook shows the user anything left undone: a stale gate, uncommitted changes, the test lock still on. The line reaches the user only; Claude is not told.

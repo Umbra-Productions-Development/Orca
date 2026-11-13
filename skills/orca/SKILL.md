@@ -15,7 +15,7 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
-Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook names anything still undone.
+Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
 
 ## Test files
 
