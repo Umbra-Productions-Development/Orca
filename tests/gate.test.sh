@@ -36,6 +36,9 @@ r=$(cfgr 'echo fine'); out=$(HERDR_ENV=1 HERDR_STUB_RUN_FAIL=1 gate "$r"); asser
 assert_contains "$out" ORCA_GATE_PASS
 r=$(cfgr 'exit 4'); out=$(HERDR_ENV=1 HERDR_STUB_RUN_FAIL=1 gate "$r"); assert_status $? 4
 assert_contains "$out" ORCA_GATE_FAIL
+# A pane that went away during the gate (closing it then fails) leaves a pass a pass.
+r=$(cfgr 'echo fine'); out=$(HERDR_ENV=1 HERDR_STUB_CLOSE_FAIL=1 gate "$r"); assert_status $? 0
+assert_contains "$out" ORCA_GATE_PASS
 
 # A gate exiting 124 on its own, well before gateTimeoutMin, is a failure, not a timeout.
 r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
