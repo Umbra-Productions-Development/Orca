@@ -15,6 +15,6 @@
 
 ## 4. Check
 
-- [x] 4.1 `tests/wait-on-completion.sh` passes; `tests/pretool-merge.sh` and `tests/install-keep.sh` still pass.
+- [x] 4.1 `tests/wait-on-completion.test.sh` passes; `tests/pretool-merge.test.sh` still passes.
 - [x] 4.2 Run the hook in the local test site: the peer and CI shapes block, `sleep; echo done` passes. The skip is covered by the test only, because the test site's gate already fails for reasons unrelated to this change.
 - [ ] 4.3 Re-measure one week after landing.
