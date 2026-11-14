@@ -119,31 +119,53 @@ load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
   local ec; ec=$(cfg '.envCommand'); [ -n "$ec" ] || return 0
   local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && { set -a; eval "$kv"; set +a; echo "orca-lc: env: $kv"; }; }
 
+# The gate is this process's own child, so its exit status (pass, fail, crash, kill) is the result.
+# gateTimeoutMin bounds a hung gate: TERM, then KILL 30s later. Output also goes to $(gitdir)/orca-gate.log.
+run_gate() {
+  rm -f "$(marker)"; load_env
+  echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
+  local min t pid rc start=$SECONDS; min=$(cfg '.gateTimeoutMin' 30)
+  t=$(command -v timeout || command -v gtimeout) || echo "orca-lc: no timeout or gtimeout on PATH, gateTimeoutMin not enforced"
+  # set -m: the gate gets its own process group, and default INT (a job started without it ignores INT, and so do
+  # its children). stdin stays /dev/null, as for any job, so a gate reading the terminal is never stopped.
+  set -m
+  if [ -n "$t" ]; then "$t" --kill-after=30s "${min}m" bash -c "$1" </dev/null & else bash -c "$1" </dev/null & fi; pid=$!
+  set +m
+  # That group is out of reach of a signal sent to ours (Ctrl-C, a tool killing the call): forward it there.
+  # wait returns early on a trapped signal, so wait again until the gate is gone.
+  trap 'kill -TERM -- "-$pid" 2>/dev/null' INT TERM HUP
+  while wait "$pid"; rc=$?; kill -0 "$pid" 2>/dev/null; do :; done
+  trap - INT TERM HUP
+  # Timed out: the limit elapsed and timeout ended it, by TERM (124) or by KILL after it (137). A gate exiting 124
+  # on its own before the limit stays a failure.
+  if [ -n "$t" ] && { [ $rc = 124 ] || [ $rc = 137 ]; } && awk -v e=$((SECONDS - start)) -v m="$min" 'BEGIN { exit !(e + 1 >= m * 60) }'; then rc=124
+  elif [ $rc = 124 ]; then rc=1; fi
+  if [ $rc = 0 ] && [ "$(cfg '.leakCheck')" = true ]; then
+    # Subshell: no exit inside the scan may end the gate before it prints its last line.
+    echo "orca-lc: leak-check on commits not on any remote"
+    ( cmd_leak_check ) || rc=1
+  fi
+  case $rc in 0) tree_sig > "$(marker)"; echo "ORCA_GATE_PASS";; 124) echo "ORCA_GATE_TIMEOUT";; *) echo "ORCA_GATE_FAIL";; esac
+  return $rc
+}
 cmd_gate() {
   local r; r=$(root) || die "not in a repo"
   local g; g=$(cfg '.gate'); [ -n "$g" ] || die "no gate in .orca/config.json"
+  cd "$r" || exit 1
+  local log old pane="" out=/dev/stdout rc; log="$(gitdir)/orca-gate.log"; old="$(gitdir)/orca-gate-pane"; : > "$log"
   if [ "${1:-}" != "--inline" ] && inherdr; then
-    local old; old="$(gitdir)/orca-gate-pane"; [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
-    local pane; pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
-    if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"; else
-      herdr pane run "$pane" "orca-lc gate --inline" >/dev/null
-      herdr pane wait-output "$pane" --regex 'ORCA_GATE_(PASS|FAIL)$' --timeout 1200000 >/dev/null
-      herdr pane read "$pane" --source recent-unwrapped --lines 200 | tail -60
-      if cmd_gate_fresh; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
-      echo "$pane" > "$old"; echo "orca-lc: gate FAIL, pane $pane left open (closed automatically on the next run)"; return 1
-    fi
+    [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
+    pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
+    # The pane only follows the log (and stops when this process ends); closing it cannot change the result.
+    if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"
+    # BSD tail has no --pid: it falls back to a plain follow, which the pane close or the next run ends.
+    else herdr pane run "$pane" "tail -n +1 -f --pid=$$ $(printf %q "$log") 2>/dev/null || tail -n +1 -f $(printf %q "$log")" >/dev/null; out=/dev/null; fi
   fi
-  cd "$r" || exit 1; rm -f "$(marker)"; load_env
-  echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  if bash -c "$g"; then
-    if [ "$(cfg '.leakCheck')" = true ]; then
-      # Subshell: no exit inside the scan may end the gate before it prints its last line.
-      echo "orca-lc: leak-check on commits not on any remote"
-      ( cmd_leak_check ) || { echo "ORCA_GATE_FAIL"; return 1; }
-    fi
-    tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0
-  fi
-  echo "ORCA_GATE_FAIL"; return 1
+  run_gate "$g" 2>&1 | tee -a "$log" > "$out"; rc=${PIPESTATUS[0]}
+  [ -n "$pane" ] || return $rc
+  tail -60 "$log"
+  if [ $rc = 0 ]; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
+  echo "$pane" > "$old"; echo "orca-lc: gate FAIL (exit $rc), pane $pane left open (closed automatically on the next run)"; return $rc
 }
 
 # ---- leak check: denylists are untracked; a committed list would itself be the leak.
@@ -699,7 +721,7 @@ cmd_role() {
 # Every key of orca.example.json, in its order, with values that work in any project (none of the
 # example's samples). $1 main checkout, $2 the {testGlob, sourceGlob} object from init_langs.
 init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson l "$2" '{project: $p, sharedDir: $s,
-  baseBranch: "main", gate: "", leakCheck: false, testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
+  baseBranch: "main", gate: "", leakCheck: false, gateTimeoutMin: 30, testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
   ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
   roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
   reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
@@ -849,4 +871,4 @@ case "$cmd" in
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
   stack) cmd_stack "$@";; ticket) ticket;; init) cmd_init "$@";;
   *) usage "unknown command '$cmd'";;
-esac
+esac; exit $?  # same line: bash stops reading here, so editing this file under a running orca-lc cannot break it

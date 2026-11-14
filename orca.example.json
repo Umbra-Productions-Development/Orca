@@ -4,6 +4,7 @@
   "baseBranch": "main",
   "gate": "npm run lint && npm run typecheck && npm test",
   "leakCheck": true,
+  "gateTimeoutMin": 30,
   "testCommand": "npx vitest run",
   "testGlob": "\\.test\\.tsx?$",
   "sourceGlob": "src/|\\.tsx?\\b",
