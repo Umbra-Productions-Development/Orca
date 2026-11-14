@@ -36,6 +36,7 @@ assert_eq "$(fresh "$r")" 1 "edit to an untracked file after a nested repo: fres
 assert_eq "$(fresh "$r")" 1 "untracked symlink retargeted: fresh"
 
 # The config and .env are gitignored in most repos and still change what the gate runs.
+git -C "$r" rm -q --cached .orca/config.json; git -C "$r" commit -qm untrack-config
 echo '.env' >> "$r/.git/info/exclude"; echo '.orca/' >> "$r/.git/info/exclude"
 (cd "$r" && orca-lc gate >/dev/null 2>&1)
 echo '{"project":"proj","gate":"false"}' > "$r/.orca/config.json"
