@@ -87,7 +87,7 @@ EOF
 # add_orca <file> <path prefix> [script to leave out]: append one group per Orca hook, command bash "<prefix>/hooks/orca/<x>.sh".
 add_orca() {
   jq --arg p "$2" --arg skip "${3:-}" 'reduce (["PreToolUse","pretool","Bash|Edit|Write|MultiEdit"],
-      ["SessionStart","session-start","startup|resume|clear|compact"],["PostToolUse","post-read","Read"],["Stop","stop","*"]) as $x (.;
+      ["SessionStart","session-start","startup|resume|clear|compact|fork"],["PostToolUse","post-read","Read"],["Stop","stop","*"]) as $x (.;
     if $x[1] == $skip then . else .hooks[$x[0]] = ((.hooks[$x[0]] // [])
       + [{matcher: $x[2], hooks: [{type: "command", command: ("bash \"" + $p + "/hooks/orca/" + $x[1] + ".sh\""), timeout: 15}]}]) end)' \
     "$1" > "$1.t" && mv "$1.t" "$1"; }
