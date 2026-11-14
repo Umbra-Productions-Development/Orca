@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # install.sh installs into $CLAUDE_CONFIG_DIR when set, else $HOME/.claude, registers hook commands that follow the
-# variable at run time, and keeps one entry per Orca hook on rerun. Run: tests/install-config-dir.sh
+# variable at run time, keeps one entry per Orca hook on rerun, and migrates only Orca's old default matcher. Run: tests/install-config-dir.sh
 set -uo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
@@ -22,6 +22,7 @@ S="$HOME/.claude/settings.json"
 r=0; for p in PreToolUse:pretool SessionStart:session-start PostToolUse:post-read Stop:stop; do
   [ "$(jq -r --arg e "${p%%:*}" '.hooks[$e][0].hooks[0].command' "$S")" = "$(cmd "${p#*:}")" ] || r=1; done
 ok $r "unset: the four commands follow CLAUDE_CONFIG_DIR at run time"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact|fork" ]; ok $? "unset: a fresh install's SessionStart matcher includes fork"
 
 export HOME="$tmp/home2"; mkdir -p "$HOME"; export CLAUDE_CONFIG_DIR="$tmp/cfg"
 run; ok $st "set: install exits 0"
@@ -79,6 +80,22 @@ run; ok $st "rerun over malformed entries exits 0"
 [ "$(jq -c '.hooks.PreToolUse[0:3]' "$S")" = "$(jq -c . <<< "$bad")" ]; ok $? "rerun: malformed entries pass through unchanged"
 [ "$(jq -r '.hooks.PreToolUse[3].hooks[0].command' "$S")" = "$(cmd pretool)" ] && [ "$(jq '.hooks.PreToolUse | length' "$S")" = 4 ]
 ok $? "rerun: Orca's hook is appended after malformed entries"
+
+ss() { jq -n --arg m "$1" '{hooks: {SessionStart: [{matcher: $m, hooks: [{type: "command", command: "bash /x/hooks/orca/session-start.sh"}]}]}}' > "$S"; }
+ss "startup|resume|clear|compact"; run; ok $st "rerun over the old default SessionStart matcher exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact|fork" ] && [ "$(jq '.hooks.SessionStart | length' "$S")" = 1 ]
+ok $? "rerun: the old default SessionStart matcher gains fork"
+ss "startup"; run; ok $st "rerun over a hand-edited SessionStart matcher exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = startup ]; ok $? "rerun: a hand-edited SessionStart matcher is kept"
+ssg() { jq -n '{type: "command", command: "bash /x/hooks/orca/session-start.sh"}' > "$tmp/h"; jq -n --slurpfile h "$tmp/h" "$1" > "$S"; }
+ssg '{hooks: {SessionStart: [{matcher: "startup|resume|clear|compact", hooks: [$h[0], {type: "command", command: "echo mine"}]}]}}'
+run; ok $st "rerun over the old default matcher on a group shared with a user hook exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact" ]; ok $? "rerun: a group shared with a user hook keeps the old default matcher"
+ssg '{hooks: {SessionStart: [{matcher: "startup|resume|clear|compact", hooks: [$h[0]]}, {matcher: "startup|resume|clear|compact", hooks: [$h[0], {type: "command", command: "echo other"}]}]}}'
+run; ok $st "rerun over two old default SessionStart groups exits 0"
+[ "$(jq -r '.hooks.SessionStart[0].matcher' "$S")" = "startup|resume|clear|compact|fork" ] && [ "$(jq -r '.hooks.SessionStart[1].matcher' "$S")" = "startup|resume|clear|compact" ] \
+  && [ "$(jq -c '.hooks.SessionStart[1].hooks' "$S")" = '[{"type":"command","command":"echo other"}]' ]
+ok $? "rerun: only the first Orca group gains fork; the second keeps its matcher and loses the duplicate"
 
 sk="$CLAUDE_CONFIG_DIR/skills"
 rm -rf "$sk/grilling"; mkdir -p "$sk/grilling"; printf -- '---\nname: grilling\n---\nthird party\n' > "$sk/grilling/SKILL.md"

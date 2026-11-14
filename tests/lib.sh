@@ -18,6 +18,10 @@ assert_contains() { grep -qF -- "$2" <<<"$1" || fail "${3:-'$2' not in: $1}"; }
 assert_not_contains() { if grep -qF -- "$2" <<<"$1"; then fail "${3:-'$2' unexpectedly in: $1}"; fi; }
 assert_status() { [ "$1" = "$2" ] || fail "${3:-exit $1, expected $2}"; }
 
+# native <path> -> the path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/....
+# Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
+
 # new_repo [config-json] -> path of a fresh repo on main with one commit, a bare origin and
 # .orca/config.json. The repo sits alone in a temp dir, so worktrees orca-lc makes next to it
 # (in its parent) stay inside that dir.
@@ -33,3 +37,19 @@ new_repo() {
 
 # hook_json <tool> <cwd> <command> -> a PreToolUse payload for a Bash call
 hook_json() { jq -n --arg t "$1" --arg c "$2" --arg x "$3" '{tool_name:$t, cwd:$c, tool_input:{command:$x}}'; }
+
+# payload <event> <cwd> [jq-object…] -> a documented hook input for the event (code.claude.com/docs/en/hooks):
+# the common fields plus the event's own, with each extra argument (a jq object expression, which may read
+# $ENV) merged over them in order, e.g. payload PreToolUse "$r" '{tool_name: "Edit", tool_input: {file_path: $ENV.F}}'
+payload() {
+  local ev=$1 cwd=$2 f='.' a; shift 2
+  for a in "$@"; do f+=" | . + ($a)"; done
+  jq -n --arg ev "$ev" --arg cwd "$cwd" '
+    {session_id: "test-session", transcript_path: "/dev/null", cwd: $cwd, permission_mode: "default", hook_event_name: $ev}
+    + ({SessionStart: {source: "startup", model: "claude-test"},
+        Stop: {stop_hook_active: false, last_assistant_message: "done", background_tasks: [], session_crons: []},
+        PreToolUse: {tool_name: "Bash", tool_input: {command: "true"}, tool_use_id: "toolu_test"},
+        PostToolUse: {tool_name: "Read", tool_input: {file_path: "/dev/null"}, tool_use_id: "toolu_test",
+                      tool_response: {type: "text"}}}[$ev] // {})
+    | '"$f"
+}
