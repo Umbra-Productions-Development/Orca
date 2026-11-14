@@ -25,11 +25,10 @@ Everything runs inside herdr: sessions find each other, message each other and o
 In the project's main checkout:
 
 ```bash
-mkdir -p .orca && cp ~/path/to/Orca-stable/orca.example.json .orca/config.json
-echo '.orca/' >> .gitignore
+orca-lc init
 ```
 
-Fill in at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database), and `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
+`init` asks for each key with a value it detected from the repository (Enter accepts, `-` leaves it empty), shows the config, and writes it after you confirm; it also adds `.orca` to `.gitignore`. `--yes` accepts every proposal. Run it again to edit the config. Check at least `gate`, `ticketPattern` and `baseBranch`. Add `ports`, `stackUp` and `stackDown` if each ticket needs its own running stack (app server, database); `examples/stack/` has docker compose scripts to copy for them. Add `applyChecks` / `reviewChecks` for checks specific to the project, such as a UI review or a browser check. Every key is in the README.
 
 `.orca/` holds the config and the state shared by every session of the project: handoffs, inbox, ticket owners, discoveries. It is never committed.
 
@@ -69,16 +68,18 @@ Apply implements `tasks.md`, commit by commit. While it works:
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
 - Editing a test file is blocked. When a test is genuinely wrong, `orca-lc test-lock on`, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
-- `orca-lc gate` runs the full gate and marks the exact tree. Any later edit makes the mark stale. The gate runs as a child of `orca-lc gate`, which returns its exit status as soon as it ends, however it ends; inside herdr a split pane follows its log (`.git/orca-gate.log`), closing on success. A gate still running after `gateTimeoutMin` is stopped with `ORCA_GATE_TIMEOUT` (exit 124).
+- `orca-lc gate` runs the full gate and marks the exact tree. Any later edit makes the mark stale. The gate runs as a child of `orca-lc gate`, which returns its exit status as soon as it ends, however it ends; inside herdr a split pane follows its log (`.git/orca-gate.log`), closing on success. A gate still running after `gateTimeoutMin` is stopped with `ORCA_GATE_TIMEOUT` (exit 124). With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.
 - An agent calls the gate in the foreground with a tool timeout above `gateTimeoutMin`. For Claude Code, raise `BASH_MAX_TIMEOUT_MS` in the `env` of the user's settings to match (for example `2400000` for a 30-minute gate), so the call is never moved to the background.
 - Each commit is reported to the orchestrator; the PreToolUse hook reminds it.
 - A ticket split into several changes gets one branch per change: `orca-lc stack add <change>` from the top branch cuts the next one on top of it, and `orca-lc stack list` shows the stack. Once the top branch has passed the gate, `orca-lc stack prs` pushes every branch and opens or retargets each PR on the branch below it. After the bottom PR is squash-merged, `orca-lc stack rebase` moves the rest onto the base and drops the merged branch.
 
 ### 4. Review
 
-The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), the review passes and `reviewChecks`, then dispatches the `orca-verifier` agent: a clean-context pass that runs the gate and reads the diff against `tasks.md`. Findings go to a file and to the orchestrator; review never fixes what it finds.
+The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), then the three default passes, `orca-complexity` (needless complexity), `orca-spec` (the diff against the openspec change, or the ticket's acceptance criteria) and `orca-standards` (the diff against `standardsFile`), each of which a project can turn off in `skipDefaultPasses`, then any extra `reviewPasses` and the `reviewChecks`. Paths matching `reviewExcludes` are left out of all of these. Last it dispatches the `orca-verifier` agent from the ticket's worktree: a clean-context pass that runs the gate, the review's only gate run, and reads the whole diff against `tasks.md`, never reporting an excluded path as an unasked change.
 
-Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`.
+Review then reconciles: it drops any claim the code does not show, merges findings at the same place with the same root cause, and tiers each as **Blocker** (a failing gate always is), **Should fix** or **Suggestion**. The result goes to `<gitdir>/orca-findings.md`, headed with the reviewed sha and base and a table of every pass and check with its result, and to the orchestrator. Review never fixes what it finds.
+
+Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding, opening with its tier: APPROVE when nothing is Blocker or Should fix, otherwise COMMENT. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`; a Blocker is closed only by a fix.
 
 ### 5. Push, merge, clean up
 
@@ -89,13 +90,14 @@ Apply fixes the findings. When the user approves, the review is posted to the PR
 ## Talking between sessions
 
 - `orca-lc peers` lists every live session on any worktree of the project.
-- `orca-lc notify <target> "<text>"` sends a short message; the target can be a session id, a name, or a ticket with `--role`. A ticket with no live session gets the message queued in its inbox, delivered at its next session start.
+- `orca-lc notify <target> "<text>"` sends a short message; the target can be a session id, a name, or a ticket with `--role`. A ticket with no live session gets the message queued in its inbox, delivered at its next session start. With `leakCheck` on, a queued message carrying a denylisted term is refused and nothing is queued; so is a `role start` handoff body, and a session's own Write or Edit into a handoff.
 - Anything longer than a few lines goes in a handoff (`orca-lc handoff write`) and the message carries only its path.
+- A ticket and role hold one live handoff. `handoff write` refuses while another session's handoff for that role is unread; the same session writing again replaces its own, archiving the old one. A writer with no session id is refused whenever a live handoff for the role exists, its own included, and needs `--as`. `--as <name>` writes anyway and archives the live one, for when taking it over is the point; `orca-lc role start` passes `--as` through.
 
 ## What persists between tickets
 
-**Discoveries.** When something cost time and a future session would hit it again (a hook block nobody expected, a quirk of the gate), `/discover` records it as one rule with where it is enforced: a hook, a skill, a memory, or nothing yet. `orca-lc triage` lists the ones nothing enforces; turning them into hooks or skill text is how the setup gets better.
+**Discoveries.** When something cost time and a future session would hit it again (a hook block nobody expected, a quirk of the gate), `/discover` records it as one rule with where it is enforced: a hook, a skill, a memory, or nothing yet. With `leakCheck` on, a discovery whose slug, rule or body carries a denylisted term is refused and nothing is written. `orca-lc triage` lists the ones nothing enforces; turning them into hooks or skill text is how the setup gets better.
 
 ## When a session starts
 
-The SessionStart hook names the session (ticket + role), prints its context (gate state, test lock, live peers, unread handoffs and inbox, discoveries awaiting enforcement, stack env) and points it at the `orca` skill. The Stop hook names anything left undone: a stale gate, uncommitted changes, the test lock still on.
+The SessionStart hook names the session (ticket + role), prints its context (gate state, test lock, live peers, unread handoffs and inbox, discoveries awaiting enforcement, stack env) and points it at the `orca` skill. When a turn ends, the Stop hook shows the user anything left undone: a stale gate, uncommitted changes, the test lock still on. The line reaches the user only; Claude is not told.
