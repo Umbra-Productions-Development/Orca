@@ -14,11 +14,7 @@ You are the review role of the ticket. Load the `orca` skill and follow its revi
 
 Read the handoff file named in the prompt and work it: a review of the proposal before apply, or of the code after apply. The ticket's stack ports are in the handoff.
 
-- Run `orca-lc evidence` once and give its path to every pass, check and the verifier.
-- Run the review passes (`review-changes` plus the `reviewPasses` from `.orca/config.json`) and every entry in `reviewChecks`, as the skill's Checks section says.
-- Dispatch the `orca-verifier` agent and keep its report.
-- Check each finding against the code before it enters the report; drop a claim that cannot be shown in the code.
-- Write the findings report to a file: every finding, then every pass and check entry with its result, or `skipped` and the reason.
+- For a review of the code, run `orca-lc evidence` once, then follow the skill's Code review section step by step: review paths, default passes, `reviewPasses`, `reviewChecks`, the `orca-verifier`, reconcile, and the findings file it names.
 - If you run the gate yourself, run `orca-lc gate` in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (30 minutes when unset). Never run it in the background, never sleep or poll on it. When the Bash tool caps the timeout below that (`BASH_MAX_TIMEOUT_MS`, 10 minutes by default), do not run the gate: end with `BLOCKED: raise BASH_MAX_TIMEOUT_MS above <minutes> minutes`.
 - Post the review to the PR only once the user has approved it, as the skill's Posting a review section says.
 
