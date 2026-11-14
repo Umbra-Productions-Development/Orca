@@ -118,7 +118,7 @@ case "$tool" in
       # A loop whose condition greps the file (a server's readiness line) passes: a server never completes.
       # Only that file is exempt, and not when a sleep after the last 'done' reads it again.
       polls=$(grep -oE '(^|[;&|(]\s*)(until|while)\s+[^;]*' <<<"$nq" | grep -E '(^|\s)grep\s')
-      post=$(grep -oE "$sl.*" <<<"$(sed -E 's/.*(^|[;&|[:space:]])done\b//' <<<"$flat")")
+      post=$(grep -oE "$sl.*" <<<"$(sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$flat")")
       if [ -f "$tp" ]; then
         while IFS= read -r f; do
           [ -n "$f" ] || continue
