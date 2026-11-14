@@ -126,10 +126,14 @@ run_gate() {
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
   local min t pid rc start=$SECONDS; min=$(cfg '.gateTimeoutMin' 30)
   t=$(command -v timeout || command -v gtimeout) || echo "orca-lc: no timeout or gtimeout on PATH, gateTimeoutMin not enforced"
-  if [ -n "$t" ]; then "$t" --kill-after=30s "${min}m" bash -c "$1" & else bash -c "$1" & fi; pid=$!
-  # timeout leads its own process group, out of reach of a signal sent to ours (Ctrl-C, a tool killing the call):
-  # forward it to that group. wait returns early on a trapped signal, so wait again until the gate is gone.
-  trap 'kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null' INT TERM HUP
+  # set -m: the gate gets its own process group, and default INT (a job started without it ignores INT, and so do
+  # its children). stdin stays /dev/null, as for any job, so a gate reading the terminal is never stopped.
+  set -m
+  if [ -n "$t" ]; then "$t" --kill-after=30s "${min}m" bash -c "$1" </dev/null & else bash -c "$1" </dev/null & fi; pid=$!
+  set +m
+  # That group is out of reach of a signal sent to ours (Ctrl-C, a tool killing the call): forward it there.
+  # wait returns early on a trapped signal, so wait again until the gate is gone.
+  trap 'kill -TERM -- "-$pid" 2>/dev/null' INT TERM HUP
   while wait "$pid"; rc=$?; kill -0 "$pid" 2>/dev/null; do :; done
   trap - INT TERM HUP
   # Timed out: the limit elapsed and timeout ended it, by TERM (124) or by KILL after it (137). A gate exiting 124
