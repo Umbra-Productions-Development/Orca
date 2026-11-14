@@ -89,6 +89,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `skipDefaultPasses` | Array of default passes (`orca-complexity`, `orca-spec`, `orca-standards`) not run; each stays in the findings file's passes table as `skipped: off in skipDefaultPasses`, also when `reviewPasses` names it. A name that is not a default pass is ignored and noted in the findings file header. Absent: all three run |
 | `envFiles` | Env files copied into each new worktree |
 | `linkPaths` | Untracked paths each worktree links back to the main checkout |
+| `claude.mcp` | Per role, the MCP servers a session started by `role start` gets, in Claude Code's `--mcp-config` format (`{"mcpServers": {...}}`). The role's session starts with `--strict-mcp-config`, so it loads only these; an empty `mcpServers` loads none. A role with no entry, a session reused by `role start`, and a session opened by hand get Claude Code's usual set. The JSON goes on the `claude` command line, visible in the process list, so keep secrets out of a server's `env` |
 | `envCommand` | Command printing the worktree stack's env vars for the gate |
 | `ports` | Port names a ticket's stack needs; each becomes `<NAME>_PORT` in the worktree's `.env.local` |
 | `portScheme` | `{base, slots, step}`: port = base + (ticket number mod slots) × step + position. Default `3000, 100, 10`. A ticket id with no trailing number uses `cksum` of the uppercased id in place of the number |

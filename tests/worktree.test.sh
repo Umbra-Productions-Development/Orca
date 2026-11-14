@@ -80,3 +80,4 @@ if ln -s "$r/.secret" "$d/probe" 2>/dev/null && [ -L "$d/probe" ]; then
 else echo "  SKIP: ln -s copies here (no native symlinks); linkPaths link assert skipped"; fi
 out=$(cd "$d/nest/L" && orca-lc worktree down L-1 --force 2>&1); assert_status $? 0
 [ ! -e "$d/L-1" ] || fail "down left $d/L-1: $out"
+

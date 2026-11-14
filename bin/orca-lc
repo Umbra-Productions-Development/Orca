@@ -675,6 +675,9 @@ cmd_role() {
       local t r as="" dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r="$2"; dir=$(wt_dir "$t")
       [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
+      # claude.mcp.<role>: the role's whole MCP server set, in Claude Code's --mcp-config format. Absent: Claude's own set.
+      local mcp="" cf; if cf=$(cfgfile); then mcp=$(jq -c --arg r "$r" '.claude.mcp[$r] // empty' "$cf" 2>/dev/null) || die "claude.mcp in .orca/config.json must be an object keyed by role"; fi
+      [ -z "$mcp" ] || jq -e '.mcpServers | type == "object"' <<< "$mcp" >/dev/null || die "claude.mcp.$r in .orca/config.json needs an mcpServers object"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       name="$(tkey "${t//-/}")-$r"
       # Idempotent: a rerun after answering a startup prompt skips to the handoff and first prompt.
@@ -682,7 +685,7 @@ cmd_role() {
       if [ -z "$ag" ]; then
         local pane; pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --no-focus | jq -r '.result.root_pane.pane_id // empty')
         [ -n "$pane" ] || die "herdr tab create returned no pane"
-        if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
+        if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 ${mcp:+-- --strict-mcp-config --mcp-config "$mcp"} >/dev/null 2>&1; then
           die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
       fi
@@ -703,7 +706,7 @@ init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson 
   ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
   roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
   reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
-  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
+  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [], claude: {mcp: {}},
   envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
   migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
 # testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
