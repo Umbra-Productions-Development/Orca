@@ -4,7 +4,7 @@
 
 - A background `Bash` command, a background subagent, and `herdr agent prompt` (what `orca-lc notify` sends) each wake an idle session. A subagent that ends its turn while its own background command runs is woken by it too; a test on 2026-10-19 showed the subagent resuming 5 s after its task finished.
 - A PreToolUse hook gets `transcript_path`, and `agent_id` only for subagent calls. The hook needs no subagent case, because the same wait works in both.
-- The gate marker `.git/orca-gate-ok` holds `tree_sig`: HEAD plus a hash of the uncommitted diff and the untracked files. `cmd_gate_fresh` compares it with the current tree.
+- The gate marker `.git/orca-gate-ok` holds `tree_sig`: HEAD plus a hash of the uncommitted diff and the untracked file names. `cmd_gate_fresh` compares it with the current tree.
 
 ## The hook
 
@@ -20,7 +20,7 @@ Anything else passes with no message. The file match goes through the transcript
 
 `cmd_gate` parses `--inline` and `--force`, changes to the repository root, and returns 0 with `ORCA_GATE_PASS` when the marker is fresh and `--force` is absent. The herdr pane path runs `orca-lc gate --inline --force`, since freshness was already checked before the split.
 
-`tree_sig` runs from the repository root, and adds each untracked file's blob hash after the list of names. Before this, editing an untracked file kept the marker fresh, and `git ls-files --others` run from a subdirectory listed only that subdirectory.
+`tree_sig` runs from the repository root. It adds `.orca/config.json` and `.env`, both often gitignored, so a change to the gate command or the environment makes the marker stale. Each untracked entry adds its name, then a regular file its blob hash and a symlink its target; a directory or nested repo adds its name only, so one entry git cannot hash no longer stops the rest. Before this, editing an untracked file kept the marker fresh, and `git ls-files --others` run from a subdirectory listed only that subdirectory.
 
 ## Decisions
 
