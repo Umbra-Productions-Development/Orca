@@ -110,10 +110,14 @@ case "$tool" in
       if [ -n "$loop" ]; then after=$nq raw=$flat; else after=$(grep -oE "$sl.*" <<<"$nq"); raw=$(grep -oE "$sl.*" <<<"$flat"); fi
       grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
       tp=$(jq -r '.transcript_path // empty' <<<"$in")
-      # A loop polling a file for a condition (a server's readiness line) passes: a server never completes.
-      if [ -z "$loop" ] && [ -f "$tp" ]; then
+      # A loop whose condition greps the file (a server's readiness line) passes: a server never completes.
+      # Only that file is exempt, and not when a sleep after the last 'done' reads it again.
+      polls=$(grep -oE '(^|[;&|(]\s*)(until|while)\s+[^;]*' <<<"$nq" | grep -E '(^|\s)grep\s')
+      post=$(grep -oE "$sl.*" <<<"$(sed -E 's/.*(^|[;&|[:space:]])done\b//' <<<"$flat")")
+      if [ -f "$tp" ]; then
         while IFS= read -r f; do
           [ -n "$f" ] || continue
+          if grep -qF -- "$f" <<<"$polls" && ! grep -qF -- "$f" <<<"$post"; then continue; fi
           grep -F -- "$f" "$tp" | jq -e --arg f "$f" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1 \
             && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
         done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)

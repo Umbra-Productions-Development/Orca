@@ -38,10 +38,15 @@ check 0 "git commit -m \"the server's 'sleep 2; gh pr view 8' wait\""
 check 0 'gh pr view 83; sleep 2; echo ok'
 # A glob is read as written, not expanded against the repo the hook runs in.
 touch "$repo/build.log"; check 0 'sleep 1; tail *.log'; rm "$repo/build.log"
+# A loop elsewhere in the command, or one with no condition on the file, is still a wait on a command that completes.
+check 2 'for i in 1 2; do echo $i; done; sleep 240; tail /tmp/x/build.log'
+check 2 'while sleep 60; do tail -5 /tmp/x/build.log; done'
+check 2 'until grep -q ok /tmp/x/build.log; do sleep 1; done; sleep 240; tail /tmp/x/build.log'
 
 # A background server never completes: a readiness loop on its log passes; a bare sleep is pointed at that loop.
 jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"npm run dev > server.log 2>&1", run_in_background:true}}]}}' >>"$tp"
 check 0 'until grep -q ready server.log; do sleep 1; done'
+check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
 check 2 'sleep 3; tail server.log'
 out=$(jq -n --arg d "$repo" --arg t "$tp" '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:"sleep 3; tail server.log"}}' | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)
 assert_contains "$out" "until grep -q" "the block names the readiness loop"
