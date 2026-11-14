@@ -2,7 +2,7 @@
 
 ## Goal
 
-A software development lifecycle for coding agents that any repository can adopt by writing one config file. Orca is a workflow, not an agent runtime: it decides what work runs where, and uses the features each runtime already provides to carry it out. Claude Code is the first supported runtime. One ticket is worked by a small team of role-bound sessions (orchestrator, propose, apply, review) under rules the tooling enforces, not rules the agents are trusted to remember.
+A software development lifecycle for coding agents that any repository can adopt by writing one config file. Orca is a workflow, not an agent runtime: it decides what work runs where, and uses the features each runtime already provides to carry it out. It also keeps the workflow's footprint in check: how many sessions run, what each one starts, and when each one stops. It does this by configuring the runtime and the terminal multiplexer, never by running processes of its own. Claude Code is the first supported runtime. One ticket is worked by a small team of role-bound sessions (orchestrator, propose, apply, review) under rules the tooling enforces, not rules the agents are trusted to remember.
 
 ## Non-goals
 
