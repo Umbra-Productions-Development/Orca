@@ -45,3 +45,7 @@ assert_not_contains "$(cat "$TMPDIR/start.args" 2>/dev/null)" "--strict-mcp-conf
 start bad; assert_status $st 1 "bad entry: $out"
 assert_contains "$out" "claude.mcp.bad in .orca/config.json needs an mcpServers object"
 [ ! -e "$TMPDIR/start.args" ] || fail "bad entry still started a session"
+r=$(new_repo '{"project":"p","gate":"true","claude":{"mcp":["pw"]}}'); WT="$(native "$(dirname "$r")")/ORCA-9"; mkdir "$WT"; MAINR=$(native "$r"); cd "$r" || exit 1
+start apply; assert_status $st 1 "claude.mcp not an object: $out"
+assert_contains "$out" "claude.mcp in .orca/config.json must be an object keyed by role"
+[ ! -e "$TMPDIR/start.args" ] || fail "claude.mcp not an object still started a session"

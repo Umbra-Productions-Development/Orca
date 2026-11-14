@@ -676,7 +676,7 @@ cmd_role() {
       [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       # claude.mcp.<role>: the role's whole MCP server set, in Claude Code's --mcp-config format. Absent: Claude's own set.
-      local mcp="" cf; cf=$(cfgfile) && mcp=$(jq -c --arg r "$r" '.claude.mcp[$r] // empty' "$cf")
+      local mcp="" cf; if cf=$(cfgfile); then mcp=$(jq -c --arg r "$r" '.claude.mcp[$r] // empty' "$cf" 2>/dev/null) || die "claude.mcp in .orca/config.json must be an object keyed by role"; fi
       [ -z "$mcp" ] || jq -e '.mcpServers | type == "object"' <<< "$mcp" >/dev/null || die "claude.mcp.$r in .orca/config.json needs an mcpServers object"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       name="$(tkey "${t//-/}")-$r"
