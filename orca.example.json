@@ -18,7 +18,7 @@
   "skipDefaultPasses": [],
   "envFiles": [".env"],
   "linkPaths": [],
-  "claude": { "disabledMcpServers": ["playwright"] },
+  "claude": { "mcp": { "apply": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } }, "review": { "mcpServers": {} } } },
   "envCommand": "",
   "ports": ["web", "db"],
   "portScheme": { "base": 3000, "slots": 100, "step": 10 },

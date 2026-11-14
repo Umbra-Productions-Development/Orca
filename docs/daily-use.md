@@ -42,7 +42,7 @@ Open Claude Code in the project's main checkout, in a herdr tab labelled `orches
 orca-lc worktree up ABC-12 --stack
 ```
 
-That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing. MCP servers listed under `claude.disabledMcpServers` stay off in the worktree; a session opened there by hand can turn one back on with `/mcp`.
+That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
 
 The orchestrator never explores, writes specs or code, or reviews. It routes.
 
@@ -55,7 +55,7 @@ Report to the orchestrator.
 EOF
 ```
 
-`role start` opens a `propose` tab in the ticket's workspace, starts a named Claude session there (`abc12-propose`), writes the handoff (the text above plus the role's own rules, taken from the skill), records propose as the ticket's owner, and sends the first prompt.
+`role start` opens a `propose` tab in the ticket's workspace, starts a named Claude session there (`abc12-propose`), writes the handoff (the text above plus the role's own rules, taken from the skill), records propose as the ticket's owner, and sends the first prompt. A role listed under `claude.mcp` starts with only the MCP servers given there.
 
 Propose reads the ticket, explores the code, grills the user on the decisions the ticket leaves open (the `grilling` skill, Orca's or a third-party one of the same name: rounds of numbered questions, each with a recommended answer, until nothing is assumed; the settled decisions go into the change's `design.md` under `## Decisions`, and decisions outside the ticket go to the orchestrator as follow-ups), writes the change proposal (openspec: proposal, design, tasks), commits it, and reports back to the orchestrator.
 
