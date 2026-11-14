@@ -7,6 +7,7 @@
   "testCommand": "npx vitest run",
   "testGlob": "\\.test\\.tsx?$",
   "sourceGlob": "src/|\\.tsx?\\b",
+  "toolAdvice": true,
   "ticketPattern": "ABC-[0-9]+",
   "tracker": "",
   "roles": { "Orchestrator": "orchestrator", "Propose": "propose", "Apply": "apply", "Review": "review" },
