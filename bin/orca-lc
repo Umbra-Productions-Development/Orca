@@ -699,10 +699,11 @@ cmd_role() {
 # Every key of orca.example.json, in its order, with values that work in any project (none of the
 # example's samples). $1 main checkout, $2 the {testGlob, sourceGlob} object from init_langs.
 init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson l "$2" '{project: $p, sharedDir: $s,
-  baseBranch: "main", gate: "", testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
+  baseBranch: "main", gate: "", leakCheck: false, testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
   ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
   roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
-  reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [], envFiles: [".env"], linkPaths: [],
+  reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
+  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
   envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
   migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
 # testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
