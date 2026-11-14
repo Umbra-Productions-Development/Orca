@@ -12,7 +12,8 @@ The script runs in three phases. Nothing is written before phase 3. Before phase
    - Check the required tools.
    - Detect link mode or copy mode.
    - Classify every target, and plan the settings.json change.
-   - Stop when any required tool is missing, when a target belongs to another Orca checkout and `--force` is not set, when the manifest records another config dir (Config dir), when settings.json is a dangling symlink, or when settings.json is not valid JSON or not a Claude settings object (two messages, settings.json, below): print every problem, print `nothing changed`, exit 1.
+   - Stop when any required tool is missing, when a target belongs to another Orca checkout and `--force` is not set, when the manifest records another config dir (Config dir), when a parent of a path install writes exists and is not a directory (below), when settings.json is a dangling symlink, or when settings.json is not valid JSON or not a Claude settings object (two messages, settings.json, below): print every problem, print `nothing changed`, exit 1.
+   - **A parent that is not a directory.** For every target, for `<cfg>/settings.json` and for the manifest's path in the state dir, the nearest ancestor that is not a directory is checked. When it exists, as a regular file or as any link that does not resolve to a directory (a dangling link included), preflight reports `install.sh: <path> exists and is not a directory`, once per path. Without the check, `mkdir -p` fails with `File exists` midway through the apply, after some targets are placed and before the manifest is written (PR #116 review of 2026-11-13, thread on install.sh:235, "A target's parent that exists but is not a directory").
    - A kept target (one Orca did not install) never stops the install.
 3. **Apply.**
    - Create or refresh the targets Orca owns, and write the manifest.
@@ -22,7 +23,7 @@ The script runs in three phases. Nothing is written before phase 3. Before phase
 
 Exit codes:
 - 0: success, including a second run that changes nothing, and a run that kept targets Orca did not install (#57).
-- 1: missing required tool, another Orca checkout without `--force`, another config dir than the recorded one, a dangling settings.json symlink, a settings.json that is not valid JSON or not a Claude settings object, or an uninstall that left something in place.
+- 1: missing required tool, another Orca checkout without `--force`, another config dir than the recorded one, a parent that is not a directory, a dangling settings.json symlink, a settings.json that is not valid JSON or not a Claude settings object, or an uninstall that left something in place.
 - 2: usage error.
 
 Every message that reports a problem goes to stderr and names the path or tool it is about.
@@ -155,7 +156,8 @@ The format is one record per line, with tab-separated fields:
 Hash:
 - `sha256sum` when it is on PATH, otherwise `shasum -a 256` (macOS ships only the latter). One helper picks once; both give the same hex digest, so a manifest written with one verifies with the other.
 - For a file: the hash of its bytes.
-- For a directory: the hash of `find . -type f | LC_ALL=C sort` with each file's own hash. A copy target is a whole directory (one per skill, plus `<cfg>/hooks/orca`), so one record and one hash cover every file in it: editing any file in it makes the whole target edited. File modes are not included, because Git Bash reports them unreliably. Ownership is about content; a mode change alone never makes a target "edited".
+- For a directory: the hash of `find . -type f | LC_ALL=C sort` with each file's own hash, followed by every entry that is not a regular file and not a non-empty directory, sorted the same way: each symlink with its target (`link  <path> -> <readlink>`), each empty directory and any other non-regular entry (`other  <path>`). A copy target is a whole directory (one per skill, plus `<cfg>/hooks/orca`), so one record and one hash cover every entry in it: editing any file in it, or adding a link or an empty directory to it, makes the whole target edited. Without the second part, a link or empty directory the user added inside an Orca copy left the hash unchanged, so the stale refresh, the orphan pass and uninstall `rm -rf`ed the copy and the user's entry with it, with no `kept` or `left:` line (PR #116 review of 2026-11-13, thread "`hpath` hashes only `find -type f`"). A directory holding only regular files hashes exactly as before, so the hashes older manifests recorded for plain copies still match. `copied` already refuses such a copy: it never accepts a link, and an empty directory has no entry to accept.
+- File modes are not included, because Git Bash reports them unreliably. Ownership is about content; a mode change alone never makes a target "edited".
 
 ### Classifying a target
 
@@ -165,6 +167,8 @@ A target is **Orca's** when one of these holds:
 - it is a symlink into an Orca checkout at the source's repo-relative path, under a directory that holds `bin/orca-lc` (#57's link test). Into `$here` it is this install's; into any other checkout it is "another checkout" below;
 - it is a regular file or directory (a copy) whose hash equals the hash its `copy` record holds;
 - it is a copy that `copied <source> <target>` accepts: every file byte-equal to the source, or to a version of the same repo-relative path in the install checkout's git history (`shipped`, #57).
+
+**A target inside the checkout is never Orca's.** A non-link target whose parent, resolved (`cd "$(dirname <target>)" && pwd -P`), lies inside the physical path of `$here` is the checkout's own file, reached through a config subdir linked into the checkout (a dotfiles-style `~/.claude/skills -> <checkout>/skills`). `copied` would accept it, since every file is byte-equal to itself, and the "ours, stale" replacement would `rm -rf` the checkout's own directory and leave a link to itself there. So the classifier puts it in **kept**, before any hash or `copied` test, in install and in the no-manifest uninstall. The same check guards every other removal path (Targets Orca no longer ships; Uninstall). (PR #116 review of 2026-11-13, threads on install.sh:151 and install.sh:271, "Install deletes files from the Orca checkout" and "uninstall with no manifest deletes checkout files".)
 
 For each source and target pair, the target is in exactly one class:
 
@@ -208,8 +212,9 @@ The table covers every case in the issue:
 ### Targets Orca no longer ships
 
 A `link`, `copy` or `edited` record whose target is not among this checkout's targets (a skill, agent or hook removed upstream) is handled in the apply phase, after the targets are placed and before settings.json. It never stops the preflight.
+- **Spelling.** A record is compared with this run's targets with each path's parent normalised (Config dir: trailing slashes stripped, `pwd -P` when the dir exists) and its last component as written. A record that names a target in another spelling (`HOME` with a trailing slash, or reached through a symlinked path) is that target, not an orphan. Without it, `~/.local/bin/orca-lc`, which is built from `$HOME` and not from `<cfg>`, was recorded under one spelling, then on a rerun with the other spelling classed current under the new one and removed as no longer shipped under the old one: the same file, so the install lost `orca-lc` at exit 0 (PR #116 review of 2026-11-13, thread on install.sh:133, "When install is rerun with `HOME` spelled differently").
 - The target is gone: the record is dropped, and nothing is printed.
-- The target is still Orca's: a link into an Orca checkout at the record's path relative to the recorded checkout (`link_root`), or a non-link whose hash equals its `copy` record's, or that `copied` finds in `$here`'s history. It is removed (`rm` for a link, `rm -rf` otherwise) and `removed <target>, no longer shipped` is printed.
+- The target is still Orca's: a link into an Orca checkout at the record's path relative to the recorded checkout (`link_root`), or a non-link that is not inside the checkout (Classifying a target) and whose hash equals its `copy` record's, or that `copied` finds in `$here`'s history. It is removed (`rm` for a link, `rm -rf` otherwise) and `removed <target>, no longer shipped` is printed.
 - Otherwise it is kept, with `install.sh: kept <target>, which Orca no longer ships and did not install as it is now` on stderr, and the run still exits 0, `--force` or not (#57's keep rule). Its record is dropped: Orca no longer owns it, so a later uninstall neither removes nor lists it.
 - `dir` records stay as they are; uninstall removes those directories when they are empty (Directories).
 
@@ -217,9 +222,11 @@ README's Update paragraph says this in one line: ones no longer shipped are remo
 
 ### Directories
 
-- `mkdir -p` happens per target. Each directory that did not exist is recorded as `dir`.
+- `mkdir -p` happens per target. A directory that did not exist is recorded as `dir` only when it is **Orca's directory**: at or under one of `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `~/.local/bin` (built from `$HOME`, as the `orca-lc` target is) and the state dir (`${XDG_STATE_HOME:-$HOME/.local/state}/orca`).
+- Generic parents Orca creates on the way are not recorded: `~/.local`, `~/.local/state` (or a fresh `$XDG_STATE_HOME`), and the config dir itself on a fresh machine. Other programs write there (Claude writes its own files into `<cfg>`), so uninstall would list them as `left: ... (not empty: ...)` and exit 1 for files that are not Orca's business. They stay after uninstall, empty or not. (PR #116 review of 2026-11-13, thread on install.sh:235, "`mkparents` records every directory it creates"; taken by the user, 2026-11-14.)
+- One predicate decides "Orca's directory" everywhere it is asked: install's recording, the manifest rewrite and uninstall's directory pass. It compares a path with the five roots as Config dir compares spellings (normalised), so a record in another `HOME` spelling is judged the same way.
+- **Older manifests** already hold `dir` records for generic parents. They are not Orca's directories under this rule, so: install drops them when it rewrites the manifest (the `--force` carry-over included), and uninstall ignores them, neither removing nor listing them. An upgraded install therefore behaves exactly like a fresh one: the first install after the upgrade rewrites the manifest once, without those records, and changes nothing else; a second run is a no-op again.
 - Uninstall removes a recorded `dir` only if it is empty, deepest first.
-- The config dir itself is recorded too if Orca created it.
 - A recorded `dir` kept because it still holds files Orca did not create counts as **left**: it gets its own `left: <dir> (not empty: holds files Orca did not create)` line and makes uninstall exit 1, like any other path left in place (Uninstall, below).
 - A dangling settings.json link counts as reported by its own stderr line (Uninstall): its directory, usually `<cfg>`, stays and gets no `not empty` line, and uninstall still exits 0 when nothing else is left.
 - A recorded `dir` is listed only when it directly holds something that is not itself a `left:` path or a kept recorded directory. A directory kept only because it contains paths already listed (an edited copy, a foreign file where Orca's target was expected, or a deeper kept directory) is not listed: the paths inside it already explain why it stays, and listing it too would name one reason twice. Uninstall still exits 1 because of those inner lines.
@@ -235,15 +242,17 @@ The number of JSON documents is counted (`jq -s length`) once step 1 passes (cod
 - **More than 1** stops the preflight like step 1: `install.sh: <cfg>/settings.json holds <n> JSON documents; Claude reads one`, then `nothing changed`, exit 1. Why stop and not merge: each document would be merged on its own and written back as several objects, which Claude cannot read either, and choosing one would drop the user's others. The file is left for the user to fix.
 - Uninstall applies the same count before it removes anything: 0 is read as `{}` (no hook of Orca's to remove; a pristine file is restored to its bytes), more than 1 stops with the same message and exit 1.
 
-Orca's four hook entries are #86's, unchanged:
-- the same events and matchers, timeout 15
+**jq's parsed output is read with `\r` removed.** A native `jq.exe` under Git Bash (MSYS or Cygwin) ends its output lines with CRLF unless given `-b` (jq manual, `--binary`). This change is the first to parse jq's text output, so every value install.sh reads back from jq goes through `tr -d '\r'`: the document count above and the scan's fields (`existed`, `had_key`, matched). Without it, an empty settings.json was no longer read as `{}` (R12 again), the `hook` records were lost to an arithmetic error, and `hooks-key` was recorded when `.hooks` already existed (PR #116 review of 2026-11-13, thread "On Git Bash with a native `jq.exe`"). JSON that jq writes to a file for the next jq to read needs no stripping: jq parses CRLF as whitespace.
+
+Orca's four hook entries are those of `origin/main`'s `ensure()` as #136 (#17) left it, unchanged:
+- the same events and matchers, timeout 15. #136 widened SessionStart's matcher to `startup|resume|clear|compact|fork`, and its `ensure()` takes a fourth argument, the event's old default matchers: a group still holding exactly one of them and only Orca's hook gets the new default, while a hand-edited matcher or a group shared with another hook keeps its own. A matcher migrated that way is a rewrite, not an appended entry, so it gets no `hook` record (Install, step 2).
 - the commands `bash "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/orca/<x>.sh"`, written literally, so they follow the variable when the hook runs
 
 **Orca's hook** has one definition, #86's `orca(s)` matcher: a hook whose `command` is a string matching `hooks[/\\]orca[/\\]<x>\.sh` followed by a character that cannot continue a file name, or the end. It accepts every command Orca has ever written (the pre-#86 `bash "$HOME/.claude/hooks/orca/<x>.sh"`, a Windows path, an edited path with arguments) and rejects `stop.sh.bak` and `stop.sh.disabled`. The install merge, the pristine check, the legacy path and uninstall's jq removal all use this one jq function, so "one of Orca's four commands" never means an exact string anywhere in this design.
 
 **Install:**
 1. If the file is absent, plan to create it and record `settings-created`.
-2. Compute the merged JSON with #86's `ensure()` jq program, as it is: per event, the first hook the matcher accepts gets Orca's command and keeps its other fields, later ones are dropped along with any group they leave empty, and an entry is appended only when none matched. Record each appended entry as `hook` (with `new-event` when the event array was absent), and `hooks-key` when `.hooks` was absent. A rewritten or deduplicated entry is not recorded: it was there before, and uninstall removes it through the matcher anyway.
+2. Compute the merged JSON with `ensure()` as #136 left it on `origin/main` (above), as it is: per event, the first hook the matcher accepts gets Orca's command and keeps its other fields, later ones are dropped along with any group they leave empty, and an entry is appended only when none matched. Record each appended entry as `hook` (with `new-event` when the event array was absent), and `hooks-key` when `.hooks` was absent. A rewritten or deduplicated entry is not recorded: it was there before, and uninstall removes it through the matcher anyway.
 3. Compare the result with the current content: `jq -S .` on both sides for the decision.
    - If they are equal, do not write. The bytes stay as they were, whatever their formatting.
 4. If they differ:
@@ -251,6 +260,7 @@ Orca's four hook entries are #86's, unchanged:
    - **If a `settings-post` record exists and the current file's hash differs from it**, the user edited the file since Orca last wrote it (for example, added a key and deleted one of Orca's hooks). Restoring the saved original on uninstall would then lose that edit. So before writing, drop the `settings-orig` record and delete `settings.json.orig`, and drop `settings-created` too. Uninstall then takes the jq path, which keeps the user's edit. Install prints `settings.json was edited since the last install; uninstall will remove Orca's hooks only`. The `settings-post` record stays, so no later install treats the file as pristine and saves Orca's own hooks as the original.
    - Write the jq output and record `settings-post` as the hash of the new bytes.
    - The write is atomic and keeps the file's mode: `tmp=$(mktemp "$S.XXXXXX")`, `cp -p "$S" "$tmp"` (copies the mode), write the jq output into `$tmp` (truncating keeps the mode), then `mv "$tmp" "$S"`. A new settings.json gets `0666` masked by the user's umask, as `echo > file` would. The temp file sits next to the file it replaces, so `mv` is a rename on the same filesystem.
+   - **A read-only settings.json is written like any other**, as `origin/main` does: when the temp file is not writable after `cp -p` (mode `0444`, say), it is made user-writable for the write only, and its mode is put back before the `mv`, so the file keeps its read-only mode. When any step fails, the temp file is removed, so no `settings.json.XXXXXX` is left beside it. Before this, `cp -p` made the temp file `0444`, the write failed after every target was placed and `settings.json.orig` was saved, no manifest was written, and a stray temp file stayed: a regression against `origin/main`, which installs over the same file (PR #116 review of 2026-11-13, thread "A read-only settings.json (mode 0444) passes preflight"). The same write serves uninstall's restore and jq path.
    - **A symlinked settings.json is written through, never replaced.** Users who keep Claude settings in a dotfiles repo link the file there, and `mv` over the link would turn it into a regular file and cut it off from the repo. So before any read or write, `S` is resolved to the file the link points to, following every hop: `readlink -f` where it works (GNU, Git Bash, macOS 12.3 and later), else a small loop of `readlink` + `cd`, so older macOS works too. The temp file, `cp -p`, `mv` and the hash all use the resolved path; the link itself is never touched. A link whose target does not exist stops the install: preflight reports `settings.json is a dangling symlink` and stops in preflight, changing nothing. Chosen over report-and-leave because a dotfiles link is a normal setup, and refusing it would leave those users without hooks. Both resolution branches are tested: 1.22 runs once with `readlink -f` and once with a `readlink` that rejects `-f`, through a two-hop chain so the loop runs more than once.
 
 **Uninstall:**
@@ -274,7 +284,8 @@ The byte-identical acceptance test is the first path. The second path keeps othe
 - Reads the manifest. With no manifest, it falls back to classifying the known targets of this checkout, removing only those that are Orca's and from `$here` ("ours, current" or "ours, stale"), plus the settings.json hook removal.
 - Removes:
   - "ours" targets: the link with `rm`, the copy with `rm -r`, only after re-checking that it is still Orca's (Classifying a target: its record's hash, or `copied`)
-  - empty recorded directories
+  - never a target inside the checkout (Classifying a target): with a manifest, a `copy` or `edited` record whose target resolves into `$here` is listed as `left: <target> (not created by Orca)`, as a link there is; with no manifest, the classifier calls it kept and it is left silently, as any kept target is
+  - empty recorded directories that are Orca's directories (Directories); a `dir` record for a generic parent, from an older manifest, is ignored
   - Orca's hooks, as above
   - then the manifest, the saved settings bytes, and the state dir if it is empty
 - Leaves the checkout, the dependencies and per-project `.orca/` untouched.
@@ -318,18 +329,24 @@ Decision: **build on the harness PR #49 put on main.** Do not add a second harne
 - Two harnesses would conflict on the same paths.
 - `lib.sh` points `TMPDIR` at the empty dir `run.sh` hands each file (`ORCA_TEST_TMP`) and sets `HOME` there. The sandbox's `mktemp -d` therefore lands inside it, and `run.sh` removes it after the file.
 
-Decision: **the base is `origin/main`, and the PR targets `main`.** #49 was squash-merged, so its branch is neither gone nor an ancestor of main, and nothing about it is checked. The base must carry #46, #57, #49 and #86. When apply starts, after `git fetch origin`:
+Decision: **the base is `origin/main`, and the PR targets `main`.** #49 was squash-merged, so its branch is neither gone nor an ancestor of main, and nothing about it is checked. The base must carry #46, #57, #49, #86 and, since the 2026-11-14 rebase, #136. When apply starts, after `git fetch origin`:
 
 | state at apply start | base | PR targets |
 |---|---|---|
-| `git merge-base --is-ancestor` succeeds against `origin/main` for `b387a59` (#46), `d863e74` (#57) and `233f913` (#86), and `tests/run.sh` (#49) and `tests/install-config-dir.sh` (#86) exist on `origin/main` | `origin/main` | `main` |
+| `git merge-base --is-ancestor` succeeds against `origin/main` for `b387a59` (#46), `d863e74` (#57), `233f913` (#86) and `1ab9ca4` (#136), and `tests/run.sh` (#49) and `tests/install-config-dir.sh` (#86) exist on `origin/main` | `origin/main` | `main` |
 | anything else | none | apply notifies the orchestrator and stops |
 
 These are main's own commits, which main never rewrites, so the checks survive a squash merge. At this revision the row holds, and `orca-16/work` sits on `origin/main` (rebased by propose at the orchestrator's call). The proposal commits only touch `openspec/`, so a later rebase onto a newer main is trivial; that rebase is the orchestrator's or propose's call, never apply's.
 
+**The 2026-11-14 rebase is apply's.** By then the branch carries the implementation and the review fixes, and main had moved 14 commits past its base, with `install.sh` and `README.md` conflicting. A rebase that resolves code conflicts is code work, so the orchestrator handed it to apply as task 8.1 (Decisions). Resolution rule: take main's side of everything this change does not own, and this change's side of what it does:
+- **install.sh:** this change's script, with #136's `ensure()` carried into it as main has it (the `olds` argument, SessionStart's `startup|resume|clear|compact|fork` matcher and the old-default migration), since this design builds on main's `ensure()` unchanged (settings.json). Nothing else of main's install.sh changed since the old base.
+- **README.md:** main's lines (the Claude Code version on the required line, `orca-lc init`, the leak check, the new configuration keys) with this change's install, update and uninstall paragraphs and its required-tools links kept.
+- **tests/install-config-dir.sh:** main's new assertions plus task 2.9's stdin and `XDG_STATE_HOME` edit; a conflict there is resolved by keeping both, under `orca-lc test-lock on`.
+- Every other file takes main's side. `git merge` is blocked by a hook, so this is `git rebase origin/main`, never a merge commit.
+
 **`tests/install-keep.sh`** (#57) and **`tests/install-config-dir.sh`** (#86) stay standalone scripts with their assertions unchanged, and must pass against the new install.sh. Both already unset `CLAUDE_CONFIG_DIR`. Both run install.sh with the caller's stdin and `XDG_STATE_HOME`, so on a terminal the new prompts would wait for input, and a set `XDG_STATE_HOME` would put the manifest outside the temporary HOME. Apply therefore makes one test-locked edit to each: every install run reads stdin from `/dev/null`, and the script unsets `XDG_STATE_HOME`. No assertion changes. They also need the required tools on the real PATH, which the gate machines have. Wiring them into `tests/run.sh` stays #57's and #86's follow-up and is not part of this change.
 
-What `install-config-dir.sh` asserts that the new install.sh must keep: `config dir: <current spelling>` as the first output line; every target under `$CLAUDE_CONFIG_DIR` when set, and no `$HOME/.claude`; #86's commands; one entry per Orca hook after a rerun over old, edited, Windows, duplicate and malformed entries; a custom timeout and matcher kept; a rerun over Orca's own text changing no byte; the keep rule inside the config dir. Each case there switches `HOME` or rewrites settings.json wholesale, so the manifest's `settings-post` no longer matches and install prints the F1 "was edited" line; the script asserts nothing that line contradicts.
+What `install-config-dir.sh` asserts that the new install.sh must keep: `config dir: <current spelling>` as the first output line; every target under `$CLAUDE_CONFIG_DIR` when set, and no `$HOME/.claude`; #86's commands; one entry per Orca hook after a rerun over old, edited, Windows, duplicate and malformed entries; a custom timeout and matcher kept; a rerun over Orca's own text changing no byte; the keep rule inside the config dir; and, from #136, that only Orca's old default SessionStart matcher migrates to the new one, while a hand-edited matcher or a shared group keeps its own. Each case there switches `HOME` or rewrites settings.json wholesale, so the manifest's `settings-post` no longer matches and install prints the F1 "was edited" line; the script asserts nothing that line contradicts.
 
 Install-specific helpers live in `tests/install.test.sh` itself, not in `lib.sh`, so this change does not edit #49's files. `lib.sh` prepends `$ORCA_SRC/bin` to PATH. The install tests replace PATH entirely (below), so that does not matter.
 
@@ -352,6 +369,7 @@ Each test builds a sandbox with `d=$(mktemp -d)`:
 - **Link mode** needs real symlinks, and the `ln` wrapper only execs the real `ln`, which on Git Bash without Developer Mode silently copies. So the sandbox probes once (real `ln -s` in a `mktemp -d`, then `[ -L ]`). Without symlinks, every link-mode case prints `SKIP link mode: no symlinks` and is not counted as passed; the copy-mode cases still run. Link mode is therefore proven only where symlinks work: Linux, macOS, or Git Bash with Developer Mode. On Git Bash without Developer Mode only copy mode is proven; on Linux, where apply and the user's manual check run, both are.
 - **The sandbox checkout has real history.** `$d/src` is a `git clone -q` of the checkout, with the working tree's install.sh, bin/, hooks/, skills/ and agents/ copied over it, so tests run the code under test and `shipped` sees the same history as in the real checkout. A test that needs an older Orca copy takes it from that history (`git -C $d/src show <commit>:<path>`).
 - **Every install run reads stdin from `/dev/null`** unless the test drives prompts, so running the suite on a terminal never waits.
+- **Every install and uninstall run asserts its exit status** (`assert_status`), 0 where nothing is left and 1 where design.md says the run leaves something or stops, besides whatever else the test checks. A run whose status went unchecked could fail and still pass its test (PR #116 review of 2026-11-13, thread on tests/install.test.sh, "These `inst --uninstall` runs never assert the exit status").
 - **The recommended-tools table is read, not hard-coded.** Tests run the sandbox checkout (`$d/src`). A helper reads the block between `# BEGIN recommended-tools` and `# END recommended-tools` in install.sh to list each row's name, enables text and command for the pinned platform, so the expected messages follow whatever apply puts in the table at 2.7. The helper fails the test when either marker is missing, the markers are out of order, or the block has no rows, so a test cannot pass on an empty table. The prompt-path tests (1.10b and the per-row part of 1.11) instead replace that block in `$d/src/install.sh` with a fixture of three rows, `fix-a` and `fix-b` with an `npm` command on every platform and `fix-c` link-only, all with presence checks that fail in the sandbox. The fixture always gives two command rows, so "fewer than two command rows on this platform" cannot happen and needs no SKIP. The real install.sh is never edited by a test.
 - **Untested here: `cygpath -u`.** The `cygpath` line (Config dir) runs only on Git Bash, where `cygpath` is on PATH. No Linux test can reach it, and none stubs it: the line is #86's, unchanged. Git Bash coverage is the user's manual check.
 - The real HOME and the real config dir are never read or written. As a guard, every test asserts that `$HOME`, and `$CLAUDE_CONFIG_DIR` when it is set, start with `$d/`.
@@ -381,6 +399,10 @@ Each test builds a sandbox with `d=$(mktemp -d)`:
 - A recorded copy the user edited is kept like any target Orca did not install, with its own `edited since install` line, and does not change the exit code — propose, following the keep-rule decision (#57's Risks already call a hand-edited Orca copy kept "intended").
 - `--uninstall` takes no other flag, `--force` included: with no backups, `--force` has nothing left to do on uninstall — propose, following the keep-rule decision.
 - `tests/install-keep.sh` gets a test-locked stdin and `XDG_STATE_HOME` guard, no assertion change (Test harness) — propose, so the user's decision "don't contradict it" holds on a terminal.
+- **Only Orca's directories are recorded (2026-11-14).** Install records a directory it creates only at or under `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `~/.local/bin` and the state dir; generic parents (`~/.local`, `~/.local/state`, a fresh config dir) are never recorded, so uninstall never lists them as `left:` (Directories) — user (via orchestrator), taking the suggestion in the PR #116 review of 2026-11-13, thread on install.sh:235.
+- **Older manifests' generic `dir` records are dropped (2026-11-14).** Install drops them when it rewrites the manifest, `--force` carry-over included, and uninstall ignores them, so an upgraded install behaves as a fresh one; the empty generic dirs they named stay, as they do after a fresh install — propose. Chosen over keeping them and removing them only when empty, which would make one rule for old installs and another for new ones.
+- **Review fixes 1 to 9 are design (2026-11-14).** The fixes for the PR #116 review of 2026-11-13 are written into the sections whose rules they changed: Shape (a parent that is not a directory), Ownership manifest (Hash), Classifying a target (a target inside the checkout), Targets Orca no longer ships (spelling), settings.json (read-only file, jq's `\r`), Uninstall, Test isolation (exit status) — orchestrator handoff of 2026-11-14.
+- **Apply rebases onto `origin/main` (2026-11-14).** The branch conflicts with main in `install.sh` and `README.md`; apply rebases as task 8.1 and resolves by the rule in Test harness, taking #136's `ensure()` into this change's install.sh — orchestrator handoff of 2026-11-14.
 
 ## Review findings and how they are resolved
 
@@ -467,3 +489,15 @@ Re-review at the code review fixes (orchestrator handoff of 2026-11-02).
 
 - **R12** (an empty settings.json passed both checks, nothing was written, and install printed `hooks registered`): settings.json, the document count; 0 read as `{}`, more than 1 stops. Multi-document taken here, not as a follow-up, since the same count closes it. Tasks 7.2, 7.3, 7.7.
 - Verifier test gaps review confirmed: 1.18's wording fixed in tasks.md (skills/orca ships one file); 1.15 `$d/cfg` and copy records, and 1.7b's `other-pretool`, get tasks 7.4 to 7.6.
+
+PR #116 code review of 2026-11-13 (Excalimbito; 5 should-fix, 4 suggestions; every finding fixed or taken).
+
+- **Checkout files deleted through a config subdir linked into the checkout** (should-fix, threads on install.sh:151 and install.sh:271): Classifying a target, a target inside the checkout is kept; Targets Orca no longer ships; Uninstall. Covered by `t_parent_in_checkout`.
+- **Read-only settings.json aborted mid-apply** (should-fix): settings.json, the read-only write. Covered by `t_readonly_settings`.
+- **`orca-lc` removed on a rerun with `HOME` spelled differently** (should-fix, install.sh:133): Targets Orca no longer ships, Spelling. Covered by `t_home_spelling`.
+- **CRLF from a native `jq.exe`** (should-fix): settings.json, jq's parsed output. Covered by `t_crlf_jq`.
+- **A target parent that is not a directory** (suggestion, install.sh:235): Shape, preflight stop. Covered by `t_parent_notdir`.
+- **Links and empty dirs inside a copy were not hashed** (suggestion): Ownership manifest, Hash. Covered by `t_copy_nonregular`.
+- **Unchecked exit status** (suggestion, tests/install.test.sh): Test isolation. Every run asserts its status.
+- **`mkparents` recorded generic parents** (suggestion, install.sh:235, open): Directories; taken by the user on 2026-11-14. Tasks 8.2 to 8.8.
+

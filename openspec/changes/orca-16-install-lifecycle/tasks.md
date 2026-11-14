@@ -275,3 +275,24 @@ design.md, Decisions: Empty and multi-document settings.json.
 - [x] 7.8 `orca-lc test-lock off`. Commit the tests.
 - [x] 7.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass.
 - [x] 7.10 Run `orca-lc gate` and report.
+
+## 8. Rebase and the 2026-11-13 review's last suggestion (2026-11-14)
+
+The PR #116 review of 2026-11-13 was answered in fixes 1 to 9 (design.md, Review findings, last list); design.md now describes them, and they need no task here. What remains is the rebase and the open suggestion on `mkparents` (design.md, Directories; Decisions of 2026-11-14).
+
+- [ ] 8.1 **Rebase onto `origin/main`** (design.md, Test harness, "The 2026-11-14 rebase is apply's"). `git fetch origin`, then `git rebase origin/main`; never `git merge`, which a hook blocks. Resolve each conflict by the rule there: install.sh is this change's, with #136's `ensure()` (the `olds` argument, `startup|resume|clear|compact|fork`, the old-default migration) carried in as main has it; README.md keeps main's lines and this change's install, update and uninstall paragraphs; `tests/install-config-dir.sh` keeps main's assertions and 2.9's edit (under `orca-lc test-lock on`, saying why in the commit body); everything else takes main's side. Then check task 0.1's row again with `1ab9ca4` (#136) added, and run `bash tests/run.sh`, `bash tests/install-keep.sh`, `bash tests/install-config-dir.sh` and `orca-lc gate`; all pass before 8.2. Report the new head to the orchestrator: the rebase rewrites every sha the PR threads cite.
+- [ ] 8.2 `orca-lc test-lock on`.
+- [ ] 8.3 **Only Orca's directories are recorded**, both modes, from an empty `$HOME` (design.md, Directories):
+  - after install, the manifest has a `dir` record for each of `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$HOME/.local/bin` and `$HOME/.local/state/orca`, and none for `$HOME/.local`, `$HOME/.local/state` or `<cfg>`
+  - add `$HOME/.local/share/app/d` and `<cfg>/history.jsonl`, then uninstall: exit 0, no `left:` line, both files byte for byte, and `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$HOME/.local/bin` and the state dir gone
+  - the same with `CLAUDE_CONFIG_DIR=$d/cfg`: no `dir` record for `$d/cfg`, and a file added in `$d/cfg` gives no `left:` line
+  - with `XDG_STATE_HOME=$d/xdg` (a fresh directory): a `dir` record for `$d/xdg/orca` and none for `$d/xdg`
+- [ ] 8.4 **Older manifests**, both modes (design.md, Directories, Older manifests). After install, append `dir` records for `$HOME/.local`, `$HOME/.local/state` and `<cfg>` to the manifest, as an older install wrote them, and add the two foreign files of 8.3:
+  - uninstall: exit 0, no `left:` line, the foreign files and the three generic dirs stay
+  - instead of uninstalling, install again: exit 0, the manifest no longer holds those three records and nothing else in it or under `$HOME` changed; a third install changes no byte
+  - link mode only: the same appended records, then `--force` from `$d/src2` (as 1.15): the switched manifest holds none of them
+- [ ] 8.5 **1.17a, amended.** A clean uninstall from an empty `$HOME` now leaves the empty generic parents: `$HOME` matches the pre-install snapshot plus exactly the empty directories `.claude`, `.local` and `.local/state`, with no manifest, no state dir and no other directory Orca created. Exit 0 and no `left:` line, as before. Say why in the commit body (the test asserted the old Directories rule). Any other existing test that expected a generic parent removed or listed changes the same way, named in the commit body; 1.17b and 1.18 keep their `left:` lines unchanged, since `<cfg>/skills` and `<cfg>/agents` are Orca's directories.
+- [ ] 8.6 `orca-lc test-lock off`. Commit the tests; 8.3 to 8.5 fail on the current install.sh.
+- [ ] 8.7 install.sh: one predicate for "Orca's directory" (at or under `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$HOME/.local/bin` or the state dir, compared normalised as `norm` does), used in three places: `mkparents` records only directories it accepts; the manifest rewrite drops `dir` records it rejects, the `--force` carry-over included; uninstall's directory pass skips them, neither removing nor listing them. Makes 8.3 to 8.5 pass.
+- [ ] 8.8 Docs: README's install paragraph ("records everything it creates") and uninstall paragraph ("the directories it created once they are empty") say that only Orca's own directories are recorded and removed, and that generic parents such as `~/.local` and the config dir stay. Match `docs/daily-use.md` if it says the same.
+- [ ] 8.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass. Run `orca-lc gate` and report, with each commit's sha for the orchestrator, so the install.sh:235 thread can be answered.
