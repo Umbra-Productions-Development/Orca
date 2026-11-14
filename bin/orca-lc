@@ -3,17 +3,20 @@
 set -uo pipefail
 
 USAGE='usage: orca-lc <command> [args]
+  init [--yes]                     set up .orca/config.json (prompts; --yes accepts every proposal)
   context                          state for this session (SessionStart runs it)
   gate [--inline]                  run the project gate, write the marker
   gate-fresh                       exit 0 when the marker matches the tree
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
+  leak-check [range]|--pre-push    scan commits for denylisted terms (location + denylist line, never the term)
+  leak-check --file <path>...|--stdin <label>   scan files (as file:<n>, the path as file path:1) or stdin (as <label>:<n>)
   peers                            live sessions on any worktree of this repo
   name [--set]                     this session identity (--set writes it once)
   ticket                           ticket of this directory or its branch, empty when none
   notify <target> <text>           message a peer: session id/prefix, name, pane id, or ticket [--role r]
   inbox send <ticket> <text>|read  queue for a ticket with no live session / drain
-  handoff write <t> <role>|read <t> [role]|list|consume <file>
+  handoff write <t> <role> [--as <name>]|read <t> [role]|list|consume <file>
   discover <slug> "<rule>" [hook|skill|memory|reference|none]
   discover set <slug> <enforced-by> | archive <slug>
   triage                           discoveries nothing enforces yet
@@ -21,7 +24,7 @@ USAGE='usage: orca-lc <command> [args]
   review-queue                     open PRs by others awaiting my review
   test-lock on|off|status          allow edits to test files in this worktree
   worktree up <ticket> [branch] [--stack] | down <ticket> [--force]
-  role start <ticket> <role> < body   tab + named agent + handoff (body on stdin) + first prompt
+  role start <ticket> <role> [--as <name>] < body   tab + named agent + handoff (body on stdin) + first prompt
   role owner <ticket> [--set <role>]  the role that owns the ticket now
   stack add <change>|list|rebase|prs  stacked PRs: a branch per change in this worktree
   config <key>                     read a key from .orca/config.json'
@@ -36,7 +39,41 @@ gitdir() { git rev-parse --git-dir 2>/dev/null; }
 cfgfile() { local r; r=$(root) || return 1; [ -f "$r/.orca/config.json" ] && echo "$r/.orca/config.json"; }
 cfg() { local f; f=$(cfgfile) || { echo "${2:-}"; return; }; local v; v=$(jq -r "$1 // empty" "$f" 2>/dev/null); echo "${v:-${2:-}}"; }
 shared() { cfg '.sharedDir' "$(root)/.orca"; }
-ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1 | tr 'A-Z' 'a-z'; }
+ticket() { local p="${1:-$PWD}" pat; pat=$(cfg '.ticketPattern' '[A-Z]+-[0-9]+'); tkey "$( { echo "$p"; git branch --show-current 2>/dev/null; } | grep -oiE "$pat" | head -1)"; }
+# The one case a ticket takes wherever it keys shared state (handoffs, inbox, owners, identity).
+tkey() { echo "$1" | tr '[:upper:]' '[:lower:]'; }
+# A handoff's front-matter field (between the opening --- and the next), never a body line that looks like one.
+fm() { sed -n "2,/^---\$/{s/^$1: //p;}" "$2" | head -1; }
+# A free path for name in dir: name, then name-2, name-3, ... before the extension.
+free_path() { local b e t i=2; b="${2%.md}"; e="${2#"$b"}"; t="$1/$2"; while [ -e "$t" ]; do t="$1/$b-$i$e"; i=$((i+1)); done; echo "$t"; }
+# Moves a file into dir under a free name (its own, or the third argument); prints where it went.
+# mv -n skips quietly when a concurrent move takes the name first, so retry until the source is gone.
+mv_free() { local t i; mkdir -p "$2"; for i in 1 2 3; do t=$(free_path "$2" "${3:-$(basename "$1")}"); mv -n "$1" "$t" || return 1
+  [ -e "$1" ] || { echo "$t"; return 0; }; done; return 1; }
+# A ticket's folder under handoffs/ or inbox/. A folder for the same ticket in another case, made by
+# an older orca-lc (ABC-1 beside abc-1), is folded into it on first use, every file kept. On a
+# case-insensitive filesystem the two names are one folder, so it is left alone.
+tdir() { local k o f; k=$(tkey "$2")
+  for o in "$1"/*/; do o="${o%/}"; [ "$o" != "$1/$k" ] && ! [ "$o" -ef "$1/$k" ] && [ "$(tkey "$(basename "$o")")" = "$k" ] || continue
+    (cd "$o" && find . -type f) | while read -r f; do mv_free "$o/$f" "$1/$k/$(dirname "$f")" >/dev/null; done
+    find "$o" -depth -type d -empty -delete; done
+  echo "$1/$k"; }
+# kill -0 also fails for a live process of another user (EPERM); only "No such process" means gone.
+pid_gone() { local e; e=$(LC_ALL=C kill -0 "$1" 2>&1); [[ $e == *'No such process'* ]]; }
+# Holds an exclusive lock on path until the script exits: flock where installed, else a mkdir lock
+# (macOS and Git Bash ship no flock). Either gives up after 10s. The two do not exclude each other,
+# so one sharedDir is used from one kind of host. The mkdir lock records its pid; a dir whose pid is
+# dead (a holder killed before its trap ran) is reclaimed, under a second mkdir so two waiters
+# cannot both reclaim it.
+lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock -w 10 9 || die "could not lock $1 in 10s"; return; fi
+  local d="$1.d" i=0 p
+  until mkdir "$d" 2>/dev/null; do
+    p=$(cat "$d/pid" 2>/dev/null) && [ -n "$p" ] && pid_gone "$p" && mkdir "$d.reclaim" 2>/dev/null && {
+      [ "$(cat "$d/pid" 2>/dev/null)" = "$p" ] && rm -rf "$d"; rmdir "$d.reclaim"; continue; }
+    i=$((i+1)); [ "$i" -lt 100 ] && { sleep 0.1; continue; }
+    [ -d "$d.reclaim" ] && die "lock held: $d and $d.reclaim (remove both if no orca-lc is running)"
+    die "lock held: $d (remove it if no orca-lc is running)"; done
+  echo $$ >"$d/pid"; trap 'rm -rf "'"$d"'"' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
 tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
@@ -76,6 +113,8 @@ me_tag() { local i n; i=$(me id | cut -c1-8); n=$(me name); echo "${i:-pane:${HE
 cmd_config() { need key "${1:-}"; cfg ".$1"; }
 cmd_gate_fresh() { [ -f "$(marker)" ] && [ "$(cat "$(marker)")" = "$(tree_sig)" ]; }
 
+# The project's own .env, never known to shellcheck.
+# shellcheck source=/dev/null
 load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
   local ec; ec=$(cfg '.envCommand'); [ -n "$ec" ] || return 0
   local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && { set -a; eval "$kv"; set +a; echo "orca-lc: env: $kv"; }; }
@@ -96,8 +135,149 @@ cmd_gate() {
   fi
   cd "$r" || exit 1; rm -f "$(marker)"; load_env
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  if bash -c "$g"; then tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0; fi
+  if bash -c "$g"; then
+    if [ "$(cfg '.leakCheck')" = true ]; then
+      # Subshell: no exit inside the scan may end the gate before it prints its last line.
+      echo "orca-lc: leak-check on commits not on any remote"
+      ( cmd_leak_check ) || { echo "ORCA_GATE_FAIL"; return 1; }
+    fi
+    tree_sig > "$(marker)"; echo "ORCA_GATE_PASS"; return 0
+  fi
   echo "ORCA_GATE_FAIL"; return 1
+}
+
+# ---- leak check: denylists are untracked; a committed list would itself be the leak.
+# Syntax follows .gitignore: one pattern per line, `#` comments, `*` wildcard, `!` re-allows,
+# last matching line wins. Matching ignores case and only hits whole words.
+leak_global() { echo "${XDG_CONFIG_HOME:-$HOME/.config}/orca/denylist"; }
+leak_lists() { # global first, then this clone's: the later list wins a tie
+  # An unreadable list is named by kind, never by its path, and fails closed with 2.
+  local f k; for k in global project; do
+    if [ $k = global ]; then f="$(leak_global)"; else f="$(root)/.orca/denylist"; fi
+    [ -f "$f" ] || continue
+    [ -r "$f" ] || { echo "orca-lc: leak-check: $k denylist unreadable" >&2; return 2; }
+    echo "$f"
+  done; return 0
+}
+leak_scan() { # <list>...; stdin: "<where>\t<text>" lines; prints one line per blocked hit
+  # A commit location whose path matches any deny pattern, re-allowed or not, is cut to "commit <sha> added line",
+  # so no line carries a term. Lists are named "global denylist" or "project denylist", never by their path.
+  G="$(leak_global)" awk -F'\t' '
+    function blocked(s,   i, h) { h = 0; for (i = 1; i <= n; i++) if (s ~ pat[i]) h = deny[i] ? i : 0; return h }
+    function denied(s,   i) { for (i = 1; i <= n; i++) if (deny[i] && s ~ pat[i]) return 1; return 0 }
+    FILENAME != "-" {
+      line = $0; sub(/\r$/, "", line)
+      if (line ~ /^[ \t]*(#|$)/) next
+      neg = (substr(line, 1, 1) == "!"); if (neg) line = substr(line, 2)
+      gsub(/^[ \t]+|[ \t]+$/, "", line)
+      re = tolower(line)
+      gsub(/[][\\.^$+?(){}|\/]/, "\\\\&", re)
+      gsub(/\*/, ".*", re)
+      n++; pat[n] = "(^|[^[:alnum:]])" re "([^[:alnum:]]|$)"; deny[n] = !neg
+      src[n] = (FILENAME == ENVIRON["G"] ? "global" : "project") " denylist:" FNR
+      next
+    }
+    {
+      where = $1; hit = blocked(tolower(substr($0, length($1) + 2)))
+      if (hit && where ~ /^commit /) {
+        split(where, w, " "); f = substr(where, length(w[1] w[2]) + 3)
+        if (f != "message" && f != "path" && denied(tolower(f))) where = w[1] " " w[2] " added line"
+      }
+      if (hit) print where "  (" src[hit] ")"
+    }
+  ' "$@" -
+}
+leak_commits() { # <branch> <git log args>...: the branch name, then per commit its people, message, paths and added lines
+  local b="$1" cs c p; shift
+  # A failed git log must not read as clean: exit 2, without echoing the range git would name.
+  cs=$(git log --format='%h' "$@" 2>/dev/null) || {
+    echo "orca-lc: leak-check: bad range: a commit in it is not in this clone (a typo, or run git fetch first)" >&2; exit 2; }
+  printf 'branch name\t%s\n' "$b"
+  [ -n "$cs" ] && while read -r c; do
+    git show -s --format='%an%n%ae%n%cn%n%ce%n%B' "$c" | sed "s/^/commit $c message\t/"
+    # Paths from --name-only, so a binary or empty file, which has no +++ line, is scanned too. -z leaves them
+    # unquoted; tabs and newlines become spaces. A deleted path is left out: refusing it would block removing it.
+    git show --format= --name-only -z --no-renames --diff-filter=d "$c" | while IFS= read -r -d '' p; do
+      [ -n "$p" ] && printf 'commit %s path\t%s\n' "$c" "${p//[$'\t\r\n']/ }"; done
+    # The +++ path only says which file an added line belongs to, and counts only in a file header (after
+    # diff --git and its --- line), so an added line that starts with "++ " is not read as one. It comes back
+    # unquoted (git C-quotes tabs, newlines, quotes and backslashes even with quotePath off), escapes as spaces.
+    git -c core.quotePath=false show --format= -p --no-renames --src-prefix=a/ --dst-prefix=b/ "$c" | awk -v c="$c" '
+      function unq(s,   o, i, ch) {
+        if (substr(s, 1, 1) != "\"") return s
+        s = substr(s, 2, length(s) - 2); o = ""
+        for (i = 1; i <= length(s); i++) {
+          ch = substr(s, i, 1)
+          if (ch == "\\") { ch = substr(s, ++i, 1); if (ch ~ /[0-7]/) { ch = " "; i += 2 } else if (ch ~ /[abfnrtv]/) ch = " " }
+          o = o ch
+        }
+        return o
+      }
+      /^diff --(git|cc|combined) / { h = 1; next }
+      h == 1 && /^--- / { h = 2; next }
+      h == 2 && /^\+\+\+ / { f = unq(substr($0, 5)); gsub(/[\t\r\n]/, " ", f); sub(/^b\//, "", f); h = 0; next }
+      h { if (/^@@/) h = 0; next }
+      /^\+/ { print "commit " c " " f "\t" substr($0, 2) }'
+  done <<<"$cs"
+  return 0
+}
+# leak_scan for cmd_leak_check: awk's error names the list's path, so a failed scan says so in a fixed line instead.
+leak_scan_q() { leak_scan "$@" 2>/dev/null || { echo "orca-lc: leak-check: scan failed" >&2; return 2; }; }
+leak_lines() { L="$1" awk '{ print ENVIRON["L"] ":" NR "\t" $0 }'; } # <label>; stdin: lines out as "<label>:<n>\t<line>"
+# <where> <text> [<where> <text>]...: with leakCheck on, refuse text carrying a denylisted term before it is written.
+leak_guard() {
+  [ "$(cfg '.leakCheck')" = true ] || return 0
+  local lists=() f l hits
+  # A list that cannot be read, or a scan that fails, refuses with 2: unscanned text never reads as clean. awk's own
+  # error is dropped, since it names the list's path.
+  f=$(leak_lists) || { echo "orca-lc: refused, nothing written" >&2; return 2; }
+  while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
+  [ ${#lists[@]} -gt 0 ] || return 0
+  hits=$(while [ $# -ge 2 ]; do printf '%s\n' "$2" | L="$1" awk '{ print ENVIRON["L"] "\t" $0 }'; shift 2; done | leak_scan "${lists[@]}" 2>/dev/null) || {
+    echo "orca-lc: leak-check: scan failed, text not checked" >&2; echo "orca-lc: refused, nothing written" >&2; return 2; }
+  [ -z "$hits" ] && return 0
+  echo "leak-check: denylisted terms found. Location, then the denylist line that matched:" >&2
+  echo "$hits" | sort -u >&2; echo "orca-lc: refused, nothing written" >&2
+  return 1
+}
+# Returns rather than exits, so the gate keeps control; no mode reads the config or needs jq.
+cmd_leak_check() {
+  local mode=range lists=() f l found head="leak-check: denylisted terms found."
+  case "${1:-}" in
+    --pre-push) mode=pre-push; shift; [ $# -eq 0 ] || usage "leak-check --pre-push takes no arguments";;
+    --file) mode="file"; shift; [ $# -gt 0 ] || usage "leak-check --file <path>..."
+            for f; do [ -f "$f" ] || usage "leak-check: no such file"; [ -r "$f" ] || usage "leak-check: unreadable file"; done;;
+    --stdin) mode=stdin; shift; [ $# -eq 1 ] && [ -n "$1" ] || usage "leak-check --stdin <label>";;
+    -*) usage "leak-check: unknown flag '$1'";;
+    *) [ $# -le 1 ] || usage "leak-check takes one range";;
+  esac
+  # A while-read loop, not mapfile: macOS ships bash 3.2, where a missing mapfile would leave no lists.
+  f=$(leak_lists) || return 2; while IFS= read -r l; do [ -n "$l" ] && lists+=("$l"); done <<<"$f"
+  if [ ${#lists[@]} -eq 0 ]; then [ "$mode" = range ] && echo "leak-check: no denylist, skipped" >&2; return 0; fi
+  if [ "$mode" = file ]; then
+    # Locations never carry the path: it is scanned as its own line, and content lines are "file:<n>".
+    # Content goes in on stdin: awk would take a path operand holding "=" as an assignment. A newline in a path is
+    # flattened so no part of it escapes the "file path" label.
+    found=$(for f; do printf 'file path:1\t%s\n' "${f//$'\n'/ }"; leak_lines file < "$f"; done | leak_scan_q "${lists[@]}") || return 2
+  elif [ "$mode" = stdin ]; then
+    found=$(leak_lines "$1" | leak_scan_q "${lists[@]}") || return 2
+  elif [ "$mode" = pre-push ]; then
+    local zero=0000000000000000000000000000000000000000 lsha rref rsha
+    found=$(while read -r _ lsha rref rsha; do
+      [ "$lsha" = "$zero" ] && continue
+      if [ "$rsha" = "$zero" ]; then leak_commits "${rref#refs/heads/}" "$lsha" --not --remotes
+      else leak_commits "${rref#refs/heads/}" "$rsha..$lsha"; fi
+    done | leak_scan_q "${lists[@]}") || return 2
+    head="pre-push: denylisted terms found, push refused."
+  else
+    # pipefail carries leak_commits' exit 2 out of the pipeline.
+    if [ $# -eq 1 ]; then found=$(leak_commits "$(git branch --show-current)" "$1" | leak_scan_q "${lists[@]}") || return 2
+    else found=$(leak_commits "$(git branch --show-current)" HEAD --not --remotes | leak_scan_q "${lists[@]}") || return 2; fi
+  fi
+  [ -z "$found" ] && return 0
+  echo "$head Location, then the denylist line that matched:" >&2
+  echo "$found" | sort -u >&2
+  return 1
 }
 
 base_ref() { local b; b=$(cfg '.baseBranch' main); git merge-base HEAD "$b" 2>/dev/null || git rev-parse HEAD~1; }
@@ -141,7 +321,7 @@ resolve_target() { # -> one agent json or list on stderr
   local hit; hit=$(jq -c --arg t "$t" '[.[] | select(.sid!="" and (.sid|startswith($t)))]' <<<"$a")
   [ "$(jq length <<<"$hit")" = 0 ] && hit=$(jq -c --arg t "$t" '[.[] | select(.name==$t or .pane==$t)]' <<<"$a")
   if [ "$(jq length <<<"$hit")" = 0 ]; then
-    local tk; tk=$(echo "$t" | tr 'A-Z' 'a-z'); hit=$(jq -c --arg t "$tk" --arg r "$role" '[.[] | select((.dir|ascii_downcase)==$t) | select($r=="" or (.name|endswith("-"+$r)))]' <<<"$a")
+    local tk; tk=$(tkey "$t"); hit=$(jq -c --arg t "$tk" --arg r "$role" '[.[] | select((.dir|ascii_downcase)==$t) | select($r=="" or (.name|endswith("-"+$r)))]' <<<"$a")
   fi
   case "$(jq length <<<"$hit")" in
     0) return 1;;
@@ -156,7 +336,7 @@ cmd_notify() {
   need target "${1:-}"; local target="$1"; shift; local role=""
   [ "${1:-}" = "--role" ] && { role="$2"; shift 2; }
   need text "${1:-}"; local text="$*"
-  local hdr="[orca from $(me_tag)]"
+  local hdr; hdr="[orca from $(me_tag)]"
   if inherdr; then
     local hit rc; hit=$(resolve_target "$target" "$role"); rc=$?
     [ $rc = 2 ] && exit 2
@@ -167,18 +347,20 @@ cmd_notify() {
       die "herdr refused the prompt to $dest"
     fi
   fi
-  local tk; tk=$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1 | tr 'A-Z' 'a-z')
-  [ -n "$tk" ] || die "no live session matches '$target' and it is not a ticket, nothing queued"
-  echo "no live session for $tk, queued: $(cmd_inbox send "$tk" "$text")"
+  local tk; tk=$(tkey "$(echo "$target" | grep -oiE "$(cfg '.ticketPattern' '[A-Z]+-[0-9]+')" | head -1)")
+  [ -n "$tk" ] || die "no live session matches the target and it is not a ticket, nothing queued (orca-lc peers lists targets)"
+  local q; q=$(cmd_inbox send "$tk" "$text") || exit $?
+  echo "no live session for the ticket, queued: $q"
 }
 
 cmd_inbox() {
-  local d; d="$(shared)/inbox"; mkdir -p "$d"
+  local d; d="$(shared)/inbox"
   case "${1:-}" in
-    send) need ticket "${2:-}"; need text "${3:-}"; local t="$2"; shift 2; mkdir -p "$d/$t"; local i; i=$(me id | cut -c1-8); local f="$d/$t/$(date +%s)-${i:-anon}.md"
-          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; echo "$f";;
-    read) local t="${2:-$(ticket)}"; [ -n "$t" ] && [ -d "$d/$t" ] || return 0; mkdir -p "$d/$t/archive"
-          for f in "$d/$t"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv "$f" "$d/$t/archive/"; done;;
+    send) need ticket "${2:-}"; need text "${3:-}"; local tk="$2" td; shift 2; leak_guard "inbox send text" "$*" || exit $?; td=$(tdir "$d" "$tk"); mkdir -p "$td"; local i; i=$(me id | cut -c1-8)
+          local f; f=$(free_path "$td" "$(date +%s)-${i:-anon}.md")
+          printf 'from: %s\nat: %s\n\n%s\n' "$(me_tag)" "$(date -Is)" "$*" > "$f"; basename "$f";; # the file name only: the ticket is an unscanned argument
+    read) local t="${2:-$(ticket)}"; [ -n "$t" ] || return 0; local td; td=$(tdir "$d" "$t"); [ -d "$td" ] || return 0
+          for f in "$td"/*.md; do [ -f "$f" ] || continue; echo "--- inbox: $(basename "$f")"; cat "$f"; mv_free "$f" "$td/archive" >/dev/null; done;;
     *) usage "inbox send|read";;
   esac
 }
@@ -186,19 +368,41 @@ cmd_inbox() {
 cmd_handoff() {
   local d; d="$(shared)/handoffs"; mkdir -p "$d"
   case "${1:-}" in
-    write) need ticket "${2:-}"; need role "${3:-}"; local t="$2" r="$3"; mkdir -p "$d/$t"; local f="$d/$t/$r-$(date +%F).md"; [ -e "$f" ] && f="$d/$t/$r-$(date +%F-%H%M).md"
-           printf -- '---\nticket: %s\nrole: %s\nwritten: %s\nby: %s\nconsumed-by:\n---\n\n' "$t" "$r" "$(date -Is)" "$(me id)" > "$f"
+    write) need ticket "${2:-}"; need role "${3:-}"; local t r as="" td id o ob old=(); t=$(tkey "$2"); r="$3"
+           if [ "${4:-}" = --as ]; then need name "${5:-}"; as="$5"; elif [ -n "${4:-}" ]; then usage "handoff write <ticket> <role> [--as <name>]"; fi
+           td=$(tdir "$d" "$t"); mkdir -p "$td"; id=$(me id)
+           # One live handoff per ticket and role: a second session would split the work. The lock makes check, replace and write one step.
+           lock "$td/.lock"
+           for o in "$td"/*.md; do [ -f "$o" ] || continue
+             [ "$(fm role "$o")" = "$r" ] && [ -z "$(fm consumed-by "$o")" ] || continue
+             ob=$(fm by "$o")
+             [ -n "$as" ] || [ -n "$id" ] || die "live $r handoff for $t: $o; no session id here, pass --as <name>"
+             [ -n "$as" ] || [ "$ob" = "$id" ] || die "live $r handoff for $t from session ${ob:-unknown}: $o (read it, or pass --as <name> to write anyway)"
+             old+=("$o")
+           done
+           # The new handoff replaces the live one (a rewrite, or a takeover with --as), so archive it.
+           for o in ${old[@]+"${old[@]}"}; do cmd_handoff consume "$o" >/dev/null || die "could not archive $o"; done
+           local f ax=""; f=$(free_path "$td" "$r-$(date +%F-%H%M%S).md"); [ -n "$as" ] && ax="as: $as"$'\n'
+           printf -- '---\nticket: %s\nrole: %s\nwritten: %s\nby: %s\n%sconsumed-by:\n---\n\n' "$t" "$r" "$(date -Is)" "$id" "$ax" > "$f"
            # The role's boundaries come from the skill's Roles section, so a session gets them even when the writer forgets.
            local b; b=$(awk -v h="### $r" '$0==h{on=1;next} on&&/^#/{exit} on&&NF' "$(dirname "$(readlink -f "$0")")/../skills/orca/SKILL.md" 2>/dev/null)
            [ -n "$b" ] && printf '## Role: %s\n%s\nPush, PRs, and tracker writes happen only when the user asks for them in the current turn.\n\n' "$r" "$b" >> "$f"
            # Apply and review work against the ticket's own stack; name its ports so nobody guesses.
-           case "$r" in apply|review) local sp; sp=$(stack_ports "$t"); [ -n "$sp" ] && printf 'Stack ports: %s\n\n' "$(echo $sp)" >> "$f";; esac
+           case "$r" in apply|review) local sp; sp=$(stack_ports "$t" | paste -sd' ' -); [ -n "$sp" ] && printf 'Stack ports: %s\n\n' "$sp" >> "$f";; esac
            echo "$f";;
-    read)  need ticket "${2:-}"; local t="$2" r="${3:-}" f; f=$(ls -t "$d/$t"/${r:+$r-}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
+    read)  need ticket "${2:-}"; local t r="${3:-}" f; t=$(tkey "$2")
+           # Newest by mtime across roles: names sort by time only within one role, and find -printf is GNU-only.
+           # shellcheck disable=SC2012
+           f=$(ls -t "$(tdir "$d" "$t")"/${r:+$r-[0-9]}*.md 2>/dev/null | head -1); [ -n "$f" ] || die "no handoff for $t ${r:-}"
            cat "$f"; cmd_handoff consume "$f" >/dev/null;;
-    consume) need file "${2:-}"; local f="$2"; case "$f" in */archive/*) return 0;; esac
-           sed -i "s/^consumed-by:.*/consumed-by: $(me id) $(date -Is)/" "$f"; local a; a="$(dirname "$f")/archive"; mkdir -p "$a"; mv "$f" "$a/"; echo "$a/$(basename "$f")";;
-    list)  find "$d" -name '*.md' -not -path '*/archive/*' | sort;;
+    consume) need file "${2:-}"; local f="$2"; case "$f" in */archive/*) return 0;; esac; [ -f "$f" ] || die "no handoff at $f"
+           # Archived by role and the second it was written, with -2, -3 on a tie, so same-day handoffs never collide.
+           local r s; r=$(fm role "$f")
+           s=$(fm written "$f" | sed -n 's/^\([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\)T\([0-9][0-9]\):\([0-9][0-9]\):\([0-9][0-9]\).*/\1-\2\3\4/p')
+           [ -n "$s" ] || s=$(date +%F-%H%M%S)
+           sed -i "2,/^---\$/s/^consumed-by:.*/consumed-by: $(me id) $(date -Is)/" "$f"; mv_free "$f" "$(dirname "$f")/archive" "${r:-handoff}-$s.md";;
+    list)  local o; for o in "$d"/*/; do [ -d "$o" ] && tdir "$d" "$(basename "$o")" >/dev/null; done
+           find "$d" -name '*.md' -not -path '*/archive/*' | sort;;
     *) usage "handoff write|read|consume|list";;
   esac
 }
@@ -207,15 +411,16 @@ disc_dir() { echo "$(shared)/$(cfg '.discoveriesDir' discoveries)"; }
 cmd_discover() {
   local d; d=$(disc_dir); mkdir -p "$d"
   case "${1:-}" in
-    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    set) need slug "${2:-}"; need enforced-by "${3:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          case "$3" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
          sed -i "s/^enforced-by:.*/enforced-by: $3/" "$f"; grep -m1 '^enforced-by' "$f"; return;;
-    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no discovery $2"
+    archive) need slug "${2:-}"; local f="$d/$2.md"; [ -f "$f" ] || die "no such discovery; the slug is its file name without .md"
          grep -q '^enforced-by: none' "$f" && die "still enforced by nothing; set hook|skill|memory|reference first"
          mkdir -p "$d/archive"; sed -i "0,/^---$/!{0,/^---$/s//archived: $(date +%F)\n---/}" "$f"; mv "$f" "$d/archive/"; echo "$d/archive/$2.md"; return;;
   esac
   need slug "${1:-}"; need rule "${2:-}"; local slug="$1" rule="$2" by="${3:-none}"
   case "$by" in hook|skill|memory|reference|none) ;; *) usage "enforced-by must be hook|skill|memory|reference|none";; esac
+  leak_guard "discover slug" "$slug" "discover rule" "$rule" || exit $?
   local f="$d/$slug.md"; [ -e "$f" ] && die "$f exists"
   printf -- '---\nrule: %s\nenforced-by: %s\nsince: %s\n---\n\n# %s\n\n' "$rule" "$by" "$(date +%F)" "$slug" > "$f"; echo "$f"
 }
@@ -225,7 +430,7 @@ cmd_triage() { local d; d=$(disc_dir); for f in "$d"/*.md; do [ -f "$f" ] || con
 
 cmd_tidy() { local days; days=$(cfg '.handoffArchiveDays' 7); local d; d="$(shared)"
   find "$d/handoffs" "$d/inbox" -path '*/archive/*' -name '*.md' -mtime +"$days" -print -delete 2>/dev/null
-  find "$d/handoffs" -name '*.md' -not -path '*/archive/*' -exec grep -l '^consumed-by: .' {} \; 2>/dev/null | while read -r f; do cmd_handoff consume "$f"; done; }
+  find "$d/handoffs" -name '*.md' -not -path '*/archive/*' 2>/dev/null | while read -r f; do if [ -n "$(fm consumed-by "$f")" ]; then cmd_handoff consume "$f"; fi; done; }
 
 # gh as the repository's own account: a token exported by the repo's direnv .envrc only reaches
 # shells that loaded it. Version-manager shims such as mise may print a banner on stdout.
@@ -238,7 +443,7 @@ cmd_test_lock() { local f; f="$(gitdir)/orca-allow-test-edits"
   case "${1:-status}" in on) touch "$f"; echo "test edits allowed in this worktree";; off) rm -f "$f"; echo "test edits locked";; status) [ -f "$f" ] && echo unlocked || echo locked;; *) usage "test-lock on|off|status";; esac; }
 
 # ---- worktree lifecycle
-wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr 'a-z' 'A-Z')"; }
+wt_dir() { echo "$(dirname "$(main_root)")/$(echo "$1" | tr '[:lower:]' '[:upper:]')"; }
 # The workspace a worktree is open in. Read from `workspace list`: `worktree list` reports a null
 # workspace_id even for worktrees that have one.
 wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspaces[] | select(.worktree.checkout_path==$d) | .workspace_id' | head -1; }
@@ -246,14 +451,14 @@ wt_ws() { herdr workspace list 2>/dev/null | jq -r --arg d "$1" '.result.workspa
 # 3NN0, 3NN1, ... for ticket number NN, so ports stay 4 digits and wrap every 100 tickets. A ticket
 # with no trailing number takes its slot from `cksum` of the uppercased id instead: same scheme, same
 # ports on every run, though two such tickets can share a slot.
-ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr 'a-z' 'A-Z' | cksum | cut -d' ' -f1)
+ports_for() { local n; n=$(echo "$1" | grep -oE '[0-9]+$'); [ -n "$n" ] || n=$(printf '%s' "$1" | tr '[:lower:]' '[:upper:]' | cksum | cut -d' ' -f1)
   local base slots step i=0 p; base=$(cfg '.portScheme.base' 3000) slots=$(cfg '.portScheme.slots' 100) step=$(cfg '.portScheme.step' 10)
   for p in $(cfg '.ports[]'); do echo "$(echo "$p" | tr 'a-z-' 'A-Z_')_PORT=$((base + (10#$n % slots) * step + i))"; i=$((i+1)); done; }
 # The worktree's .env.local is the ports' truth once written: they may be edited by hand there.
 stack_ports() { local f; f="$(wt_dir "$1")/.env.local"; if [ -f "$f" ]; then grep -E '^[A-Z0-9_]+_PORT=' "$f"; else ports_for "$1"; fi; }
 # Runs a project command from config in the worktree, with its ticket, path and ports exported.
 stack_run() { local t="$1" dir="$2" c; c=$(cfg ".$3"); [ -n "$c" ] || return 0
-  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET="$t" ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
+  (cd "$dir" && set -a && eval "$(stack_ports "$t")" && ORCA_TICKET=$(tkey "$t") && export ORCA_TICKET ORCA_WORKTREE="$dir" && set +a && bash -c "$c"); }
 # Untracked local config the main checkout owns; a worktree points at it instead of holding a copy,
 # so editing it once in the main checkout reaches every worktree.
 wt_link() { local main="$1" dir="$2" p
@@ -278,8 +483,8 @@ cmd_worktree() {
   local sub="${1:-}"; shift || true
   case "$sub" in
     up)
-      need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
-      [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(echo "$t" | tr 'A-Z' 'a-z')/work"
+      need ticket "${1:-}"; local t; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); local branch="${2:-}"; local stack=0; for a in "$@"; do [ "$a" = --stack ] && stack=1; done
+      [ -n "$branch" ] && [ "$branch" != --stack ] || branch="$(tkey "$t")/work"
       local main; main=$(main_root) || die "not in a repo"; local dir; dir=$(wt_dir "$t")
       # Refuse --stack before creating anything when its command cannot run.
       [ $stack = 1 ] && { if [ -d "$dir" ]; then stack_check stackUp "$dir"; else stack_check stackUp "$main"; fi; }
@@ -314,18 +519,19 @@ cmd_worktree() {
       # Keep the generated .env.local out of `git status`. info/exclude is shared by every worktree.
       local ex; ex=$(git -C "$dir" rev-parse --path-format=absolute --git-path info/exclude)
       mkdir -p "$(dirname "$ex")"; grep -qxF .env.local "$ex" 2>/dev/null || echo .env.local >> "$ex"
-      echo "worktree $dir on $branch${ports:+; ports $(echo $(stack_ports "$t"))}"
+      local sp; sp=$(stack_ports "$t" | paste -sd' ' -)
+      echo "worktree $dir on $branch${ports:+; ports $sp}"
       if [ $stack = 1 ]; then
-        stack_run "$t" "$dir" stackUp && echo "stack up" || die "stackUp failed; worktree $dir on $branch is in place without a stack.
+        if stack_run "$t" "$dir" stackUp; then echo "stack up"; else die "stackUp failed; worktree $dir on $branch is in place without a stack.
   retry:     orca-lc worktree up $t --stack
-  tear down: orca-lc worktree down $t --force"
+  tear down: orca-lc worktree down $t --force"; fi
         # The stack's data can predate this branch's migrations.
         if [ -z "$(cfg '.migrateCommand')" ]; then echo "note: no migrateCommand; the stack's data may be behind this branch's migrations"
         else stack_run "$t" "$dir" migrateCommand && echo "migrated" || echo "WARNING: migrateCommand failed"; fi
       else echo "stack not started (add --stack)"; fi
       (cd "$dir" && ensure_graphs) ;;
     down)
-      need ticket "${1:-}"; local t; t=$(echo "$1" | tr 'a-z' 'A-Z'); local force=0; [ "${2:-}" = --force ] && force=1
+      need ticket "${1:-}"; local t; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); local force=0; [ "${2:-}" = --force ] && force=1
       local dir; dir=$(wt_dir "$t"); [ -d "$dir" ] || die "no worktree at $dir"
       local branch; branch=$(git -C "$dir" branch --show-current)
       if [ $force = 0 ]; then
@@ -464,7 +670,7 @@ cmd_stack() {
 }
 
 # ---- roles: the orchestrator starts each session in its own tab of the ticket's workspace
-owner_file() { echo "$(shared)/owners/$(echo "$1" | tr 'A-Z' 'a-z')"; }
+owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 cmd_role() {
   local sub="${1:-}"; shift || true
   case "$sub" in
@@ -475,13 +681,19 @@ cmd_role() {
       local r a; r=$(cat "$f"); inherdr && a=$(resolve_target "$1" "$r" 2>/dev/null | jq -r .name)
       echo "$r${a:+ $a}";;
     start)
-      need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role start needs herdr"
-      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start $1 $2 <<'EOF' ... EOF"
+      need ticket "${1:-}"; need role "${2:-}"
+      [ -z "${3:-}" ] || [ "$3" = --as ] || usage "role start <ticket> <role> [--as <name>]"
+      # The role names the shared handoff file and the tab; scanned first, so no later message echoes unscanned text.
+      leak_guard "role start ticket" "$1" "role start role" "$2" || exit $?
+      inherdr || die "role start needs herdr"
+      [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start <ticket> <role> <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
-      local t r dir ws name; t=$(echo "$1" | tr 'a-z' 'A-Z'); r="$2"; dir=$(wt_dir "$t")
+      leak_guard "role start handoff" "$body" || exit $?
+      local t r as="" dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r="$2"; dir=$(wt_dir "$t")
+      [ "${3:-}" = --as ] && { need name "${4:-}"; as="$4"; }
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
-      name="$(echo "${t//-/}" | tr 'A-Z' 'a-z')-$r"
+      name="$(tkey "${t//-/}")-$r"
       # Idempotent: a rerun after answering a startup prompt skips to the handoff and first prompt.
       local ag; ag=$(herdr agent list 2>/dev/null | jq -c --arg n "$name" '[.result.agents[] | select((.agent_name // .name)==$n)][0] // empty')
       if [ -z "$ag" ]; then
@@ -492,18 +704,146 @@ cmd_role() {
         fi
       fi
       [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
-      local f; f=$(cmd_handoff write "$t" "$r"); printf '%s\n' "$body" >> "$f"
-      case " propose apply review " in *" $r "*) cmd_role owner "$t" --set "$r" >/dev/null;; esac
+      local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
+      case "$r" in propose|apply|review) cmd_role owner "$t" --set "$r" >/dev/null;; esac
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
     *) usage "role start|owner";;
   esac
 }
 
+# ---- init: <main checkout>/.orca/config.json from proposals detected in the repository (#10)
+# Every key of orca.example.json, in its order, with values that work in any project (none of the
+# example's samples). $1 main checkout, $2 the {testGlob, sourceGlob} object from init_langs.
+init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson l "$2" '{project: $p, sharedDir: $s,
+  baseBranch: "main", gate: "", leakCheck: false, testCommand: "", testGlob: $l.testGlob, sourceGlob: $l.sourceGlob,
+  ticketPattern: "[A-Z]+-[0-9]+", tracker: "",
+  roles: {Orchestrator: "orchestrator", Propose: "propose", Apply: "apply", Review: "review"},
+  reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
+  standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
+  envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
+  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7}'; }
+# testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
+init_langs() { local m="$1" t=() s=() IFS='|'
+  [ -f "$m/tsconfig.json" ] && { t+=('\.test\.tsx?$'); s+=('src/|\.tsx?\b'); }
+  [ -f "$m/package.json" ] && [ ! -f "$m/tsconfig.json" ] && { t+=('\.(test|spec)\.[cm]?jsx?$'); s+=('\.[cm]?jsx?\b'); }
+  { [ -f "$m/pyproject.toml" ] || [ -f "$m/setup.py" ] || compgen -G "$m/requirements*.txt" >/dev/null; } \
+    && { t+=('(^|[/\\])test_[^/\\]*\.py$|_test\.py$'); s+=('\.py\b'); }
+  [ -f "$m/go.mod" ] && { t+=('_test\.go$'); s+=('\.go\b'); }
+  [ -f "$m/Cargo.toml" ] && { t+=('(^|[/\\])tests[/\\].*\.rs$'); s+=('\.rs\b'); }
+  [ ${#t[@]} -gt 0 ] || { t=('(^|[/\\])(tests?|__tests__|spec)[/\\]|[._-](test|spec)\.[^/\\]*$|(^|[/\\])test_[^/\\]*$'); s=(''); }
+  jq -n --arg t "${t[*]}" --arg s "${s[*]}" '{testGlob: $t, sourceGlob: $s}'; }
+# The most common ticket prefix on at least 2 distinct branches (local and remote-tracking, <remote>/
+# stripped, so one branch on several remotes counts once): a /-segment counts when it starts with <letters>-<digits> followed by its end, - or _.
+# Version-style prefixes (release-1, hotfix-2, v-3) are not tickets.
+init_ticket() { local p
+  p=$(git -C "$1" for-each-ref --format='%(refname)' refs/heads refs/remotes \
+    | sed -E 's#^refs/heads/##; s#^refs/remotes/[^/]+/##' | grep -vxE '(.*/)?HEAD' | LC_ALL=C sort -u \
+    | awk -F/ '{ delete seen; for (i = 1; i <= NF; i++) if ($i ~ /^[A-Za-z]+-[0-9]+$/ || $i ~ /^[A-Za-z]+-[0-9]+[-_]/) {
+        k = toupper(substr($i, 1, index($i, "-") - 1)); if (k !~ /^(RELEASE|HOTFIX|V)$/ && !(k in seen)) { seen[k] = 1; n[k]++ } } }
+      END { for (k in n) if (n[k] >= 2) print n[k], k }' | LC_ALL=C sort -k1,1nr -k2,2 | head -1 | cut -d' ' -f2)
+  if [ -n "$p" ]; then echo "$p-[0-9]+"; else echo '[A-Z]+-[0-9]+'; fi; }
+# GitHub issues when origin is on GitHub with issues on (gh failing is skipped silently), else a
+# jira|atlassian|linear MCP server from the Claude config or .mcp.json, else empty. $2 the answered ticketPattern.
+init_tracker() { local m="$1" pat="$2" u o s n re='github\.com[:/]([^/]+)/([^/]+)$' lit='^([A-Za-z]+)-\[0-9\]\+$'
+  u=$(git -C "$m" remote get-url origin 2>/dev/null)
+  if [[ $u =~ $re ]] && has gh; then o="${BASH_REMATCH[1]}/${BASH_REMATCH[2]%.git}"
+    if [ "$(ghx api "repos/$o" -q .has_issues 2>/dev/null)" = true ]; then s="GitHub Issues on $o"
+      [[ $pat =~ $lit ]] && s+="; ticket ${BASH_REMATCH[1]}-N is issue #N (gh issue view N)"
+      echo "$s"; return; fi; fi
+  n=$( { jq -r --arg m "$m" '(.mcpServers // {} | keys[]), (.projects[$m].mcpServers // {} | keys[])' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json"
+    jq -r '.mcpServers // {} | keys[]' "$m/.mcp.json"; } 2>/dev/null | grep -iE 'jira|atlassian|linear' | LC_ALL=C sort | head -1)
+  [ -n "$n" ] || return 0
+  if grep -qi linear <<<"$n"; then echo "Linear via MCP server $n"; else echo "Jira via MCP server $n"; fi; }
+# Only runners that take test file paths: test-affected appends the files to testCommand.
+init_testcmd() { local m="$1" d
+  if [ -f "$m/package.json" ]; then d=$(jq -r '(.dependencies // {}) + (.devDependencies // {}) | keys[]' "$m/package.json" 2>/dev/null)
+    grep -qx vitest <<<"$d" && { echo "npx vitest run"; return; }
+    grep -qx jest <<<"$d" && { echo "npx jest"; return; }; fi
+  if [ -f "$m/pytest.ini" ] || [ -f "$m/conftest.py" ] || grep -q '^\[tool\.pytest' "$m/pyproject.toml" 2>/dev/null \
+    || cat "$m"/requirements*.txt 2>/dev/null | grep -qiE '^[[:space:]]*pytest([^[:alnum:]_]|$)'; then echo pytest; fi; }
+# Whole-suite commands: a Makefile test target, else what is present joined with &&, else $2 (the answered testCommand).
+init_gate() { local m="$1" g=() s pm o i
+  # A rule, not a `test :=` / `test ::=` variable.
+  grep -qE '^test[[:space:]]*:([^=:]|:([^=]|$)|$)' "$m/Makefile" 2>/dev/null && { echo "make test"; return; }
+  if [ -f "$m/package.json" ]; then
+    if [ -f "$m/pnpm-lock.yaml" ]; then pm="pnpm run"; elif [ -f "$m/yarn.lock" ]; then pm=yarn; else pm="npm run"; fi
+    # The npm init placeholder ("Error: no test specified" && exit 1) fails every run: not a test script.
+    for s in lint typecheck test; do jq -e --arg s "$s" '.scripts[$s] // empty | strings | select(test("no test specified") | not)' "$m/package.json" >/dev/null 2>&1 || continue
+      if [ "$s" = test ] && [ "$pm" = "npm run" ]; then g+=("npm test"); else g+=("$pm $s"); fi; done; fi
+  [ -f "$m/Cargo.toml" ] && g+=("cargo test")
+  [ -f "$m/go.mod" ] && g+=("go test ./...")
+  [ -f "$m/tests/run.sh" ] && g+=("bash tests/run.sh")
+  [ ${#g[@]} -gt 0 ] || { echo "$2"; return; }
+  o="${g[0]}"; for ((i = 1; i < ${#g[@]}; i++)); do o+=" && ${g[i]}"; done; echo "$o"; }
+# A stack script, when present: as itself when executable (stack_check and stack_run need that), else through bash.
+init_stack() { if [ -x "$1/$2" ]; then echo "$2"; elif [ -f "$1/$2" ]; then echo "bash $2"; fi; }
+# The proposal for a key the existing config lacks, as JSON. $3 the config built so far (earlier answers).
+init_detect() { local m="$1" v
+  case "$2" in
+    project) v=$(basename "$m");;
+    baseBranch) v=$(git -C "$m" symbolic-ref -q --short refs/remotes/origin/HEAD 2>/dev/null) && v="${v#origin/}" || v=main;;
+    ticketPattern) v=$(init_ticket "$m");;
+    tracker) v=$(init_tracker "$m" "$(jq -r '.ticketPattern // ""' <<<"$3")");;
+    testCommand) v=$(init_testcmd "$m");;
+    gate) v=$(init_gate "$m" "$(jq -r '.testCommand // ""' <<<"$3")");;
+    stackUp|stackDown) v=$(init_stack "$m" "scripts/stack-$(echo "${2#stack}" | tr '[:upper:]' '[:lower:]').sh");;
+    ports) echo '[]'; return;;
+  esac
+  jq -n --arg v "$v" '$v'; }
+cmd_init() {
+  local yes=0 a; for a in "$@"; do case "$a" in --yes) yes=1;; *) usage "init: unknown argument '$a'";; esac; done
+  local r m c; r=$(root) || die "not in a repo"; m=$(main_root) || die "not in a repo"
+  # Every worktree reads <main checkout>/.orca, and main_root takes it as the parent of git's common dir. That only
+  # holds when the parent is a work tree whose .git is that dir: not in a submodule, --separate-git-dir or bare repo.
+  c=$(git rev-parse --path-format=absolute --git-common-dir)
+  [ "$(git -C "$m" rev-parse --path-format=absolute --git-dir 2>/dev/null)" = "$c" ] && [ "$(git -C "$m" rev-parse --show-toplevel 2>/dev/null)" = "$m" ] \
+    || die "git's common dir $c is not the .git of a main checkout (submodule, --separate-git-dir or bare repository); init does not support this layout (nothing written)"
+  local f="$m/.orca/config.json" was='{}'
+  if [ -f "$f" ]; then was=$(jq -sc 'if length == 1 and (.[0] | type) == "object" then .[0] else error("") end' "$f" 2>/dev/null) \
+    || die "$f is not a valid JSON object; fix or remove it (nothing written)"; fi
+  # Prompts read stdin only from a terminal. ORCA_INIT_PROMPT_STDIN=1 is test-only: tests/init.test.sh
+  # feeds answers through a pipe with it. It is not documented anywhere else.
+  local ask=0; [ $yes = 0 ] && { [ -t 0 ] || [ "${ORCA_INIT_PROMPT_STDIN:-}" = 1 ]; } && ask=1
+  # The existing config plus the defaults it lacks, appended in the example's order; answers keep each key's slot.
+  local cur k p ans; cur=$(jq -c --argjson d "$(init_defaults "$m" "$(init_langs "$m")")" '. as $o | $o + ($d | with_entries(select(.key as $k | $o | has($k) | not)))' <<<"$was")
+  # sharedDir is never prompted; a stored one that is no longer a directory (the checkout moved) goes back to the default.
+  local sd; sd=$(jq -r '.sharedDir // "" | strings' <<<"$was")
+  if [ -n "$sd" ] && [ ! -d "$sd" ]; then echo "sharedDir $sd is not a directory; proposing $m/.orca" >&2
+    cur=$(jq -c --arg s "$m/.orca" '.sharedDir = $s' <<<"$cur"); fi
+  for k in project baseBranch ticketPattern tracker testCommand gate stackUp stackDown ports; do
+    # A key already in the config proposes its value, even empty; detection runs only for missing keys.
+    if jq -e --arg k "$k" 'has($k)' <<<"$was" >/dev/null; then p=$(jq -c --arg k "$k" '.[$k]' <<<"$was"); else p=$(init_detect "$m" "$k" "$cur"); fi
+    if [ $ask = 1 ]; then
+      printf '%s [%s]: ' "$k" "$(jq -r 'if type == "string" then . elif type == "array" then map(tostring) | join(" ") else tojson end' <<<"$p")" >&2
+      ans=""; read -r ans || true   # EOF accepts the proposal
+      if [ "$ans" = - ]; then if [ "$k" = ports ]; then p='[]'; else p='""'; fi
+      elif [ -n "$ans" ]; then if [ "$k" = ports ]; then p=$(jq -nc --arg v "$ans" '[$v | splits("[ ,]+") | select(length > 0)]'); else p=$(jq -n --arg v "$ans" '$v'); fi; fi
+    fi
+    cur=$(jq -c --arg k "$k" --argjson v "$p" '.[$k] = $v' <<<"$cur")
+  done
+  # .gitignore needs a .orca line: .orca/ matches directories only and misses the worktrees' .orca symlinks.
+  local gi="$m/.gitignore" gich=1
+  [ -f "$gi" ] && sed 's/^[[:space:]]*//; s/[[:space:]]*$//' "$gi" | grep -qxE '/?\.orca' && gich=0
+  if [ "$(jq -c . <<<"$was")" = "$cur" ] && [ $gich = 0 ]; then echo "no changes"; return 0; fi
+  [ $yes = 1 ] || [ $ask = 1 ] || die "not a terminal; nothing written (orca-lc init --yes accepts every proposal)"
+  local new; new=$(jq --indent 2 . <<<"$cur")
+  echo "$new"; [ $gich = 1 ] && echo ".gitignore: add .orca"
+  if [ $yes = 0 ]; then local c=""; printf 'Write %s? [y/N] ' "$f" >&2; read -r c || c=""
+    case "$(echo "$c" | tr '[:upper:]' '[:lower:]')" in y|yes) ;; *) echo "nothing written" >&2; return 1;; esac; fi
+  mkdir -p "$m/.orca" || die "could not create $m/.orca"
+  local tmp="$f.tmp.$$"; { printf '%s\n' "$new" > "$tmp" && mv "$tmp" "$f"; } || { rm -f "$tmp"; die "could not write $f"; }
+  # shellcheck disable=SC2094 # tail -c1 reads the last byte before the append opens the file
+  if [ $gich = 1 ]; then { [ -s "$gi" ] && [ -n "$(tail -c1 "$gi")" ] && echo; echo .orca; } >> "$gi" || die "could not write $gi"; fi
+  echo "wrote $f"
+  if [ "$r" != "$m" ] && [ $gich = 1 ]; then
+    echo "note: .gitignore changed in $m on branch $(git -C "$m" branch --show-current); commit it there. This worktree shows ?? .orca until its branch has the line."; fi
+}
+
 cmd_context() {
   echo "orca-lc: project=$(cfg '.project') session=$(me id | cut -c1-8) name=$(me name) ticket=$(me ticket) role=$(me role) gate=$(cmd_gate_fresh && echo fresh || echo stale) test-edits=$(cmd_test_lock status)"
   local p; p=$(cmd_peers); [ -n "$p" ] && { echo "peers (this repo, all worktrees; first column is the notify target):"; echo "$p"; }
-  local t; t=$(me ticket); [ -n "$t" ] && { local h; h=$(ls "$(shared)/handoffs/$t"/*.md 2>/dev/null | grep -v archive | sort | tail -3); [ -n "$h" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; echo "$h"; }; }
+  local t; t=$(me ticket); [ -n "$t" ] && { set -- "$(tdir "$(shared)/handoffs" "$t")"/*.md; [ -e "$1" ] && { echo "unconsumed handoffs for $t (orca-lc handoff read $t <role>):"; shift $(( $# > 3 ? $# - 3 : 0 )); printf '%s\n' "$@"; }; }
   cmd_inbox read
   local u; u=$(cmd_triage | wc -l); [ "$u" -gt 0 ] && echo "discoveries awaiting enforcement: $u (orca-lc triage)"
   local ec; ec=$(cfg '.envCommand'); if [ -n "$ec" ]; then local kv; kv=$(bash -c "$ec" 2>/dev/null); [ -n "$kv" ] && echo "gate env: $kv" || echo "WARNING: no stack for this worktree; gate tests will fail (orca-lc worktree up <ticket> --stack)"; fi
@@ -520,9 +860,10 @@ fi
 case "$cmd" in
   -h|--help|help|"") echo "$USAGE";;
   context) cmd_context;; gate) cmd_gate "$@";; gate-fresh) cmd_gate_fresh;; test-affected) cmd_test_affected;; evidence) cmd_evidence "$@";;
+  leak-check) cmd_leak_check "$@";;
   peers) cmd_peers;; name) cmd_name "$@";; notify) cmd_notify "$@";; inbox) cmd_inbox "$@";; handoff) cmd_handoff "$@";;
   discover) cmd_discover "$@";; triage) cmd_triage;; tidy) cmd_tidy;; review-queue) cmd_review_queue;; test-lock) cmd_test_lock "$@";;
   worktree) cmd_worktree "$@";; config) cmd_config "$@";; role) cmd_role "$@";;
-  stack) cmd_stack "$@";; ticket) ticket;;
+  stack) cmd_stack "$@";; ticket) ticket;; init) cmd_init "$@";;
   *) usage "unknown command '$cmd'";;
 esac

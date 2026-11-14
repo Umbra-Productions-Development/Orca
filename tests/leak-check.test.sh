@@ -1,0 +1,396 @@
+# orca-lc leak-check: each scanned place is reported by location and denylist line, the default range is what a
+# push would send, .githooks/pre-push refuses through it, and the gate's leakCheck step fails on a hit.
+# Run: bash tests/run.sh tests/leak-check.test.sh
+# Every repo it builds sits under run.sh's TMPDIR; lib.sh points HOME there too.
+export XDG_CONFIG_HOME="$TMPDIR/xdg"; mkdir -p "$XDG_CONFIG_HOME/orca"
+unset HERDR_ENV
+
+ok() { [ "$1" = 0 ] || fail "$2"; }
+has() { case "$out" in *"$1"*) return 0;; esac; return 1; }
+clean() { ! printf '%s' "$out" | grep -qi zebra; } # the test term never reaches the output
+lc() { out=$(bin/orca-lc leak-check "$@" 2>&1); st=$?; }
+add() { echo "$2" >> "$1"; git add "$1"; git commit -qm "${3:-add $1}"; git rev-parse --short HEAD; }
+
+git init -q --bare "$TMPDIR/origin.git"
+git init -q -b main "$TMPDIR/repo"; cd "$TMPDIR/repo" || exit 1
+git remote add origin "$TMPDIR/origin.git"
+# The checkout's own orca-lc and hook, untracked so they never show up as scanned paths.
+mkdir -p bin .githooks .orca; cp "$ORCA_SRC/bin/orca-lc" bin/; cp "$ORCA_SRC/.githooks/pre-push" .githooks/
+printf 'bin/\n.githooks/\n.orca/\n' >> .git/info/exclude
+git config core.hooksPath .githooks
+pl="$TMPDIR/repo/.orca/denylist" gl="$XDG_CONFIG_HOME/orca/denylist"
+
+add README "start" >/dev/null
+lc; ok $st "no denylist: range mode exits 0"
+has "leak-check: no denylist, skipped"; ok $? "no denylist: range mode prints the note"
+out=$(printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 | bin/orca-lc leak-check --pre-push 2>&1); st=$?
+ok $st "no denylist: --pre-push exits 0"; [ -z "$out" ]; ok $? "no denylist: --pre-push is silent"
+git push -q origin main 2>/dev/null; ok $? "push with no denylist goes through"
+
+printf '# test list\nzebra\n' > "$pl"
+lc; ok $st "pushed history only: clean"; [ -z "$out" ]; ok $? "clean range prints nothing"
+
+git checkout -q -b topic
+c1=$(add notes.txt "a zebra here")
+c2=$(add other.txt "plain" "talk about Zebra")
+c3=$(GIT_AUTHOR_NAME="Zebra Person" add other.txt "plain2" "by someone")
+c4=$(GIT_COMMITTER_EMAIL="me@zebra.example" add other.txt "plain3" "committed by someone")
+c5=$(add zebra-notes.txt "plain")
+lc; ok $(( st == 1 ? 0 : 1 )) "hits exit 1"
+has "commit $c1 notes.txt  (project denylist:2)"; ok $? "added line reported with denylist line"
+has "commit $c2 message  (project denylist:2)"; ok $? "message reported"
+has "commit $c3 message  (project denylist:2)"; ok $? "author name reported"
+has "commit $c4 message  (project denylist:2)"; ok $? "committer email reported"
+has "commit $c5 path  (project denylist:2)"; ok $? "path reported"
+clean; ok $? "the term never appears in the output"
+has "leak-check: denylisted terms found."; ok $? "range mode prints the leak-check header"
+has "push refused"; ok $(( $? == 0 ? 1 : 0 )) "range mode does not print the pre-push header"
+lc "$c5~1..$c5"; has "commit $c5 path"; a=$?; has "commit $c1 "; ok $(( a == 0 && $? != 0 ? 0 : 1 )) "explicit range scans only that range"
+git reset -q --hard "$(git rev-parse main)"
+
+git checkout -q -b zebra-branch; lc; has "branch name  (project denylist:2)"; ok $? "branch name reported"
+clean; ok $? "branch hit never prints the term"
+c6=$(add zebra-two.txt "more zebra"); lc; has "commit $c6 added line  (project denylist:2)"; ok $? "added line in a denylisted path reported as added line"
+has "commit $c6 path  (project denylist:2)"; ok $? "denylisted path reported"; clean; ok $? "path hit never prints the term"
+git checkout -q topic; git branch -q -D zebra-branch
+
+# A path that matches a deny pattern is cut even when a later ! re-allows it; quoted paths are read unquoted.
+printf 'zebra\n!zebra-notes\n' > "$pl"; c7=$(add zebra-notes.txt "zebra"); lc
+has "commit $c7 added line  (project denylist:1)"; ok $? "re-allowed path: added-line hit reported as added line"; clean; ok $? "re-allowed path never prints the term"
+printf 'zebra\n' > "$pl"; git reset -q --hard "$(git rev-parse main)"
+c8=$(add "$(printf 'x\tzebra.txt')" "zebra"); lc
+has "commit $c8 path  (project denylist:1)"; ok $? "tab in a path: the path is still scanned"
+has "commit $c8 added line  (project denylist:1)"; ok $? "tab in a path: hit reported as added line"; clean; ok $? "tab in a path never prints the term"
+c9=$(add "$(printf 'q\tw.txt')" "zebra"); lc; has "commit $c9 q w.txt  (project denylist:1)"; ok $? "tab in a clean path reads unquoted, tab as space"
+# git C-quotes the +++ path of a name with " or \ even with quotePath off: they read back as themselves, octal escapes as a space.
+q='a"b\c.txt'; c15=$(add "$q" "zebra"); lc "$c15~1..$c15"; has "commit $c15 $q  (project denylist:1)"; ok $? "quoted path: \\\" and \\\\ read as \" and \\"
+q=$(printf 'o\001p.txt'); c16=$(add "$q" "zebra"); lc "$c16~1..$c16"; has "commit $c16 o p.txt  (project denylist:1)"; ok $? "quoted path: an octal escape reads as a space"
+# A binary or empty file has no +++ line; its path is still scanned. A deleted path is not.
+printf 'a\0b' > zebra.png; git add zebra.png; git commit -qm "add a binary"; c10=$(git rev-parse --short HEAD)
+lc "$c10~1..$c10"; ok $(( st == 1 ? 0 : 1 )) "binary file: denylisted path exits 1"; has "commit $c10 path  (project denylist:1)"; ok $? "binary file: path reported"; clean; ok $? "binary file never prints the term"
+: > zebra-empty.txt; git add zebra-empty.txt; git commit -qm "add an empty file"; c11=$(git rev-parse --short HEAD)
+lc "$c11~1..$c11"; ok $(( st == 1 ? 0 : 1 )) "empty file: denylisted path exits 1"; has "commit $c11 path  (project denylist:1)"; ok $? "empty file: path reported"; clean; ok $? "empty file never prints the term"
+git rm -q zebra.png zebra-empty.txt; git commit -qm "remove them"; c12=$(git rev-parse --short HEAD)
+lc "$c12~1..$c12"; ok $st "deleted denylisted paths: not scanned"
+n=$(printf 'nl\nzebra.bin'); printf 'a\0b' > "$n"; git add "$n"; git commit -qm "newline path"; c14=$(git rev-parse --short HEAD)
+lc "$c14~1..$c14"; has "commit $c14 path  (project denylist:1)"; ok $? "newline in a binary path: one path line"; clean; ok $? "newline in a binary path never prints the term"
+# An added line starting with "++ " shows as "+++ ..." in the diff; it is content, not a file header.
+c13=$(printf '++ harmless\nzebra\n' > plus.txt; git add plus.txt; git commit -qm "plus lines"; git rev-parse --short HEAD)
+lc "$c13~1..$c13"; has "commit $c13 plus.txt  (project denylist:1)"; ok $? "++ line: next hit keeps its file"
+has "harmless"; ok $(( $? == 0 ? 1 : 0 )) "++ line: its text is never read as a path"
+# A merge's resolution shows only in its diff --cc; a line neither parent has is an added line under that file.
+mb=$(add mg.txt "base"); git checkout -q -b side; printf 'side\n' > mg.txt; git commit -qam side; ms=$(git rev-parse HEAD)
+git checkout -q topic; printf 'ours\n' > mg.txt; git commit -qam ours
+printf 'ours\nzebra resolved\n' > mg.txt; git add mg.txt
+cm=$(git commit-tree "$(git write-tree)" -p HEAD -p "$ms" -m merged); git reset -q --hard "$cm"; cm=$(git rev-parse --short HEAD)
+lc "$cm^1..$cm"; ok $(( st == 1 ? 0 : 1 )) "merge resolution: hit exits 1"
+has "commit $cm mg.txt  (project denylist:1)"; ok $? "merge resolution: added line located in its file"; clean; ok $? "merge resolution never prints the term"
+git branch -q -D side
+git reset -q --hard "$(git rev-parse main)"
+
+# Matching: ! re-allows, the project list's later line beats the global one, case-insensitive, whole words only.
+printf 'zebra\n!zebra\n' > "$pl"; add a.txt "zebra" >/dev/null; lc; ok $st "! re-allows"
+printf 'zebra\n' > "$gl"; printf '!zebra\n' > "$pl"; lc; ok $st "project list's later ! wins over the global deny"
+printf '!zebra\n' > "$gl"; printf 'zebra\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "project list's deny wins over the global !"
+has "(project denylist:1)"; ok $? "hit names the project list line"; has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "hit never prints the list's path"
+printf 'zebra\n' > "$gl"; : > "$pl"; lc; has "(global denylist:1)"; ok $? "hit names the global list line"
+has "$gl"; ok $(( $? == 0 ? 1 : 0 )) "global hit never prints the list's path"
+rm -f "$gl"; printf 'ZEBRA\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "matching ignores case"
+git reset -q --hard main; add b.txt "zebras and azebra" >/dev/null; printf 'zebra\n' > "$pl"; lc; ok $st "whole words only"
+printf 'zeb*\n' > "$pl"; lc; ok $(( st == 1 ? 0 : 1 )) "* wildcard matches"
+printf 'zebra\n' > "$pl"; git reset -q --hard main
+
+# An unreadable list fails closed with 2 and is named by kind, never by its path; pre-push refuses the same way.
+pp() { out=$(printf 'refs/heads/main %s refs/heads/main %040d\n' "$(git rev-parse HEAD)" 0 | bin/orca-lc leak-check --pre-push 2>&1); st=$?; }
+# Root reads a chmod 000 file, so these cases only run as another user.
+[ "$(id -u)" != 0 ] && for k in global project; do
+  if [ $k = global ]; then u="$gl"; printf 'zebra\n' > "$gl"; else u="$pl"; fi
+  chmod 000 "$u"; lc
+  ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: range mode exits 2"; has "leak-check: $k denylist unreadable"; ok $? "unreadable $k list: named by kind"
+  has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: path never printed"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: no awk error"
+  pp; ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: --pre-push exits 2"; has "leak-check: $k denylist unreadable"; ok $? "unreadable $k list: --pre-push names it by kind"
+  chmod 644 "$u"
+done
+rm -f "$gl"
+
+# No bash 4 builtins: macOS ships bash 3.2. With mapfile and readarray disabled, a hit still exits 1.
+printf 'enable -n mapfile readarray\n' > "$TMPDIR/bash3.sh"
+h=$(add bash3.txt "a zebra"); out=$(BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc leak-check 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: range hit exits 1"; has "commit $h bash3.txt  (project denylist:1)"; ok $? "without mapfile: hit reported"
+has "not found"; ok $(( $? == 0 ? 1 : 0 )) "without mapfile: no command-not-found error"
+git reset -q --hard HEAD~1
+
+# Default range: commits no remote has, including ones on main itself and on local main below the branch.
+git checkout -q main; m1=$(add m.txt "zebra on main"); lc
+has "commit $m1 m.txt"; ok $? "commit on the base branch is scanned"; ok $(( st == 1 ? 0 : 1 )) "commit on the base branch: hit exits 1"
+lc nozebra..HEAD; ok $(( st == 2 ? 0 : 1 )) "bad range exits 2"; has "leak-check: bad range"; ok $? "bad range says bad range"; clean; ok $? "bad range never prints the range"
+has "git fetch first"; ok $? "bad range hints to fetch first"; has "leak-check [range]"; ok $(( $? == 0 ? 1 : 0 )) "bad range does not dump the command list"
+git checkout -q -b topic2; add t.txt "clean" >/dev/null; lc
+has "commit $m1 m.txt"; ok $? "unpushed commit on local main below the branch is scanned"
+has "commit $(git rev-parse --short origin/main) "; ok $(( $? == 0 ? 1 : 0 )) "commits already on origin are left out"
+git checkout -q main; git reset -q --hard origin/main; git branch -q -D topic2
+
+# --pre-push: new branch scans only commits no remote has; a deletion is skipped.
+git checkout -q -b topic3; n1=$(add n.txt "zebra new")
+out=$(printf 'refs/heads/topic3 %s refs/heads/topic3 %040d\n' "$(git rev-parse HEAD)" 0 | bin/orca-lc leak-check --pre-push 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "--pre-push new branch: hit exits 1"
+has "commit $n1 n.txt"; ok $? "--pre-push new branch: new commit scanned"
+has "commit $(git rev-parse --short origin/main) "; ok $(( $? == 0 ? 1 : 0 )) "--pre-push new branch: pushed commits left out"
+has "pre-push: denylisted terms found, push refused."; ok $? "--pre-push prints the pre-push header"
+out=$(printf '(delete) %040d refs/heads/gone %s\n' 0 "$(git rev-parse HEAD)" | bin/orca-lc leak-check --pre-push 2>&1); st=$?
+ok $st "--pre-push deletion skipped"
+out=$(printf 'refs/heads/topic3 %s refs/heads/topic3 %s\n' "$(git rev-parse HEAD)" 1111111111111111111111111111111111111111 | bin/orca-lc leak-check --pre-push 2>&1); st=$?
+ok $(( st == 2 ? 0 : 1 )) "--pre-push with an unknown remote sha exits 2, not clean"; has "leak-check: bad range"; ok $? "--pre-push with an unknown remote sha says bad range"
+
+# Through the repository hook.
+git push -q origin topic3 2>"$TMPDIR/push.err"; ok $(( $? == 0 ? 1 : 0 )) "git push with a hit is refused by the hook"
+out=$(cat "$TMPDIR/push.err"); has "commit $n1 n.txt"; ok $? "hook names the location"
+has "pre-push: denylisted terms found, push refused."; ok $? "hook prints the pre-push header"
+git reset -q --hard origin/main; add ok.txt "fine" >/dev/null
+git push -q origin topic3 2>/dev/null; ok $? "clean push goes through the hook"
+
+# Gate step.
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json
+add g.txt "zebra in gate" >/dev/null
+out=$(bin/orca-lc gate --inline 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "leakCheck gate fails on a hit"
+[ "$(printf '%s\n' "$out" | tail -1)" = ORCA_GATE_FAIL ]; ok $? "ORCA_GATE_FAIL is the last line"
+[ ! -f .git/orca-gate-ok ]; ok $? "no marker written"
+git checkout -q main; git reset -q --hard origin/main; add g.txt "zebra on main" >/dev/null
+out=$(bin/orca-lc gate --inline 2>&1); st=$?; ok $(( st == 1 ? 0 : 1 )) "leakCheck gate fails on a hit on the base branch"
+printf '{"gate":"true"}\n' > .orca/config.json
+out=$(bin/orca-lc gate --inline 2>&1); st=$?; ok $st "gate without leakCheck passes"
+[ -f .git/orca-gate-ok ]; ok $? "gate without leakCheck writes the marker"
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; rm -f "$pl"
+out=$(bin/orca-lc gate --inline 2>&1); st=$?; ok $st "leakCheck gate with no denylist passes"
+has "leak-check: no denylist, skipped"; ok $? "leakCheck gate with no denylist prints the note"
+# Unborn HEAD: git log has nothing to read, so the leak step exits 2 and the gate fails without a marker.
+u="$TMPDIR/unborn"; git init -q -b main "$u"; mkdir -p "$u/bin" "$u/.orca"; cp "$ORCA_SRC/bin/orca-lc" "$u/bin/"
+printf '{"gate":"true","leakCheck":true}\n' > "$u/.orca/config.json"; printf 'zebra\n' > "$u/.orca/denylist"
+out=$(cd "$u" && bin/orca-lc gate --inline 2>&1); st=$?; ok $(( st == 1 ? 0 : 1 )) "unborn HEAD: leakCheck gate fails"
+has "leak-check: bad range"; ok $? "unborn HEAD: leak step says bad range"
+[ "$(printf '%s\n' "$out" | tail -1)" = ORCA_GATE_FAIL ]; ok $? "unborn HEAD: ORCA_GATE_FAIL is the last line"
+[ ! -f "$u/.git/orca-gate-ok" ]; ok $? "unborn HEAD: no marker written"
+
+# --file and --stdin.
+printf 'one\ntwo zebra\n' > "$TMPDIR/h.md"; printf 'clean\n' > "$TMPDIR/c.md"
+lc --file "$TMPDIR/h.md"; ok $st "--file with no denylist exits 0"
+printf 'zebra\n' > "$pl"
+lc --file "$TMPDIR/c.md" "$TMPDIR/h.md"; ok $(( st == 1 ? 0 : 1 )) "--file hit exits 1"
+has "file:2  (project denylist:1)"; ok $? "--file names file:line and the denylist line"; clean; ok $? "--file never prints the term"
+has "h.md"; ok $(( $? == 0 ? 1 : 0 )) "--file never prints the path"
+printf 'clean\n' > "$TMPDIR/zebra-clean.md"; lc --file "$TMPDIR/zebra-clean.md"; ok $(( st == 1 ? 0 : 1 )) "--file denylisted path exits 1"
+has "file path:1  (project denylist:1)"; ok $? "--file names a path hit as file path:1"; clean; ok $? "--file path hit never prints the term"
+lc --file "$TMPDIR/c.md"; ok $st "--file clean exits 0"
+lc --file "$TMPDIR/missing.md"; ok $(( st == 2 ? 0 : 1 )) "--file missing path exits 2"
+has "missing.md"; ok $(( $? == 0 ? 1 : 0 )) "--file missing path message does not echo the path"
+has "leak-check: no such file"; ok $? "--file missing path says no such file"
+printf 'a zebra\n' > y=clean; lc --file y=clean; ok $(( st == 1 ? 0 : 1 )) "--file path with = is still scanned"; rm -f y=clean
+printf 'clean\n' > "$TMPDIR/nl
+zebra.md"; lc --file "$TMPDIR/nl
+zebra.md"; ok $(( st == 1 ? 0 : 1 )) "--file path with a newline is scanned whole"; clean; ok $? "--file newline path never prints the term"
+if [ "$(id -u)" != 0 ]; then
+  printf 'x\n' > "$TMPDIR/zebra-unr.md"; chmod 000 "$TMPDIR/zebra-unr.md"; lc --file "$TMPDIR/zebra-unr.md"
+  ok $(( st == 2 ? 0 : 1 )) "--file unreadable file exits 2"; clean; ok $? "--file unreadable file never prints the path"
+  has "leak-check: unreadable file"; ok $? "--file unreadable file says unreadable file"
+fi
+out=$(printf 'a\nzebra\n' | bin/orca-lc leak-check --stdin "some label" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "--stdin hit exits 1"; has "some label:2  (project denylist:1)"; ok $? "--stdin names label:line"; clean; ok $? "--stdin never prints the term"
+lc --stdin; ok $(( st == 2 ? 0 : 1 )) "--stdin with no label exits 2"
+# A hit from the global list alone is named by kind and line, like one from the project list.
+mv "$pl" "$pl.off"; printf '# global\nzebra\n' > "$gl"
+lc --file "$TMPDIR/h.md"; ok $(( st == 1 ? 0 : 1 )) "--file global-list hit exits 1"
+has "file:2  (global denylist:2)"; ok $? "--file names the global denylist line"; has "$gl"; ok $(( $? == 0 ? 1 : 0 )) "--file never prints the global list's path"
+out=$(printf 'zebra\n' | bin/orca-lc leak-check --stdin note 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "--stdin global-list hit exits 1"; has "note:1  (global denylist:2)"; ok $? "--stdin names the global denylist line"
+rm -f "$gl"; mv "$pl.off" "$pl"
+
+# Callers refuse before writing, with leakCheck on; write as before with it absent.
+# The herdr stub logs every call and answers enough for role start to reach the handoff write: the ticket's
+# worktree is open in workspace w1 and its apply agent is already live.
+stub="$TMPDIR/stub"; mkdir -p "$stub" "$TMPDIR/ORCA-9"
+cat > "$stub/herdr" <<STUB
+#!/bin/sh
+echo "\$*" >> "$TMPDIR/herdr.log"
+case "\$1 \$2" in
+  "workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","worktree":{"checkout_path":"$TMPDIR/ORCA-9"}}]}}';;
+  "agent list") echo '{"result":{"agents":[{"name":"orca9-apply"}]}}';;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';;
+  *) echo '{}';;
+esac
+STUB
+chmod +x "$stub/herdr"
+refd() { has "leak-check: denylisted terms found."; ok $? "$1 prints the guard header"
+  has "orca-lc: refused, nothing written"; ok $? "$1 says refused, nothing written"; }
+callers() { # <expect: refused|written> [label suffix]
+  local cw="${2:-}"
+  out=$(bin/orca-lc discover some-slug "uses zebra" 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "discover hit exits 1"; [ ! -e .orca/discoveries/some-slug.md ]; ok $? "discover hit creates no file"
+    has "discover rule  (project denylist:1)"; ok $? "discover names the field"; clean; ok $? "discover never prints the term"; refd "discover hit"
+    out=$(bin/orca-lc discover zebra-slug "clean" 2>&1); has "discover slug  (project denylist:1)"; ok $? "discover scans the slug"
+  else ok $st "discover without leakCheck$cw writes"; [ -f .orca/discoveries/some-slug.md ]; ok $? "discover file exists$cw"; rm -f .orca/discoveries/some-slug.md; fi
+  out=$(bin/orca-lc inbox send orca-9 "a zebra note" 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "inbox send hit exits 1"; ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "inbox send hit queues nothing"
+    has "inbox send text  (project denylist:1)"; ok $? "inbox send names the field"; refd "inbox send hit"
+    out=$(bin/orca-lc notify ORCA-9 "a zebra note" 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "notify inbox fallback hit exits 1"; has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "notify hit does not print queued:"; refd "notify hit"
+    ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "notify hit queues nothing"
+  else ok $st "inbox send without leakCheck$cw queues"; ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "inbox send queued a file$cw"; rm -rf .orca/inbox/orca-9; fi
+  rm -f "$TMPDIR/herdr.log"
+  out=$(printf 'body with zebra\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?
+  if [ "$1" = refused ]; then
+    ok $(( st == 1 ? 0 : 1 )) "role start hit exits 1"; [ ! -e "$TMPDIR/herdr.log" ]; ok $? "role start hit makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start hit writes no handoff"
+    has "role start handoff  (project denylist:1)"; ok $? "role start names the field"; refd "role start hit"
+    # The role becomes the handoff file name and the tab, the ticket a path: both are scanned before anything else.
+    rm -f "$TMPDIR/herdr.log"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 zebra 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "role start denylisted role exits 1"; [ ! -e "$TMPDIR/herdr.log" ]; ok $? "role start denylisted role makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "role start denylisted role writes no handoff"
+    has "role start role  (project denylist:1)"; ok $? "role start names the role field"; clean; ok $? "role start never echoes the role"; refd "role start role hit"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ZEBRA-9 apply 2>&1); st=$?
+    ok $(( st == 1 ? 0 : 1 )) "role start denylisted ticket exits 1"; has "role start ticket  (project denylist:1)"; ok $? "role start names the ticket field"
+    clean; ok $? "role start never echoes the ticket"
+  else has "refused"; ok $(( $? == 0 ? 1 : 0 )) "role start without leakCheck$cw passes the guard"
+    ls .orca/handoffs/orca-9/*.md >/dev/null 2>&1; ok $? "role start without leakCheck$cw writes the handoff"; rm -rf .orca/handoffs/orca-9; fi
+}
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; callers refused
+printf '{"gate":"true"}\n' > .orca/config.json; callers written
+printf '{"gate":"true","leakCheck":false}\n' > .orca/config.json; callers written " (leakCheck false)"
+
+# A scan that fails after the lists are read refuses: an awk that cannot open the project list stands in.
+astub="$TMPDIR/astub"; mkdir -p "$astub"
+printf '#!/bin/sh\nfor a; do [ "$a" = "%s" ] && { echo "awk: fatal: cannot open file %s" >&2; exit 2; }; done\nexec %s "$@"\n' \
+  "$pl" "$pl" "$(command -v awk)" > "$astub/awk"; chmod +x "$astub/awk"
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json
+sf() { ok $(( st == 2 ? 0 : 1 )) "failed scan: $1 exits 2"; has "orca-lc: refused, nothing written"; ok $? "failed scan: $1 says refused"
+  has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: $1 never prints the list's path"
+  has "orca-lc: leak-check: scan failed, text not checked"; ok $? "failed scan: $1 says text not checked"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: $1 has no awk error"; }
+out=$(PATH="$astub:$PATH" bin/orca-lc discover sf-slug "clean" 2>&1); st=$?; sf discover
+[ ! -e .orca/discoveries/sf-slug.md ]; ok $? "failed scan: discover creates no file"
+out=$(PATH="$astub:$PATH" bin/orca-lc inbox send orca-9 "clean" 2>&1); st=$?; sf "inbox send"
+! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "failed scan: inbox send queues nothing"
+out=$(PATH="$astub:$PATH" bin/orca-lc notify ORCA-9 "clean" 2>&1); st=$?; sf notify
+has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: notify does not print queued:"
+! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "failed scan: notify queues nothing"
+rm -f "$TMPDIR/herdr.log"
+out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$astub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; sf "role start"
+[ ! -e "$TMPDIR/herdr.log" ]; ok $? "failed scan: role start makes no herdr call"
+rm -rf .orca/discoveries/sf-slug.md .orca/inbox/orca-9 .orca/handoffs/orca-9 # so a failure here does not spill into later checks
+lsf() { ok $(( st == 2 ? 0 : 1 )) "failed scan: leak-check $1 exits 2"; has "orca-lc: leak-check: scan failed"; ok $? "failed scan: leak-check $1 says so"
+  has "$pl"; ok $(( $? == 0 ? 1 : 0 )) "failed scan: leak-check $1 never prints the list's path"; }
+out=$(PATH="$astub:$PATH" bin/orca-lc leak-check --file "$TMPDIR/c.md" 2>&1); st=$?; lsf "--file"
+out=$(printf 'x\n' | PATH="$astub:$PATH" bin/orca-lc leak-check --stdin note 2>&1); st=$?; lsf "--stdin"
+out=$(PATH="$astub:$PATH" bin/orca-lc leak-check 2>&1); st=$?; lsf "range"
+out=$(printf 'refs/heads/x %s refs/heads/x %040d\n' "$(git rev-parse HEAD)" 0 | PATH="$astub:$PATH" bin/orca-lc leak-check --pre-push 2>&1); st=$?; lsf "--pre-push"
+
+# Messages for unscanned arguments do not echo them.
+printf '{"gate":"true"}\n' > .orca/config.json
+out=$(bin/orca-lc discover set zebra-none hook 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "discover set unknown slug fails"; clean; ok $? "discover set never echoes the slug"
+out=$(bin/orca-lc discover archive zebra-none 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "discover archive unknown slug fails"; clean; ok $? "discover archive never echoes the slug"
+out=$(bin/orca-lc notify zebra-peer "hi" 2>&1); st=$?; ok $(( st == 0 ? 1 : 0 )) "notify to no target fails"; clean; ok $? "notify never echoes the target"
+out=$(bin/orca-lc notify ZEBRA-9 "clean" 2>&1); st=$?; ok $st "notify to a ticket queues"; clean; ok $? "notify never echoes the ticket"; rm -rf .orca/inbox/zebra-9
+[[ $out =~ ^no\ live\ session\ for\ the\ ticket,\ queued:\ [0-9]+-[^/[:space:]]+\.md$ ]]; ok $? "notify prints only the queued line with the file name"
+out=$(bin/orca-lc inbox send zebra-9 "clean" 2>&1); st=$?; ok $st "inbox send queues"; clean; ok $? "inbox send never echoes the ticket"; rm -rf .orca/inbox/zebra-9
+[[ $out =~ ^[0-9]+-[^/[:space:]]+\.md$ ]]; ok $? "inbox send prints only <epoch>-<id>.md"
+
+# pretool: Write/Edit/MultiEdit into the shared handoffs/ and discoveries dirs.
+pre() { # <want exit> <label> <tool> <path> <tool_input extra as JSON>
+  local j; j=$(jq -n --arg d "$TMPDIR/repo" --arg t "$3" --arg f "$4" --argjson x "$5" '{cwd:$d, tool_name:$t, tool_input:({file_path:$f} + $x)}')
+  out=$(printf '%s' "$j" | PATH="${PRE_PATH:-$ORCA_SRC/bin}:$PATH" bash "$ORCA_SRC/hooks/pretool.sh" 2>&1); st=$?
+  ok $(( st == $1 ? 0 : 1 )) "pretool: $2"
+}
+S="$TMPDIR/repo/.orca"; mkdir -p "$S/handoffs/orca-9" "$S/discoveries" "$S/handoffs-old" "$S/notes"
+mkdir -p "$TMPDIR/wt"; ln -s "$S" "$TMPDIR/wt/.orca"
+hit='{"content":"line one\nzebra here"}'
+printf '{"leakCheck":true}\n' > .orca/config.json
+pre 2 "handoff Write hit blocked" Write "$S/handoffs/orca-9/x.md" "$hit"
+has "handoff body:2  (project denylist:1)"; ok $? "pretool: names handoff body:2"; clean; ok $? "pretool: never prints the term"
+pre 2 "handoff through a linked .orca blocked" Write "$TMPDIR/wt/.orca/handoffs/orca-9/x.md" "$hit"
+pre 2 "handoff Edit hit blocked" Edit "$S/handoffs/orca-9/x.md" '{"old_string":"a","new_string":"zebra"}'
+pre 2 "handoff MultiEdit hit blocked" MultiEdit "$S/handoffs/orca-9/x.md" '{"edits":[{"old_string":"a","new_string":"fine"},{"old_string":"b","new_string":"x\nzebra"}]}'
+has "handoff body:2"; ok $? "pretool: MultiEdit counts lines within the edit"
+pre 2 "discovery Edit hit blocked" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"zebra"}'
+has "discovery body:1  (project denylist:1)"; ok $? "pretool: names discovery body:1"
+pre 2 "discovery file name hit blocked" Write "$S/discoveries/zebra-notes.md" '{"content":"clean"}'
+has "discovery file name:1  (project denylist:1)"; ok $? "pretool: names discovery file name:1"; clean; ok $? "pretool: file name hit never prints the term"
+pre 0 "sibling handoffs-old passes" Write "$S/handoffs-old/x.md" "$hit"
+pre 0 "write outside the shared dirs passes" Write "$TMPDIR/repo/notes.md" "$hit"
+pre 0 "clean handoff Write passes" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
+# Missing directories under a shared dir are still inside it.
+pre 2 "handoff two missing levels deep blocked" Write "$S/handoffs/orca-9/new/sub/x.md" "$hit"
+pre 2 "handoff reached through a missing dir and .. blocked" Write "$S/notes/miss/../../handoffs/orca-9/x.md" "$hit"
+pre 2 "handoff through a missing dir, .. and a linked .orca blocked" Write "$TMPDIR/wt/miss/../.orca/handoffs/orca-9/new/x.md" "$hit"
+mkdir -p "$TMPDIR/wt/nl
+"; ln -s "$S/handoffs" "$TMPDIR/wt/nl
+/h"; pre 2 "handoff through a dir whose name ends in a newline blocked" Write "$TMPDIR/wt/nl
+/h/orca-9/x.md" "$hit"
+ln -s "$S/handoffs/orca-9" "$TMPDIR/wt/l2
+"; pre 2 "handoff whose parent's name ends in a newline blocked" Write "$TMPDIR/wt/l2
+/x.md" "$hit"
+pre 2 "handoff with a relative path blocked" Write ".orca/handoffs/orca-9/x.md" "$hit"
+if [ "$(id -u)" != 0 ]; then mkdir -p "$TMPDIR/wt/zebra-noexec"; chmod 000 "$TMPDIR/wt/zebra-noexec"
+  pre 0 "unsearchable dir passes" Write "$TMPDIR/wt/zebra-noexec/x/y.md" "$hit"; clean; ok $? "pretool: an unsearchable dir's cd error is not echoed"
+  chmod 755 "$TMPDIR/wt/zebra-noexec"; fi
+pre 0 "missing dirs under a sibling pass" Write "$S/handoffs-old/a/b/x.md" "$hit"
+mv "$S/handoffs" "$S/handoffs.away"; pre 2 "handoff before handoffs/ exists blocked" Write "$S/handoffs/orca-1/x.md" "$hit"; mv "$S/handoffs.away" "$S/handoffs"
+# A leak-check that fails for any reason blocks, and its output is not echoed.
+lf="$TMPDIR/lcfail"; mkdir -p "$lf"
+printf '#!/bin/sh\n[ "$1" = leak-check ] && { echo "orca-lc: unknown command %s" >&2; exit ${LCX:-2}; }\nexec "%s" "$@"\n' "'leak-check' $TMPDIR/zebra" "$ORCA_SRC/bin/orca-lc" > "$lf/orca-lc"; chmod +x "$lf/orca-lc"
+for x in 2 3; do
+  LCX=$x PRE_PATH="$lf" pre 2 "leak-check exit $x blocks a clean handoff Write" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
+  has "handoff write blocked: leak scan failed (exit $x), write not checked"; ok $? "pretool: names exit $x"
+  has "unknown command"; ok $(( $? == 0 ? 1 : 0 )) "pretool: exit $x output not echoed"; clean; ok $? "pretool: exit $x never prints the term"
+done
+printf '{"leakCheck":true,"discoveriesDir":"notes"}\n' > .orca/config.json
+pre 2 "custom discoveriesDir honoured" Edit "$S/notes/s.md" '{"old_string":"a","new_string":"zebra"}'
+printf '{}\n' > .orca/config.json
+pre 0 "leakCheck absent: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
+pre 0 "leakCheck absent: discovery Edit hit passes" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"zebra"}'
+printf '{"leakCheck":false}\n' > .orca/config.json
+pre 0 "leakCheck false: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
+printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > .orca/config.json
+pre 2 "test-lock block on a test file" Write "$TMPDIR/repo/zebra.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the path"
+
+# An unreadable list refuses everywhere with exit 2, named by kind, never by its path; nothing is written.
+if [ "$(id -u)" != 0 ]; then
+  printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json
+  for k in global project; do
+    if [ $k = global ]; then u="$gl"; printf 'zebra\n' > "$gl"; else u="$pl"; fi
+    chmod 000 "$u"; m="leak-check: $k denylist unreadable"
+    unr() { ok $(( st == 2 ? 0 : 1 )) "unreadable $k list: $1 exits 2"; has "$m"; ok $? "unreadable $k list: $1 names it by kind"
+      has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: $1 never prints its path"; has "awk:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: $1 has no awk error"; }
+    lc --file "$TMPDIR/c.md"; unr "--file"
+    out=$(printf 'zebra\n' | bin/orca-lc leak-check --stdin note 2>&1); st=$?; unr "--stdin"
+    ur() { has "orca-lc: refused, nothing written"; ok $? "unreadable $k list: $1 says refused, nothing written"; }
+    out=$(bin/orca-lc discover unr-slug "clean" 2>&1); st=$?; unr "discover"; ur discover
+    [ ! -e .orca/discoveries/unr-slug.md ]; ok $? "unreadable $k list: discover creates no file"
+    out=$(bin/orca-lc inbox send orca-9 "clean note" 2>&1); st=$?; unr "inbox send"; ur "inbox send"
+    out=$(bin/orca-lc notify ORCA-9 "clean note" 2>&1); st=$?; unr "notify"; ur notify
+    has "queued:"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: notify does not print queued:"
+    ! ls .orca/inbox/orca-9/*.md >/dev/null 2>&1; ok $? "unreadable $k list: inbox send and notify queue nothing"
+    rm -f "$TMPDIR/herdr.log"
+    out=$(printf 'clean body\n' | HERDR_ENV=1 PATH="$stub:$PATH" bin/orca-lc role start ORCA-9 apply 2>&1); st=$?; unr "role start"; ur "role start"
+    [ ! -e "$TMPDIR/herdr.log" ]; ok $? "unreadable $k list: role start makes no herdr call"
+    [ -z "$(ls -A .orca/handoffs/orca-9 2>/dev/null)" ]; ok $? "unreadable $k list: role start writes no handoff"
+    pre 2 "unreadable $k list: clean handoff Write blocked" Write "$S/handoffs/orca-9/x.md" '{"content":"all clean"}'
+    has "handoff write blocked: leak scan failed (exit 2), write not checked ($m)"; ok $? "unreadable $k list: pretool names it by kind"
+    has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: pretool never prints its path"
+    pre 2 "unreadable $k list: clean discovery Edit blocked" Edit "$S/discoveries/s.md" '{"old_string":"a","new_string":"fine"}'
+    has "discovery write blocked: leak scan failed (exit 2), write not checked ($m)"; ok $? "unreadable $k list: pretool names the discovery block by kind"
+    has "$u"; ok $(( $? == 0 ? 1 : 0 )) "unreadable $k list: discovery block never prints its path"
+    chmod 644 "$u"
+  done
+  rm -f "$gl"
+fi
+
+# No bash 4 builtins in --file, --stdin or the guard: with mapfile and readarray disabled, a hit is still a hit.
+printf '{"gate":"true","leakCheck":true}\n' > .orca/config.json; printf 'zebra\n' > "$pl"
+out=$(BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc leak-check --file "$TMPDIR/h.md" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: --file hit exits 1"; has "not found"; ok $(( $? == 0 ? 1 : 0 )) "without mapfile: --file has no command-not-found error"
+out=$(printf 'zebra\n' | BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc leak-check --stdin note 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: --stdin hit exits 1"
+out=$(BASH_ENV="$TMPDIR/bash3.sh" bin/orca-lc discover b3-slug "uses zebra" 2>&1); st=$?
+ok $(( st == 1 ? 0 : 1 )) "without mapfile: discover hit exits 1"; [ ! -e .orca/discoveries/b3-slug.md ]; ok $? "without mapfile: discover hit creates no file"
