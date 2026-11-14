@@ -2,7 +2,7 @@
 
 Orchestrated agent lifecycle for [Claude Code](https://claude.com/claude-code). CLI: `orca-lc`.
 
-Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, four agents and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
+Orca runs one ticket as a small team of Claude Code sessions, each with one role, each in the ticket's own git worktree. A shell CLI (`orca-lc`), a set of hooks, six agents and three skills hold the sessions to the same rules: a gate before every push, one owner of the tree at a time, written handoffs between roles, and evidence attached to every review.
 
 It knows nothing about any particular project. Everything project-specific lives in one untracked file per repository: `.orca/config.json`.
 
@@ -31,6 +31,19 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 `orca-lc help` lists every command.
 
+## Agents
+
+| Agent | What |
+|---|---|
+| `orca-apply` | The apply role as a background subagent of the orchestrator: works its handoff, commits task by task, runs `applyChecks` and the gate, reports |
+| `orca-review` | The review role as a background subagent of the orchestrator: evidence, review passes, `reviewChecks`, the verifier, the findings report. Never edits code |
+| `orca-verifier` | Clean-context pass before a task is reported done: runs the gate, reads the diff against `tasks.md` |
+| `orca-complexity` | Default review pass: needless complexity in the diff |
+| `orca-spec` | Default review pass: the diff against the openspec change, or the ticket's acceptance criteria |
+| `orca-standards` | Default review pass: the diff against `standardsFile` |
+
+The orchestrator dispatches `orca-apply` and `orca-review` by default, one at a time per worktree (Claude Code only). `orca-lc role start` still opens a role in its own tab to drive it by hand.
+
 [docs/daily-use.md](docs/daily-use.md) walks one ticket through the whole lifecycle.
 
 ## Requirements
@@ -41,6 +54,7 @@ Optional:
 - codegraph and codebase-memory-mcp, for `orca-lc evidence` and `orca-lc test-affected`
 - [direnv](https://direnv.net), for a per-repository GitHub account
 - util-linux `flock`, to lock handoff writes; without it `orca-lc` falls back to a mkdir lock. The two locks do not exclude each other, so use one `sharedDir` from one kind of host (not WSL2 and Git Bash on the same checkout)
+- `playwright-mcp` on `PATH`, for the browser tools of `orca-apply` and `orca-review` (`npm i -g @playwright/mcp`, or any tool manager)
 
 A per-worktree stack (`orca-lc worktree up <ticket> --stack`) runs whatever `stackUp` names, so it needs only what that command needs.
 
