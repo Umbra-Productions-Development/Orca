@@ -15,11 +15,11 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
-Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook names anything still undone.
+Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
 
 ## Test files
 
-Edits to test files are blocked by default. When the test itself is wrong or a scenario is missing: `orca-lc test-lock on`, make the change, say why in the commit body, `orca-lc test-lock off`.
+Edits to test files, creating a new one included, are blocked by default. When the test itself is wrong or a scenario is missing: `orca-lc test-lock on`, make the change, say why in the commit body, `orca-lc test-lock off`.
 
 ## Identity, peers, messages
 
@@ -60,7 +60,7 @@ The tracker is the one `orca-lc config tracker` names. When it prints nothing, a
 
 ### orchestrator
 Owns: the user's entry point; the stack, seeded database, and migrations before apply starts; starting each session and writing its handoff; routing findings and decisions; relaying edge notices; PRs and tracker writes; extra sessions for work no role owns.
-Never: explores, writes specs or code, or reviews. A handoff it writes names the work and who to report to, never "check their work".
+Never: explores, writes specs or code, or reviews; plans before propose reports; or answers propose's open questions unless the user delegates them. A handoff it writes names the work and who to report to, never "check their work".
 
 ### propose
 Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them. Grilling runs through the `grilling` skill, Orca's or a third-party one of the same name, after exploration and before the proposal. Whichever skill runs, the settled decisions go into the change's `design.md` under `## Decisions`, one line each with who decided, and decisions outside the ticket go to the orchestrator as follow-ups.
@@ -71,7 +71,7 @@ Owns: implementing the committed proposal: tasks.md, commits, the gate, and fixe
 Never: changes what the proposal means (a proposal problem goes to the orchestrator), or sets up the environment.
 
 ### review
-Owns: review of the proposal before apply and of the code after apply: the review passes, the entries in `reviewChecks`, the verifier, the findings report, and posting the review to the PR once the user approves it. The ticket's stack ports are in its handoff. Each finding is checked against the code before it enters the report or the PR; a claim that cannot be shown in the code is dropped.
+Owns: review of the proposal before apply and of the code after apply: the review passes, the entries in `reviewChecks`, the verifier, reconcile and the tiered findings file (see Code review), and posting the review to the PR once the user approves it. The ticket's stack ports are in its handoff. Each finding is checked against the code before it enters the report or the PR; a claim that cannot be shown in the code is dropped.
 Never: fixes what it finds; findings go to the orchestrator.
 
 ## Handoffs
@@ -80,7 +80,61 @@ Never: fixes what it finds; findings go to the orchestrator.
 
 ## Evidence for review and verify
 
-`orca-lc evidence [base]` writes the diff's blast radius (codebase-memory `detect_changes`) and affected test files (`codegraph affected`) to one file and prints its path. Run it once before `review-changes` and before dispatching `orca-verifier`; give every pass and the verifier that path. When running `review-changes`, add the passes in `reviewPasses` from `.orca/config.json`.
+`orca-lc evidence [base]` writes the diff's blast radius (codebase-memory `detect_changes`) and affected test files (`codegraph affected`) to one file and prints its path. Run it once before the code review and before dispatching `orca-verifier`; give every pass and the verifier that path.
+
+## Code review
+
+This is the review of the code after apply; proposal review keeps its own form and may write to the same findings file, which the code review overwrites. After `orca-lc evidence`, the review session:
+
+1. Computes the review paths: the diff's paths since the merge-base with the base, minus those matching `reviewExcludes` from `.orca/config.json`. The `when` patterns of `reviewPasses` and `reviewChecks` match against these paths.
+2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. Then runs every `reviewChecks` entry over the review paths. For the default passes:
+   - A `reviewPasses` entry naming a default pass is not run again.
+   - A `reviewPasses` entry naming a skipped default is not run at all.
+   - A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too.
+   - A name in `skipDefaultPasses` that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets the line `skipDefaultPasses: unknown pass <name>, ignored`.
+3. Dispatches `orca-verifier` from the ticket's worktree. Its gate run is the review's only gate run, on the ticket's stack; the session runs no gate of its own. The verifier runs the gate and the task check over the whole diff, not the review paths; a change at a path matching `reviewExcludes` is never one of its unasked-change findings, only listed as excluded.
+4. Reconciles and writes the findings file.
+
+### Reconcile
+
+Each default pass and `orca-verifier` end with a `## Findings` list, one entry per finding:
+
+```
+- `path:line[-line]` — <claim> — <evidence: what in the code shows it> — suggested: blocker|should fix|suggestion
+```
+
+`none` means nothing found; `skipped: <reason>` means the pass did not apply. Read other `reviewPasses` and `reviewChecks` results in the same terms, restating their findings in this shape.
+
+1. Collect findings from every pass, check and the verifier.
+2. Check each against the code; drop any claim the code does not show.
+3. Merge: two findings are one when they point at the same file with overlapping or adjacent line ranges and share a root cause. The merged finding cites every source and takes the highest suggested tier.
+4. Tier each, starting from its suggested tier:
+   - **Blocker**: fixed before merge; a `Keeping it` answer does not close it. A failing gate is always a Blocker, and so is a `reviewChecks` hit the entry calls blocking.
+   - **Should fix**: fixed in this PR, or answered `Keeping it: <reason>`.
+   - **Suggestion**: optional.
+
+The findings file is `<gitdir>/orca-findings.md` (`git rev-parse --git-dir`), overwritten by each review. It lists every pass and check with its result, or `skipped` and the reason. The `skipDefaultPasses:` header line appears only when there is an unknown name:
+
+```
+# Review — <branch> @ <sha> vs <base>
+skipDefaultPasses: unknown pass <name>, ignored
+
+## Passes
+| Pass | Result |
+|---|---|
+| orca-complexity | 2 findings |
+| orca-standards | skipped: no standardsFile |
+
+## Findings
+### Blocker
+- `path:line` — claim — evidence — sources: orca-spec, orca-verifier
+### Should fix
+none
+### Suggestion
+none
+```
+
+An empty tier reads `none`. The verdict is APPROVE when Blocker and Should fix are both `none`, otherwise COMMENT.
 
 ## Checks
 
@@ -89,9 +143,9 @@ Never: fixes what it finds; findings go to the orchestrator.
 - A name with a colon or no matching agent type is a skill, dispatched as a `general-purpose` agent told to invoke it. Words after the name are the skill's arguments.
 - A name matching an agent type is dispatched as that agent.
 - `{"do": "<instruction>"}` is carried out by the session itself, as written.
-- Any entry written as an object may add `"when": "<regex>"`: it runs only when a path in the diff matches.
+- Any entry written as an object may add `"when": "<regex>"`: it runs only when a path matches. For `reviewPasses` and `reviewChecks` that is a review path (the diff's paths minus `reviewExcludes`, see Code review); for `applyChecks` it is any path in the diff.
 
-The findings file lists every entry with its result, or `skipped` and the reason.
+Each entry's result goes in the findings file's passes table (see Reconcile).
 
 ## Pull requests
 
@@ -104,10 +158,10 @@ A ticket's branch carries the ticket id from its first push: `orca-lc` reads the
 A review reaches the PR only when the user approves posting it, as one GitHub review:
 
 - Body: ``Reviewed at `<sha>` against `<base>`: <verdict>``, then the criteria checked.
-- One inline comment per finding, opening **Should fix** — or **Suggestion** —.
-- APPROVE when nothing is should-fix; otherwise COMMENT.
+- One inline comment per finding, opening **Blocker** —, **Should fix** — or **Suggestion** —.
+- APPROVE when nothing is blocker or should-fix; otherwise COMMENT.
 
-The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …` and resolves it.
+The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …` and resolves it. A Blocker is closed only by a fix.
 
 Run `gh` from inside the repository. A repository whose account comes from a direnv `.envrc` token is invisible to the gh account otherwise, and GitHub answers 404. From a shell that did not load it, use `direnv exec <repo> gh …`.
 

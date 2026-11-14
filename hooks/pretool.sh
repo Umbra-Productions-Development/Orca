@@ -8,6 +8,20 @@ tool=$(jq -r '.tool_name' <<<"$in")
 tail_msg="If this block was unexpected, record it: /discover"
 block() { echo "orca-lc: $1. $tail_msg" >&2; exit 2; }
 advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventName:"PreToolUse", additionalContext:$m}}'; exit 0; }
+# Absolute, symlink-free form of a path whose tail may not exist yet, walked left to right as mkdir -p would: each
+# existing directory is resolved through cd -P, so a symlink after a missing dir and ".." is still followed; a missing
+# one is kept as written, and ".." drops the last component. readlink -f fails past one missing part; BSD has no -m.
+# The result goes to $ap, not stdout: $(...) would strip a trailing newline from the last name.
+abspath() { local p="$1" c d; ap=""
+  case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
+  while [ -n "$p" ]; do
+    c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
+    case "$c" in ""|.) ;; ..) d=${d%/*}; d=${d:-/};; *) d="${d%/}/$c";; esac
+    # The trailing x keeps a name ending in a newline whole; $(...) would strip it. cd's error would echo the path.
+    [ -d "$d" ] && { d=$(CDPATH='' cd -P -- "$d" 2>/dev/null && pwd -P && echo x) || return 1; d=${d%$'\n'x}; }
+  done
+  ap=$d
+}
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
@@ -104,7 +118,41 @@ case "$tool" in
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     glob=$(jq -r '.testGlob // empty' "$root/.orca/config.json")
     if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git rev-parse --git-dir)/orca-allow-test-edits" ]; then
-      block "test file edit blocked ($f). Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
+      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
+    fi
+    # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
+    # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an
+    # unreadable denylist, an orca-lc without leak-check) blocks too, since the write was not checked.
+    if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
+      sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
+      dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
+      case "$f" in */*) dir=${f%/*}; dir=${dir:-/};; *) dir=.;; esac # not dirname: $(...) strips a trailing newline
+      abspath "$dir" && dir=$ap || dir=""; kind=""
+      for k in "handoff:$sh/handoffs" "discovery:$sh/$dd"; do
+        abspath "${k#*:}" || continue; base=$ap
+        [ -n "$dir" ] && [ -n "$base" ] && [[ "$dir/" == "$base/"* ]] && { kind=${k%%:*}; break; }
+      done
+      if [ -n "$kind" ]; then
+        hits=""
+        scan() { local o s r=""; o=$(orca-lc leak-check --stdin "$1" 2>&1); s=$?
+          case $s in
+            0) ;;
+            1) hits+=$(grep -v '^leak-check:' <<<"$o")$'\n';;
+            # Only the fixed unreadable-list line is echoed; any other output may carry a path.
+            *) r=$(grep -m1 -oE '^orca-lc: leak-check: (global|project) denylist unreadable$' <<<"$o") && r=" (${r#orca-lc: })"
+               block "$kind write blocked: leak scan failed (exit $s), write not checked$r";;
+          esac; }
+        scan "$kind file name" <<<"$(basename "$f")"
+        if [ "$tool" = MultiEdit ]; then
+          n=$(jq '.tool_input.edits | length' <<<"$in")
+          for ((i = 0; i < n; i++)); do scan "$kind body" < <(jq -r --argjson i "$i" '.tool_input.edits[$i].new_string // ""' <<<"$in"); done
+        else
+          scan "$kind body" < <(jq -r '.tool_input.content // .tool_input.new_string // ""' <<<"$in")
+        fi
+        [ -n "$hits" ] && block "$kind write blocked: denylisted term. Location, then the denylist line that matched:
+${hits%$'\n'}
+"
+      fi
     fi
     ;;
 esac
