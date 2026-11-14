@@ -80,3 +80,26 @@ if ln -s "$r/.secret" "$d/probe" 2>/dev/null && [ -L "$d/probe" ]; then
 else echo "  SKIP: ln -s copies here (no native symlinks); linkPaths link assert skipped"; fi
 out=$(cd "$d/nest/L" && orca-lc worktree down L-1 --force 2>&1); assert_status $? 0
 [ ! -e "$d/L-1" ] || fail "down left $d/L-1: $out"
+
+# down removes .orca only when it is the link up made; a committed .orca directory stays. The worktree is
+# locked so `git worktree remove --force` keeps it and .orca can be inspected; git's own "cannot remove a
+# locked working tree" is why the assert names rm's message.
+r=$(new_repo "$cfg"); d=$(dirname "$r")
+(cd "$r" && orca-lc worktree up W-1 >/dev/null 2>&1); git -C "$r" worktree lock "$d/W-1"
+out=$(cd "$r" && orca-lc worktree down W-1 --force 2>&1)
+assert_not_contains "$out" "rm: cannot remove"
+[ -d "$d/W-1/.orca" ] && [ ! -L "$d/W-1/.orca" ] || fail "down touched the committed .orca: $out"
+[ -f "$d/W-1/.orca/config.json" ] || fail "committed .orca/config.json gone after down"
+r=$(new_repo "$cfg"); d=$(dirname "$r")
+git -C "$r" rm -r -q --cached .orca; echo .orca/ >> "$r/.gitignore"
+git -C "$r" add .gitignore; git -C "$r" commit -qm "untrack .orca"; git -C "$r" push -q origin main
+(cd "$r" && orca-lc worktree up W-2 >/dev/null 2>&1)
+if [ -L "$d/W-2/.orca" ]; then
+  git -C "$r" worktree lock "$d/W-2"
+  out=$(cd "$r" && orca-lc worktree down W-2 --force 2>&1)
+  assert_not_contains "$out" "rm: cannot remove"
+  [ ! -e "$d/W-2/.orca" ] && [ ! -L "$d/W-2/.orca" ] || fail "down left the .orca link: $out"
+  [ -f "$r/.orca/config.json" ] || fail "down removed the main checkout's .orca/config.json"
+elif ! { ln -s "$r/.gitignore" "$d/probe" 2>/dev/null && [ -L "$d/probe" ]; }; then
+  echo "  SKIP: ln -s copies here (no native symlinks); .orca link teardown asserts skipped"
+else fail "up did not link .orca"; fi
