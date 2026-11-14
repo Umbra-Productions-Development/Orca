@@ -100,14 +100,19 @@ case "$tool" in
     [ -n "$root" ] || exit 0
     # A sleep whose answer is already on its way: the runtime wakes the session when the turn ends. Every other sleep passes.
     # Matching skips quoted text (a commit message naming a sleep) and reads only what runs after the sleep,
-    # except in a loop, where the check before the sleep runs again after it. Double quotes go first: an
-    # apostrophe inside them ("the server's log") would otherwise pair with the next single quote.
-    sl='(^|[^[:alnum:]_-])sleep\s+[0-9]'
+    # or, when the sleep sits in a loop still open before it, from that loop on, since the loop's check runs
+    # again after the sleep. Double quotes go first: an apostrophe inside them ("the server's log") would
+    # otherwise pair with the next single quote.
+    sl='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9]'
     flat=$(tr '\n' ' ' <<<"$cmd"); nq=$(sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g" <<<"$flat")
+    # ponytail: the nearest loop keyword before the sleep wins; a sleep in an outer loop after a closed inner one reads from the sleep.
+    from_sleep() { local pre l; [[ $1 =~ $sl ]] || return 0; pre=${1%%"${BASH_REMATCH[0]}"*}
+      l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
+      grep -qE '(^|[;&|[:space:]])done([^[:alnum:]_]|$)' <<<"$l" && l=""
+      printf '%s%s\n' "$l" "${1#"$pre"}"; }
     if [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" != true ] && grep -qE "$sl" <<<"$nq"; then
       wake="End the turn instead: its completion wakes this session, inside a subagent too"
-      loop=""; grep -qE '(^|[;&|(]\s*)(while|until|for)\s' <<<"$nq" && loop=1
-      if [ -n "$loop" ]; then after=$nq raw=$flat; else after=$(grep -oE "$sl.*" <<<"$nq"); raw=$(grep -oE "$sl.*" <<<"$flat"); fi
+      after=$(from_sleep "$nq"); raw=$(from_sleep "$flat")
       grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
       tp=$(jq -r '.transcript_path // empty' <<<"$in")
       # A loop whose condition greps the file (a server's readiness line) passes: a server never completes.

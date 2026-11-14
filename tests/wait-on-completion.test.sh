@@ -36,6 +36,8 @@ check 2 'sleep 30; gh run list'
 check 0 'git commit -m "docs: sleep 30 before gh pr view"'
 check 0 "git commit -m \"the server's 'sleep 2; gh pr view 8' wait\""
 check 0 'gh pr view 83; sleep 2; echo ok'
+check 0 'gh pr view 83; for i in 1 2; do echo $i; done; sleep 2; echo ok'
+check 0 'for i in 1 2; do gh pr view 8; done; sleep 2; echo ok'
 # A glob is read as written, not expanded against the repo the hook runs in.
 touch "$repo/build.log"; check 0 'sleep 1; tail *.log'; rm "$repo/build.log"
 # A loop elsewhere in the command, or one with no condition on the file, is still a wait on a command that completes.
