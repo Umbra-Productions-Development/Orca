@@ -13,8 +13,15 @@ advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventN
 # existing directory is resolved through cd -P, so a symlink after a missing dir and ".." is still followed; a missing
 # one is kept as written, and ".." drops the last component. readlink -f fails past one missing part; BSD has no -m.
 # The result goes to $ap, not stdout: $(...) would strip a trailing newline from the last name.
+# Reads ".." physically, after any link before it: use it to compare directories, as the leak scan does. For
+# the path an edit names use textpath first, as the test lock does, so no ".." is left for abspath to read.
+# A non-empty $2 (Windows) also takes a drive (C:/) or UNC (//host) root as absolute.
 abspath() { local p="$1" c d; ap=""
   case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
+  if [ -n "${2:-}" ]; then case "$p" in
+    [A-Za-z]:/*) d=${p:0:2}; p=${p:3};;
+    //?*) p=${p#//}; d=//${p%%/*}; case "$p" in */*) p=${p#*/};; *) p="";; esac;;
+  esac; fi
   while [ -n "$p" ]; do
     c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
     case "$c" in ""|.) ;; ..) d=${d%/*}; d=${d:-/};; *) d="${d%/}/$c";; esac
@@ -27,6 +34,8 @@ abspath() { local p="$1" c d; ap=""
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
 # textpath <path with / separators>: . and .. collapsed as text (like Node's path.resolve), links not
 # followed. Keeps a leading /, // (UNC) or drive (C:/); .. above the root stays at the root.
+# Reads ".." as text, the way Claude Code resolves a file_path before it follows any link: use it for the
+# path an edit names, then abspath for its physical form. For comparing directories use abspath alone.
 textpath() {
   local s=$1 pre="" c out=() parts=() IFS=/
   case "$s" in //*) pre=//;; /*) pre=/;; [A-Za-z]:/*) pre=${s:0:3};; esac
@@ -129,7 +138,7 @@ case "$tool" in
   Edit|Write|MultiEdit)
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
     # The test-edit lock ends with return, never exit: the leak scan below must run for every edit.
-    test_lock() { local win p t n anc rest phys m froot glob
+    test_lock() { local win p t n anc m froot glob
       [ -n "$f" ] || return 0
       # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
       # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
@@ -147,21 +156,19 @@ case "$tool" in
       p=$(textpath "$p")
       # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
       if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
-      # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
-      # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
-      anc=$p
+      # testGlob always matches the physical path m: each existing dir through cd -P, so a symlinked dir shows
+      # as its target, and the missing tail as written. p if a dir can't be entered.
+      if abspath "$p" "$win"; then m=$ap; else m=$p; fi
+      # Nearest existing ancestor of the file's directory, for its repo and lock: a new file in a new dir
+      # resolves through the first one that exists. Ends at a fixpoint (/, a missing drive root): no repo.
+      anc=${m%/*}
       while :; do
-        case "$anc" in */*) n=${anc%/*};; *) return 0;; esac
-        [ -n "$n" ] || n=/
-        [[ "$n" =~ ^[A-Za-z]:$ ]] && n=$n/
+        case "$anc" in ""|[A-Za-z]:) anc=$anc/;; esac
+        [ -d "$anc" ] && break
+        n=${anc%/*}; case "$n" in ""|[A-Za-z]:) n=$n/;; esac
         [ "$n" != "$anc" ] || return 0
         anc=$n
-        [ -d "$anc" ] && break
       done
-      # testGlob always matches the physical path: pwd -P of that ancestor, then the rest of the path below it.
-      # A symlinked dir shows as its target.
-      rest=${p#"$anc"}; rest=/${rest#/}
-      if phys=$(cd "$anc" 2>/dev/null && pwd -P); then m=${phys%/}$rest; else m=$p; fi
       froot=$(orca_root "$anc")
       [ -n "$froot" ] || return 0
       glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
