@@ -128,44 +128,48 @@ case "$tool" in
     ;;
   Edit|Write|MultiEdit)
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
-    [ -n "$f" ] || exit 0
-    # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
-    # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
-    # On Windows \ reads as /; elsewhere it is an ordinary filename character and stays in its segment.
-    # Then . and .. collapse as text, as Claude Code does before it follows any link.
-    win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
-    case "$f" in
-      "~") p=$HOME;;
-      "~/"*) p=$HOME/${f#"~/"};;
-      /*) p=$f;;
-      [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
-      *) p=$cwd/$f;;
-    esac
-    [ -n "$win" ] && p=${p//\\//}
-    p=$(textpath "$p")
-    # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
-    if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
-    # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
-    # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
-    dir=$p
-    while :; do
-      case "$dir" in */*) n=${dir%/*};; *) exit 0;; esac
-      [ -n "$n" ] || n=/
-      [[ "$n" =~ ^[A-Za-z]:$ ]] && n=$n/
-      [ "$n" != "$dir" ] || exit 0
-      dir=$n
-      [ -d "$dir" ] && break
-    done
-    # testGlob always matches the physical path: pwd -P of that ancestor, then the rest of the path below it.
-    # A symlinked dir shows as its target.
-    rest=${p#"$dir"}; rest=/${rest#/}
-    if phys=$(cd "$dir" 2>/dev/null && pwd -P); then m=${phys%/}$rest; else m=$p; fi
-    froot=$(orca_root "$dir")
-    [ -n "$froot" ] || exit 0
-    glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
-    if [ -n "$glob" ] && grep -qE "$glob" <<<"$m" && [ ! -f "$(git -C "$dir" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
-      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in $froot and say why in the commit body"
-    fi
+    # The test-edit lock ends with return, never exit: the leak scan below must run for every edit.
+    test_lock() { local win p t n anc rest phys m froot glob
+      [ -n "$f" ] || return 0
+      # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
+      # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
+      # On Windows \ reads as /; elsewhere it is an ordinary filename character and stays in its segment.
+      # Then . and .. collapse as text, as Claude Code does before it follows any link.
+      win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
+      case "$f" in
+        "~") p=$HOME;;
+        "~/"*) p=$HOME/${f#"~/"};;
+        /*) p=$f;;
+        [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
+        *) p=$cwd/$f;;
+      esac
+      [ -n "$win" ] && p=${p//\\//}
+      p=$(textpath "$p")
+      # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
+      if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
+      # Nearest existing ancestor of the file's directory: a new file in a new dir resolves through the
+      # first one that exists. Ends at a fixpoint (/, a missing drive root) with nothing found: no repo.
+      anc=$p
+      while :; do
+        case "$anc" in */*) n=${anc%/*};; *) return 0;; esac
+        [ -n "$n" ] || n=/
+        [[ "$n" =~ ^[A-Za-z]:$ ]] && n=$n/
+        [ "$n" != "$anc" ] || return 0
+        anc=$n
+        [ -d "$anc" ] && break
+      done
+      # testGlob always matches the physical path: pwd -P of that ancestor, then the rest of the path below it.
+      # A symlinked dir shows as its target.
+      rest=${p#"$anc"}; rest=/${rest#/}
+      if phys=$(cd "$anc" 2>/dev/null && pwd -P); then m=${phys%/}$rest; else m=$p; fi
+      froot=$(orca_root "$anc")
+      [ -n "$froot" ] || return 0
+      glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
+      if [ -n "$glob" ] && grep -qE "$glob" <<<"$m" && [ ! -f "$(git -C "$anc" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
+        block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in $froot and say why in the commit body"
+      fi
+    }
+    test_lock
     # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
     # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an
     # unreadable denylist, an orca-lc without leak-check) blocks too, since the write was not checked.

@@ -334,6 +334,12 @@ pre 2 "handoff with a relative path blocked" Write ".orca/handoffs/orca-9/x.md" 
 if [ "$(id -u)" != 0 ]; then mkdir -p "$TMPDIR/wt/zebra-noexec"; chmod 000 "$TMPDIR/wt/zebra-noexec"
   pre 0 "unsearchable dir passes" Write "$TMPDIR/wt/zebra-noexec/x/y.md" "$hit"; clean; ok $? "pretool: an unsearchable dir's cd error is not echoed"
   chmod 755 "$TMPDIR/wt/zebra-noexec"; fi
+# A sharedDir outside any git repo is still scanned: the edit's own repo lookup finds none there (#115).
+od="$TMPDIR/outside-shared"; mkdir -p "$od/handoffs/orca-9"; ! git -C "$od" rev-parse 2>/dev/null; ok $? "outside sharedDir is in no git repo"
+jq -n --arg s "$od" '{leakCheck:true, sharedDir:$s}' > .orca/config.json
+pre 2 "handoff in a sharedDir outside any repo blocked" Write "$od/handoffs/orca-9/x.md" "$hit"
+pre 0 "clean handoff in a sharedDir outside any repo passes" Write "$od/handoffs/orca-9/x.md" '{"content":"all clean"}'
+printf '{"leakCheck":true}\n' > .orca/config.json
 pre 0 "missing dirs under a sibling pass" Write "$S/handoffs-old/a/b/x.md" "$hit"
 mv "$S/handoffs" "$S/handoffs.away"; pre 2 "handoff before handoffs/ exists blocked" Write "$S/handoffs/orca-1/x.md" "$hit"; mv "$S/handoffs.away" "$S/handoffs"
 # A leak-check that fails for any reason blocks, and its output is not echoed.
