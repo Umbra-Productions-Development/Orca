@@ -139,17 +139,17 @@ case "$tool" in
     ;;
   Edit|Write|MultiEdit)
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
+    # ~ and ~/ expand to $HOME, as Claude Code does, for the test lock and the leak scan alike.
+    case "$f" in "~") f=$HOME;; "~/"*) f=$HOME/${f#"~/"};; esac
     # The test-edit lock ends with return, never exit: the leak scan below must run for every edit.
     test_lock() { local win p t n anc m froot glob
       [ -n "$f" ] || return 0
-      # ~ and ~/ expand to $HOME, as Claude Code does. Absolute when it starts with /, or on Windows (Git Bash,
-      # MSYS, Cygwin) with a drive (C:\ or C:/) or \\ (UNC); anything else is relative to the payload cwd.
+      # Absolute when it starts with /, or on Windows (Git Bash, MSYS, Cygwin) with a drive (C:\ or C:/) or \\
+      # (UNC); anything else is relative to the payload cwd.
       # On Windows \ reads as /; elsewhere it is an ordinary filename character and stays in its segment.
       # Then . and .. collapse as text, as Claude Code does before it follows any link.
       win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
       case "$f" in
-        "~") p=$HOME;;
-        "~/"*) p=$HOME/${f#"~/"};;
         /*) p=$f;;
         [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
         *) p=$cwd/$f;;

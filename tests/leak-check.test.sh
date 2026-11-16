@@ -362,6 +362,10 @@ pre 2 "test-lock block on a test file" Write "$TMPDIR/repo/zebra.test.sh" '{"con
 # The block names no root either: the file's repo, wherever it sits, may carry a denylisted term in its path (#115).
 zr="$TMPDIR/zebra-root"; git init -q "$zr"; mkdir -p "$zr/.orca"; printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > "$zr/.orca/config.json"
 pre 2 "test-lock block on a test file in another repo" Write "$zr/a.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the file's repo root"
+# A ~/ path into the shared dirs is scanned as its expansion, as Claude Code writes it (#115).
+printf '{"leakCheck":true}\n' > .orca/config.json
+HOME=$TMPDIR pre 2 "handoff Write by a ~/ path blocked" Write "~/repo/.orca/handoffs/orca-9/x.md" "$hit"
+HOME=$TMPDIR pre 0 "clean handoff Write by a ~/ path passes" Write "~/repo/.orca/handoffs/orca-9/x.md" '{"content":"all clean"}'
 
 # An unreadable list refuses everywhere with exit 2, named by kind, never by its path; nothing is written.
 if [ "$(id -u)" != 0 ]; then
