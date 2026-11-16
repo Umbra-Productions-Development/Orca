@@ -14,7 +14,7 @@ edit() { payload "$@" | bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo 
 lock "$A" off; lock "$B" on
 for t in Edit Write MultiEdit; do assert_eq "$(edit $t "$A" "$B/tests/x.sh")" 0 "$t: A locked, B unlocked, file in B passes"; done
 
-# Session in unlocked A, file in locked B: blocked, and the message names B's root.
+# Session in unlocked A, file in locked B: blocked, and the message names no root.
 lock "$A" on; lock "$B" off
 for t in Edit Write MultiEdit; do assert_eq "$(edit $t "$A" "$B/tests/x.sh")" 2 "$t: A unlocked, B locked, file in B blocked"; done
 err=$(payload Edit "$A" "$B/tests/x.sh" | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1 >/dev/null)
