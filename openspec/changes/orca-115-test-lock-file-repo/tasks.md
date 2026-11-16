@@ -64,4 +64,4 @@
 - [x] 10.2 Suggestion 4: `~` and `~/…` expand once at the top of the Edit|Write|MultiEdit branch, so the leak scan sees the expanded path too. Tests: `tests/leak-check.test.sh`: a `~/` Write into the handoffs with a hit is blocked, a clean one passes.
 - [x] 10.3 Suggestion 5: with `HOME` unset or empty, `~` stays as written instead of aborting the hook under `set -u`. Test: unset `HOME`, `~/b/tests/x.sh` from unlocked A exits 0, not 1.
 - [x] 10.4 Suggestions 1–3 (design.md Risks) and README's `testGlob` row: matched against the absolute physical path.
-- [ ] 10.5 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+- [x] 10.5 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
