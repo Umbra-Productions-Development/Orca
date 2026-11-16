@@ -176,7 +176,7 @@ case "$tool" in
       [ -n "$froot" ] || return 0
       glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
       if [ -n "$glob" ] && grep -qE "$glob" <<<"$m" && [ ! -f "$(git -C "$anc" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
-        block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in $froot and say why in the commit body"
+        block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in the worktree that holds the file and say why in the commit body"
       fi
     }
     test_lock

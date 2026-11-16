@@ -359,6 +359,9 @@ printf '{"leakCheck":false}\n' > .orca/config.json
 pre 0 "leakCheck false: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
 printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > .orca/config.json
 pre 2 "test-lock block on a test file" Write "$TMPDIR/repo/zebra.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the path"
+# The block names no root either: the file's repo, wherever it sits, may carry a denylisted term in its path (#115).
+zr="$TMPDIR/zebra-root"; git init -q "$zr"; mkdir -p "$zr/.orca"; printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > "$zr/.orca/config.json"
+pre 2 "test-lock block on a test file in another repo" Write "$zr/a.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the file's repo root"
 
 # An unreadable list refuses everywhere with exit 2, named by kind, never by its path; nothing is written.
 if [ "$(id -u)" != 0 ]; then

@@ -18,7 +18,8 @@ for t in Edit Write MultiEdit; do assert_eq "$(edit $t "$A" "$B/tests/x.sh")" 0 
 lock "$A" on; lock "$B" off
 for t in Edit Write MultiEdit; do assert_eq "$(edit $t "$A" "$B/tests/x.sh")" 2 "$t: A unlocked, B locked, file in B blocked"; done
 err=$(payload Edit "$A" "$B/tests/x.sh" | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1 >/dev/null)
-assert_contains "$err" "run 'orca-lc test-lock on' in $B " "block message names B's root"
+assert_contains "$err" "run 'orca-lc test-lock on' in the worktree that holds the file" "block message points to the file's worktree"
+case "$err" in *"$B"*) fail "block message never prints B's root";; esac
 
 # Own worktree unchanged.
 assert_eq "$(edit Edit "$A" "$A/tests/x.sh")" 0 "A unlocked, file in A passes"
