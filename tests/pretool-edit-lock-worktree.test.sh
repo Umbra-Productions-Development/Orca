@@ -100,8 +100,10 @@ assert_eq "$(editwin Write "$B" 'C:/../tests/x.sh')" 0 "Windows: C:/../tests/x.s
 
 # ~ expands to $HOME. B sits in HOME's dir; the session is in unlocked A.
 lock "$A" on
-assert_eq "$(payload Edit "$A" "~/b/tests/x.sh" | HOME=$(dirname "$B") bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 2 "~/ path into locked B, from unlocked A: blocked"
-assert_eq "$(payload Edit "$B" "~/b/tests/x.sh" | HOME=$plain bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 0 "~/ path into a non-repo HOME, from locked B: passes"
+# edithome <HOME> <tool> <cwd> <file_path>: edit with the hook seeing that HOME.
+edithome() { local h=$1; shift; payload "$@" | HOME=$h bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?; }
+assert_eq "$(edithome "$(dirname "$B")" Edit "$A" "~/b/tests/x.sh")" 2 "~/ path into locked B, from unlocked A: blocked"
+assert_eq "$(edithome "$plain" Edit "$B" "~/b/tests/x.sh")" 0 "~/ path into a non-repo HOME, from locked B: passes"
 lock "$A" off
 
 # On Windows testGlob sees the physical path, which has only / separators. B locked.
