@@ -296,3 +296,11 @@ The PR #116 review of 2026-11-13 was answered in fixes 1 to 9 (design.md, Review
 - [x] 8.7 install.sh: one predicate for "Orca's directory" (at or under `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$HOME/.local/bin` or the state dir, compared normalised as `norm` does), used in three places: `mkparents` records only directories it accepts; the manifest rewrite drops `dir` records it rejects, the `--force` carry-over included; uninstall's directory pass skips them, neither removing nor listing them. Makes 8.3 to 8.5 pass.
 - [x] 8.8 Docs: README's install paragraph ("records everything it creates") and uninstall paragraph ("the directories it created once they are empty") say that only Orca's own directories are recorded and removed, and that generic parents such as `~/.local` and the config dir stay. Match `docs/daily-use.md` if it says the same.
 - [x] 8.9 Run `bash tests/run.sh`, `bash tests/install-keep.sh` and `bash tests/install-config-dir.sh`; all pass. Run `orca-lc gate` and report, with each commit's sha for the orchestrator, so the install.sh:235 thread can be answered.
+
+## 9. Review of 2026-11-15, suggestions S1-S4 (user: take all)
+
+S1 and S4 are design.md wording only (`--force` carry-over drops generic `dir` records; "ours, current" covers a link into `$here` in either mode). Test edits run under `orca-lc test-lock on`, saying why in the commit body, then `orca-lc test-lock off`.
+
+- [ ] 9.1 **S2.** Add `assert_status` to every install and uninstall run in `tests/install.test.sh` that lacks one (design.md, Test isolation), setup runs included; the review lists t_optional, t_checkout_records, t_foreign_link, t_copy_update, t_userfile, t_copy_left, t_empty's second install, t_shape and t_copy_nonregular. Grep for any other.
+- [ ] 9.2 **S3.** A case for uninstall under another `HOME` spelling (design.md, Directories, one predicate): install with `HOME=$H/`, uninstall with `HOME=$H`: exit 0, no `left:` line, `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$H/.local/bin` and the state dir gone. In `t_orca_dirs_xdg`, also uninstall: exit 0, `$d/xdg/orca` gone, `$d/xdg` kept.
+- [ ] 9.3 Run `bash tests/run.sh`, `bash tests/install-keep.sh`, `bash tests/install-config-dir.sh` and `orca-lc gate`; report.
