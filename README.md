@@ -58,7 +58,7 @@ cd Orca && ./install.sh
 
 One install lives in one config dir. To move it, run `./install.sh --uninstall`, then install with the new `CLAUDE_CONFIG_DIR`; install stops, changing nothing, when the install is in another config dir. An install made before the manifest below sits in `~/.claude`, so before setting `CLAUDE_CONFIG_DIR` the first time, run `./install.sh --uninstall` with it unset.
 
-Running it twice changes nothing. It records everything it creates (links or copies, directories, and its hooks in `settings.json`) in `${XDG_STATE_HOME:-~/.local/state}/orca/install.manifest`, and uninstall reads that record. A rerun keeps one entry per Orca hook, rewriting only the command of one already there. `settings.json` is written only when it changes, keeping its mode, and through a symlink when it is one; its pre-install bytes are saved so uninstall can put them back.
+Running it twice changes nothing. It records everything it creates (links or copies, its own directories, and its hooks in `settings.json`) in `${XDG_STATE_HOME:-~/.local/state}/orca/install.manifest`, and uninstall reads that record. Its own directories are `hooks`, `skills` and `agents` in the config dir, `~/.local/bin` and the state dir; generic parents it creates on the way, such as `~/.local`, `~/.local/state` or a fresh config dir, are not recorded, since other programs write there. A rerun keeps one entry per Orca hook, rewriting only the command of one already there. `settings.json` is written only when it changes, keeping its mode, and through a symlink when it is one; its pre-install bytes are saved so uninstall can put them back.
 
 It never removes what it did not create: a skill, agent, `orca-lc` or hooks directory at an install path that is not a link into an Orca checkout or a copy of something Orca shipped (a third-party `grilling` skill, say, or a copy edited by hand) is kept, even with `--force`, and reported, and the install still exits 0. Move it aside and rerun to use Orca's. When the install belongs to another Orca checkout, it stops and changes nothing; `--force` only moves the install to the checkout it runs from.
 
@@ -91,7 +91,7 @@ New skills, agents and hooks are linked or copied, ones no longer shipped are re
 ./install.sh --uninstall
 ```
 
-It removes the links and copies install recorded, the directories it created once they are empty, and its hooks from `settings.json`: the saved original goes back byte for byte when nobody edited the file since, otherwise only Orca's hooks are removed. It leaves the checkout, the tools and every per-project `.orca/` alone. Each path it leaves in place gets a `left: <path> (<reason>)` line, and then it exits 1; with nothing left it exits 0.
+It removes the links and copies install recorded, its own directories once they are empty (generic parents such as `~/.local` and the config dir stay), and its hooks from `settings.json`: the saved original goes back byte for byte when nobody edited the file since, otherwise only Orca's hooks are removed. It leaves the checkout, the tools and every per-project `.orca/` alone. Each path it leaves in place gets a `left: <path> (<reason>)` line, and then it exits 1; with nothing left it exits 0.
 
 ## Quickstart
 
