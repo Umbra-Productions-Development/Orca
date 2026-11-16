@@ -3,7 +3,7 @@
 - [x] 1.1 In the Edit|Write|MultiEdit branch, drop `[ -n "$root" ] || exit 0`. Read `f`, stop when empty (a `return` since 9.1). Build `p`: absolute when `f` starts with `/`, and on Windows only (7.1) also with a drive (`[A-Za-z]:[\\/]`) or `\\`; else `$cwd/$f`. Then, on Windows only (8.1), `\` → `/` (design.md "Resolving the file's repo", step 2).
 - [x] 1.2 Walk up from the parent of the physical path `m` to the nearest existing directory, `anc`. Stop at a fixpoint, and return when none exists (step 4; read off `m` since 9.2).
 - [x] 1.3 `froot=$(orca_root "$anc")`; return when empty. Read `testGlob` from `$froot/.orca/config.json` and the marker from `$(git -C "$anc" rev-parse --absolute-git-dir)/orca-allow-test-edits`. Match `testGlob` against `m`, the physical path (tasks 6.2 and 9.2; design.md steps 3 and 7).
-- [x] 1.4 Block message: `... run 'orca-lc test-lock on' in $froot and say why in the commit body` (design.md "Block message").
+- [x] 1.4 Block message: `... run 'orca-lc test-lock on' in the worktree that holds the file and say why in the commit body`, no path printed (10.1; design.md "Block message").
 - [x] 1.5 Update the comment above `root=` so it says file edits are also judged by the tree they act on. Update the header comment at line 2 the same way: Edit/Write are active where the edited file's repo carries `.orca/config.json`.
 
 ## 2. Docs
@@ -39,7 +39,7 @@
 ## 7. Code re-review fix (`.orca/reviews/orca-115-code-7359b3b.md`)
 
 - [x] 7.1 Finding 1: a drive (`X:/`, `X:\`) or UNC (`\\`) `file_path` counts as absolute only when `uname -s` is MINGW*, MSYS* or CYGWIN*; elsewhere it is relative to the payload cwd, as Claude Code resolves it. Tests on Linux: `C:/../tests/x.sh` and `c:/x/../../tests/new.sh` from locked B are blocked, and `Z:\nowhere\tests\x.sh` from locked A is now blocked (it lands in A). With a stub `uname` printing MINGW64: `Z:\nowhere\tests\x.sh` from locked A and `C:/../tests/x.sh` from locked B pass.
-- [x] 7.2 Finding 2: `~` and `~/…` expand to `$HOME` before the absolute/relative case, as `absdir` does. Tests: `~/b/tests/x.sh` with `HOME` holding B, from unlocked A, B locked: blocked; with `HOME` a non-repo dir, from locked B: passes.
+- [x] 7.2 Finding 2: `~` and `~/…` expand to `$HOME` before the absolute/relative case, as `absdir` does. Since 10.2 the expansion runs once for the whole branch, and only with `HOME` set (10.3). Tests: `~/b/tests/x.sh` with `HOME` holding B, from unlocked A, B locked: blocked; with `HOME` a non-repo dir, from locked B: passes.
 - [x] 7.3 The test file exits at once when `new_repo` is missing, so a bare run outside `tests/run.sh` can't add a worktree to the cwd.
 - [x] 7.4 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
 
@@ -57,3 +57,11 @@
 - [x] 9.4 `tests/pretool-edit-lock-worktree.test.sh`: the first two cross-worktree cases run Edit, Write and MultiEdit; the `HOME` cases go through an `edithome` helper (test edits: `orca-lc test-lock on`, reason in the commit body, `test-lock off`).
 - [x] 9.5 Docs: tasks 1.1–1.3, 4.1, 5.1 and 6.2, design.md and proposal.md describe the final code (PR #140 review thread on tasks.md:3).
 - [x] 9.6 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
+
+## 10. Code review fix (`.orca/reviews/orca-115-code-f6dcaab.md`)
+
+- [x] 10.1 Should-fix 1 (user decision): the test-lock block says `in the worktree that holds the file` instead of `in $froot`, so no repo root reaches stderr. Tests: the cross-worktree block message names the worktree and never prints B's root; `tests/leak-check.test.sh`: a block in another repo whose root carries a denylisted term never echoes it (test edits: `orca-lc test-lock on`, reason in the commit body, `test-lock off`).
+- [x] 10.2 Suggestion 4: `~` and `~/…` expand once at the top of the Edit|Write|MultiEdit branch, so the leak scan sees the expanded path too. Tests: `tests/leak-check.test.sh`: a `~/` Write into the handoffs with a hit is blocked, a clean one passes.
+- [x] 10.3 Suggestion 5: with `HOME` unset or empty, `~` stays as written instead of aborting the hook under `set -u`. Test: unset `HOME`, `~/b/tests/x.sh` from unlocked A exits 0, not 1.
+- [x] 10.4 Suggestions 1–3 (design.md Risks) and README's `testGlob` row: matched against the absolute physical path.
+- [ ] 10.5 Run `orca-lc test-affected`, then `orca-lc gate`; all pass.
