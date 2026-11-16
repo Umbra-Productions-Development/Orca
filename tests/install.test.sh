@@ -219,7 +219,7 @@ one t_absent copy
 
 # 1.7 settings.json edited between install and uninstall
 t_edit_uninst() {
-  seed_settings "$C/settings.json"; inst; add_key "$C/settings.json"
+  seed_settings "$C/settings.json"; inst; assert_status "$st" 0 "$err"; add_key "$C/settings.json"
   inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(n_orca "$C/settings.json")" 0 "hooks of Orca's left"
   assert_eq "$(jq .added "$C/settings.json")" true "added key lost"; foreign_kept "$C/settings.json"
@@ -321,8 +321,8 @@ t_optional() {
     assert_contains "$out" "$name: not installed ($en)"
   done < <(table_rows)
   nothing_installed "answered n"
-  inst; assert_not_contains "$out" "[y/N]" "/dev/null stdin prompted"; nothing_installed "/dev/null"
-  IN=- inst < <(yes y); assert_not_contains "$out" "[y/N]" "piped yes prompted"; nothing_installed "piped yes"; }
+  inst; assert_status "$st" 0 "$err"; assert_not_contains "$out" "[y/N]" "/dev/null stdin prompted"; nothing_installed "/dev/null"
+  IN=- inst < <(yes y); assert_status "$st" 0 "$err"; assert_not_contains "$out" "[y/N]" "piped yes prompted"; nothing_installed "piped yes"; }
 one t_optional copy
 
 # 1.10b mixed answers
@@ -446,7 +446,7 @@ t_checkout() {
   assert_eq "$(snapshot "$HOME" | no_generic)" "$(no_generic <<<"$h0")" "\$HOME after uninstall"; }
 both t_checkout
 t_checkout_records() {
-  mk_src2; inst; echo edit >> "$C/skills/orca/SKILL.md"; inst
+  mk_src2; inst; assert_status "$st" 0 "$err"; echo edit >> "$C/skills/orca/SKILL.md"; inst; assert_status "$st" 0 "$err"
   has_rec edited "$C/skills/orca$TAB" || fail "setup: no edited record"
   SRC=$d/src2 inst --force; assert_status "$st" 0 "$err"
   has_rec config "$C$" || fail "config record not carried"; has_rec hooks-key "" || fail "hooks-key not carried"
@@ -465,7 +465,7 @@ t_checkout_legacy_link() {
   no_bak; assert_eq "$(snapshot "$d/src")" "$s0" "src touched"; }
 one t_checkout_legacy_link link
 t_foreign_link() {
-  inst; mkdir -p "$d/elsewhere/grilling"; echo x > "$d/elsewhere/grilling/SKILL.md"
+  inst; assert_status "$st" 0 "$err"; mkdir -p "$d/elsewhere/grilling"; echo x > "$d/elsewhere/grilling/SKILL.md"
   rm "$C/skills/grilling"; ln -s "$d/elsewhere/grilling" "$C/skills/grilling"
   inst; assert_status "$st" 0 "$err"
   assert_eq "$(readlink "$C/skills/grilling")" "$d/elsewhere/grilling"
@@ -475,7 +475,7 @@ one t_foreign_link link
 # 1.16 copy-mode update
 t_copy_update() {
   t=$C/skills/orca
-  inst; echo "upstream change" >> "$SRC/skills/orca/SKILL.md"; inst
+  inst; assert_status "$st" 0 "$err"; echo "upstream change" >> "$SRC/skills/orca/SKILL.md"; inst; assert_status "$st" 0 "$err"
   cmp -s "$t/SKILL.md" "$SRC/skills/orca/SKILL.md" || fail "copy not refreshed after a pull"
   echo "my edit" >> "$t/SKILL.md"; cp "$t/SKILL.md" "$d/mine"
   for n in 1 2; do
@@ -529,7 +529,9 @@ both t_orca_dirs_cfg
 t_orca_dirs_xdg() {
   export XDG_STATE_HOME=$d/xdg; M=$d/xdg/orca/install.manifest
   inst --no-optional; assert_status "$st" 0 "$err"
-  dirrec "$d/xdg/orca" || fail "no dir record for the state dir"; ! dirrec "$d/xdg" || fail "dir record for $d/xdg"; }
+  dirrec "$d/xdg/orca" || fail "no dir record for the state dir"; ! dirrec "$d/xdg" || fail "dir record for $d/xdg"
+  inst --uninstall; assert_status "$st" 0 "$out $err"
+  [ ! -e "$d/xdg/orca" ] || fail "$d/xdg/orca not removed"; [ -d "$d/xdg" ] || fail "$d/xdg removed"; }
 both t_orca_dirs_xdg
 
 # 8.4 an older manifest's dir records for generic parents are ignored by uninstall and dropped by install
@@ -556,7 +558,7 @@ one t_old_force link
 
 # 1.17b uninstall with a user file
 t_userfile() {
-  inst; echo mine > "$C/skills/mine.txt"; cp "$C/skills/mine.txt" "$d/mine"
+  inst; assert_status "$st" 0 "$err"; echo mine > "$C/skills/mine.txt"; cp "$C/skills/mine.txt" "$d/mine"
   inst --uninstall; assert_status "$st" 1 "uninstall leaving a file"
   cmp -s "$C/skills/mine.txt" "$d/mine" || fail "user file changed"
   assert_eq "$(grep '^left:' <<<"$out")" "left: $C/skills (not empty: holds files Orca did not create)"; }
@@ -564,7 +566,7 @@ both t_userfile
 
 # 1.18 copy mode: edited copy and a foreign file
 t_copy_left() {
-  inst; echo edit >> "$C/skills/orca/SKILL.md"; echo note > "$C/skills/orca/NOTES.md"; echo mine > "$C/agents/mine.md"
+  inst; assert_status "$st" 0 "$err"; echo edit >> "$C/skills/orca/SKILL.md"; echo note > "$C/skills/orca/NOTES.md"; echo mine > "$C/agents/mine.md"
   cp -R "$C/skills/orca" "$d/saved"
   inst --uninstall; assert_status "$st" 1 "uninstall leaving files"
   assert_eq "$(grep '^left:' <<<"$out" | LC_ALL=C sort)" "$(printf '%s\n' "left: $C/agents (not empty: holds files Orca did not create)" "left: $C/skills/orca (edited since install)" | LC_ALL=C sort)"
@@ -671,7 +673,7 @@ both t_orphan removed; both t_orphan kept; one t_orphan copy edited; both t_orph
 # 5.3 -h is --help
 t_h() {
   inst -h; assert_status "$st" 0 "-h"; o=$out; assert_eq "$err" "" "-h wrote stderr"
-  inst --help; assert_eq "$o" "$out" "-h differs from --help"; [ -n "$o" ] || fail "-h printed nothing"; }
+  inst --help; assert_status "$st" 0 "--help"; assert_eq "$o" "$out" "-h differs from --help"; [ -n "$o" ] || fail "-h printed nothing"; }
 one t_h copy
 
 # 5.4 uninstall needs only git and jq
@@ -784,9 +786,9 @@ t_shape() { local j
     shape_run "uninstall $j" "$j" --uninstall
   done
   rm -rf "$HOME"; mkdir -p "$C"; printf '{' > "$C/settings.json"
-  inst --no-optional; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"
-  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; printf '{' > "$C/settings.json"
-  inst --uninstall; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"; }
+  inst --no-optional; assert_status "$st" 1 "invalid JSON install"; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"; printf '{' > "$C/settings.json"
+  inst --uninstall; assert_status "$st" 1 "invalid JSON uninstall"; assert_contains "$err" "not valid JSON"; assert_not_contains "$err" "not a Claude settings object"; }
 both t_shape
 
 # --- 7.x: re-review fixes (design.md, Decisions: Empty and multi-document settings.json) ---
@@ -798,7 +800,8 @@ t_empty() { local c a
     assert_contains "$out" "hooks registered in $C/settings.json"
     assert_eq "$(n_orca "$C/settings.json")" 4 "four hooks of Orca's"
     assert_eq "$(jq -s 'length == 1 and (.[0] | type == "object")' "$C/settings.json")" true "one object"
-    a=$(snapshot "$HOME"); inst --no-optional; assert_eq "$(snapshot "$HOME")" "$a" "second install changed something"
+    a=$(snapshot "$HOME"); inst --no-optional; assert_status "$st" 0 "second install: $err"
+    assert_eq "$(snapshot "$HOME")" "$a" "second install changed something"
     inst --uninstall; assert_status "$st" 0 "$out $err"
     cmp -s "$C/settings.json" "$d/saved" || fail "empty bytes not restored"
   done
@@ -863,6 +866,12 @@ t_home_spelling() { local H=$HOME
     [ -e "$H/.local/bin/orca-lc" ] || fail "orca-lc gone after HOME=$sp"
   done; }
 both t_home_spelling
+# 9.2 (review S3) install under HOME=$H/, uninstall under HOME=$H: the dir records are judged Orca's all the same
+t_home_spelling_uninst() { local H=$HOME x
+  HOME=$H/ inst --no-optional; assert_status "$st" 0 "$err"
+  inst --uninstall; assert_status "$st" 0 "$out $err"; assert_not_contains "$out" "left:"
+  for x in "$C/hooks" "$C/skills" "$C/agents" "$H/.local/bin" "$H/.local/state/orca"; do [ ! -e "$x" ] || fail "$x not removed"; done; }
+both t_home_spelling_uninst
 
 # R5 (review 5) a jq that ends lines with CRLF, as a native jq.exe does under Git Bash
 t_crlf_jq() {
@@ -896,6 +905,6 @@ t_copy_nonregular() {
   inst --uninstall; assert_status "$st" 1 "$out $err"
   assert_contains "$out" "left: $C/skills/orca (edited since install)"
   [ -L "$C/skills/orca/my-notes" ] || fail "user link removed"; [ -d "$C/skills/orca/emptydir" ] || fail "user dir removed"
-  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; mkdir "$C/skills/orca/emptydir"
+  rm -rf "$HOME"; mkdir "$HOME"; inst --no-optional; assert_status "$st" 0 "$err"; mkdir "$C/skills/orca/emptydir"
   inst --uninstall; assert_status "$st" 1 "$out $err"; [ -d "$C/skills/orca/emptydir" ] || fail "user empty dir removed"; }
 one t_copy_nonregular copy
