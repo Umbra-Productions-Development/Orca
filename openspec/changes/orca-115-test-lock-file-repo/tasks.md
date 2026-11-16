@@ -60,7 +60,7 @@
 
 ## 10. Code review fix (`.orca/reviews/orca-115-code-f6dcaab.md`)
 
-- [x] 10.1 Should-fix 1 (user decision): the test-lock block says `in the worktree that holds the file` instead of `in $froot`, so no repo root reaches stderr. Tests: the cross-worktree block message names the worktree and never prints B's root; `tests/leak-check.test.sh`: a block in another repo whose root carries a denylisted term never echoes it (test edits: `orca-lc test-lock on`, reason in the commit body, `test-lock off`).
+- [x] 10.1 Should-fix 1 (user decision): the test-lock block says `in the worktree that holds the file` instead of `in $froot`, so no repo root reaches stderr. Tests: the cross-worktree block message says `in the worktree that holds the file` and never prints B's root; `tests/leak-check.test.sh`: a block in another repo whose root carries a denylisted term never echoes it (test edits: `orca-lc test-lock on`, reason in the commit body, `test-lock off`).
 - [x] 10.2 Suggestion 4: `~` and `~/…` expand once at the top of the Edit|Write|MultiEdit branch, so the leak scan sees the expanded path too. Tests: `tests/leak-check.test.sh`: a `~/` Write into the handoffs with a hit is blocked, a clean one passes.
 - [x] 10.3 Suggestion 5: with `HOME` unset or empty, `~` stays as written instead of aborting the hook under `set -u`. Test: unset `HOME`, `~/b/tests/x.sh` from unlocked A exits 0, not 1.
 - [x] 10.4 Suggestions 1–3 (design.md Risks) and README's `testGlob` row: matched against the absolute physical path.
