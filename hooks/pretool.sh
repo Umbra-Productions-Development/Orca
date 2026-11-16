@@ -154,11 +154,12 @@ case "$tool" in
       esac
       [ -n "$win" ] && p=${p//\\//}
       p=$(textpath "$p")
-      # A symlinked file is judged as its target: that repo, that lock, that path for testGlob.
-      if [ -L "$p" ]; then t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ] && p=$t; fi
-      # testGlob always matches the physical path m: each existing dir through cd -P, so a symlinked dir shows
-      # as its target, and the missing tail as written. p if a dir can't be entered.
-      if abspath "$p" "$win"; then m=$ap; else m=$p; fi
+      # testGlob always matches the physical path m. A symlinked file is judged as its target: readlink -f
+      # gives it already physical, for that repo, that lock, that path. Otherwise each existing dir goes
+      # through cd -P, so a symlinked dir shows as its target, and the missing tail stays as written; p if a
+      # dir can't be entered.
+      if [ -L "$p" ] && t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ]; then m=$t
+      elif abspath "$p" "$win"; then m=$ap; else m=$p; fi
       # Nearest existing ancestor of the file's directory, for its repo and lock: a new file in a new dir
       # resolves through the first one that exists. Ends at a fixpoint (/, a missing drive root): no repo.
       anc=${m%/*}
