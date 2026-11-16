@@ -19,7 +19,9 @@ advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventN
 abspath() { local p="$1" c d; ap=""
   case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
   if [ -n "${2:-}" ]; then case "$p" in
-    [A-Za-z]:/*) d=${p:0:2}; p=${p:3};;
+    # The drive root itself goes through cd -P too, so a file right under it reads /c/x.sh as in Git Bash.
+    [A-Za-z]:/*) d=${p:0:2}; p=${p:3}
+      [ -d "$d/" ] && { d=$(CDPATH='' cd -P -- "$d/" 2>/dev/null && pwd -P) || return 1; };;
     //?*) p=${p#//}; d=//${p%%/*}; case "$p" in */*) p=${p#*/};; *) p="";; esac;;
   esac; fi
   while [ -n "$p" ]; do
