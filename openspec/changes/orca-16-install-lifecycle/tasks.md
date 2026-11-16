@@ -303,4 +303,4 @@ S1 and S4 are design.md wording only (`--force` carry-over drops generic `dir` r
 
 - [x] 9.1 **S2.** Add `assert_status` to every install and uninstall run in `tests/install.test.sh` that lacks one (design.md, Test isolation), setup runs included; the review lists t_optional, t_checkout_records, t_foreign_link, t_copy_update, t_userfile, t_copy_left, t_empty's second install, t_shape and t_copy_nonregular. Grep for any other.
 - [x] 9.2 **S3.** A case for uninstall under another `HOME` spelling (design.md, Directories, one predicate): install with `HOME=$H/`, uninstall with `HOME=$H`: exit 0, no `left:` line, `<cfg>/hooks`, `<cfg>/skills`, `<cfg>/agents`, `$H/.local/bin` and the state dir gone. In `t_orca_dirs_xdg`, also uninstall: exit 0, `$d/xdg/orca` gone, `$d/xdg` kept.
-- [ ] 9.3 Run `bash tests/run.sh`, `bash tests/install-keep.sh`, `bash tests/install-config-dir.sh` and `orca-lc gate`; report.
+- [x] 9.3 Run `bash tests/run.sh`, `bash tests/install-keep.sh`, `bash tests/install-config-dir.sh` and `orca-lc gate`; report.
