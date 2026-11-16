@@ -233,14 +233,27 @@ settings_check() {
   fi; }
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 
-# Directories Orca creates are recorded, so uninstall can remove them when empty. mkparents <dir> [private] creates
-# <dir> and its missing parents (under umask 077 when private).
+# orca_dir <dir>: <dir> is Orca's directory, at or under <cfg>/hooks, <cfg>/skills, <cfg>/agents, ~/.local/bin or the
+# state dir. Generic parents (~/.local, ~/.local/state, <cfg> itself) are not: other programs write there. Both sides
+# are compared as norm compares spellings, resolving the deepest part of the path that exists. The one definition of
+# Orca's directory: mkparents, the manifest rewrite and uninstall's directory pass all call it.
+pnorm() { local p=$1 tail= r
+  while [ ${#p} -gt 1 ] && [ "${p%/}" != "$p" ]; do p=${p%/}; done
+  while [ ! -d "$p" ] && [ "$p" != / ] && [ "$p" != . ]; do tail=/$(basename "$p")$tail; p=$(dirname "$p"); done
+  r=$(norm "$p"); [ "$r" != / ] || r=; printf '%s%s\n' "$r" "$tail"; }
+orca_dir() { local p r
+  p=$(pnorm "$1")
+  for r in "$cfg/hooks" "$cfg/skills" "$cfg/agents" "$HOME/.local/bin" "$state"; do
+    case $p/ in "$(pnorm "$r")"/*) return 0;; esac
+  done; return 1; }
+# Orca's directories it creates are recorded, so uninstall can remove them when empty. mkparents <dir> [private]
+# creates <dir> and its missing parents (under umask 077 when private).
 NEWDIRS=()
 mkparents() { local d=$1 miss=() i
   while [ ! -d "$d" ]; do miss=("$d" ${miss[@]+"${miss[@]}"}); d=$(dirname "$d"); done
   [ ${#miss[@]} -gt 0 ] || return 0
   if [ "${2:-}" = private ]; then (umask 077; mkdir -p "$1"); else mkdir -p "$1"; fi
-  for i in "${miss[@]}"; do NEWDIRS+=("$i"); done; }
+  for i in "${miss[@]}"; do orca_dir "$i" && NEWDIRS+=("$i"); done; return 0; }
 in_list() { local x=$1 y; shift; for y in "$@"; do [ "$x" = "$y" ] && return 0; done; return 1; }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -309,6 +322,7 @@ if [ $uninst = 1 ]; then
   rm -f "$M" "$ORIG"; rmdir "$state" 2>/dev/null || true
   # A recorded dir is listed only when it directly holds something no left: line or kept recorded dir names. The s_jq
   # settings.json is not left, so it does not list its dir either.
+  # A dir record that is not Orca's directory (an older manifest's generic parent) is neither removed nor listed.
   KEPTD=()
   while IFS= read -r d; do
     [ -n "$d" ] && [ -d "$d" ] && [ ! -L "$d" ] || continue
@@ -318,7 +332,7 @@ if [ $uninst = 1 ]; then
       [ "$e" = "$s_jq" ] || in_list "$e" ${LEFT[@]+"${LEFT[@]}"} || in_list "$e" ${KEPTD[@]+"${KEPTD[@]}"} || { foreign=1; break; }; done
     KEPTD+=("$d")
     [ $foreign = 0 ] || left "$d" "not empty: holds files Orca did not create"
-  done < <(for l in ${MREC[@]+"${MREC[@]}"}; do case $l in "dir$TAB"*) printf '%s\n' "${l#dir"$TAB"}";; esac; done \
+  done < <(for l in ${MREC[@]+"${MREC[@]}"}; do case $l in "dir$TAB"*) orca_dir "${l#dir"$TAB"}" && printf '%s\n' "${l#dir"$TAB"}";; esac; done \
              | awk '{ print length($0) "\t" $0 }' | sort -rn | cut -f2-)
   [ ${#LEFT[@]} = 0 ] || exit 1
   exit 0
@@ -443,7 +457,8 @@ echo "hooks registered in $S"
 mkparents "$state" private
 NREC=("checkout$TAB$here" "config$TAB$cfg" "mode$TAB$mode" ${NT[@]+"${NT[@]}"})
 OLDD=()
-for l in ${MREC[@]+"${MREC[@]}"}; do case $l in "dir$TAB"*) OLDD+=("${l#dir"$TAB"}"); NREC+=("$l");; esac; done
+# An older manifest's dir record for a generic parent is dropped here, the --force carry-over included.
+for l in ${MREC[@]+"${MREC[@]}"}; do case $l in "dir$TAB"*) orca_dir "${l#dir"$TAB"}" || continue; OLDD+=("${l#dir"$TAB"}"); NREC+=("$l");; esac; done
 for d in ${NEWDIRS[@]+"${NEWDIRS[@]}"}; do in_list "$d" ${OLDD[@]+"${OLDD[@]}"} || { OLDD+=("$d"); NREC+=("dir$TAB$d"); }; done
 [ -z "$r_created" ] || NREC+=("settings-created$TAB$r_created")
 [ -z "$r_orig" ] || NREC+=("settings-orig$TAB$r_orig")
