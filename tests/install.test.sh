@@ -38,6 +38,8 @@ exit 0"
   SRC=$d/src C=$HOME/.claude M=$HOME/.local/state/orca/install.manifest
   case $HOME in "$d"/*) ;; *) fail "HOME is outside the sandbox: $HOME";; esac
 }
+# no_generic: a snapshot without the generic parents ~/.claude, ~/.local and ~/.local/state, which uninstall leaves (8.5).
+no_generic() { grep -vE '^D \./(\.claude|\.local|\.local/state)( |$)'; }
 # guard: $CLAUDE_CONFIG_DIR, when a case sets it, is inside the sandbox.
 guard() { if [ -n "${CLAUDE_CONFIG_DIR:-}" ]; then case $CLAUDE_CONFIG_DIR in "$d"/*) ;; *) fail "CLAUDE_CONFIG_DIR outside the sandbox";; esac; fi; }
 
@@ -163,7 +165,7 @@ t_cfgdir() {
   assert_eq "$(snapshot "$HOME")" "$h1" "rerun changed \$HOME"; assert_eq "$(snapshot "$d/cfg")" "$c1" "rerun changed the config dir"
   inst --uninstall; assert_status "$st" 0 "$out $err"
   cmp -s "$d/cfg/settings.json" "$d/saved" || fail "settings.json not byte-identical"
-  assert_eq "$(snapshot "$HOME")" "$h0" "uninstall left \$HOME changed"; assert_eq "$(snapshot "$d/cfg")" "$c0" "uninstall left the config dir changed"; }
+  assert_eq "$(snapshot "$HOME" | no_generic)" "$(no_generic <<<"$h0")" "uninstall left \$HOME changed"; assert_eq "$(snapshot "$d/cfg")" "$c0" "uninstall left the config dir changed"; }
 both t_cfgdir
 
 # 1.5c another config dir
@@ -188,7 +190,9 @@ t_othercfg() {
   done
   inst --uninstall; assert_status "$st" 0 "$out $err"
   assert_eq "$(head -n1 <<<"$out")" "config dir: $d/cfg"
-  assert_eq "$(snapshot "$HOME")" "$h0" "\$HOME after uninstall"; assert_eq "$(snapshot "$d/cfg")" "$c0" "config dir after uninstall"; }
+  assert_eq "$(snapshot "$HOME" | no_generic)" "$(no_generic <<<"$h0")" "\$HOME after uninstall"
+  assert_eq "$c0" "(absent)" "setup: config dir existed"
+  [ -d "$d/cfg" ] && [ -z "$(ls -A "$d/cfg")" ] || fail "config dir after uninstall is not the empty generic parent"; }
 both t_othercfg
 
 # 1.5d legacy install, new config dir
@@ -439,7 +443,7 @@ t_checkout() {
   done
   SRC=$d/src2 inst --uninstall; assert_status "$st" 0 "$out $err"
   cmp -s "$C/settings.json" "$d/saved" || fail "settings.json not restored"
-  assert_eq "$(snapshot "$HOME")" "$h0" "\$HOME after uninstall"; }
+  assert_eq "$(snapshot "$HOME" | no_generic)" "$(no_generic <<<"$h0")" "\$HOME after uninstall"; }
 both t_checkout
 t_checkout_records() {
   mk_src2; inst; echo edit >> "$C/skills/orca/SKILL.md"; inst
@@ -488,12 +492,67 @@ t_copy_update() {
   has_rec copy "$t$TAB" || fail "no copy record"; ! has_rec edited "$t$TAB" || fail "edited record left"; }
 one t_copy_update copy
 
-# 1.17a clean uninstall
+# 1.17a clean uninstall: $HOME is back as it was, plus the empty generic parents, which Orca never records (8.5)
 t_clean() {
   a=$(snapshot "$HOME"); inst; assert_status "$st" 0 "$err"
   inst --uninstall; assert_status "$st" 0 "$out $err"; assert_not_contains "$out" "left:"
-  assert_eq "$(snapshot "$HOME")" "$a" "uninstall did not restore \$HOME"; }
+  assert_eq "$(cd "$HOME" && find . -mindepth 1 | LC_ALL=C sort)" "$(printf '%s\n' ./.claude ./.local ./.local/state)" \
+    "uninstall left more than the empty generic parents"
+  assert_eq "$(snapshot "$HOME" | no_generic)" "$a" "uninstall did not restore \$HOME"; }
 both t_clean
+
+# 8.3 only Orca's directories are recorded; generic parents are neither recorded nor listed
+dirrec() { awk -F'\t' -v p="$1" '$1 == "dir" && $2 == p { f = 1 } END { exit !f }' "$M"; }
+orca_dirs() { printf '%s\n' "$C/hooks" "$C/skills" "$C/agents" "$HOME/.local/bin" "${XDG_STATE_HOME:-$HOME/.local/state}/orca"; }
+foreign_add() {
+  mkdir -p "$HOME/.local/share/app"; echo app > "$HOME/.local/share/app/d"; echo hist > "$C/history.jsonl"
+  cp "$HOME/.local/share/app/d" "$d/f1"; cp "$C/history.jsonl" "$d/f2"; }
+foreign_same() {
+  cmp -s "$HOME/.local/share/app/d" "$d/f1" || fail "$HOME/.local/share/app/d changed"
+  cmp -s "$C/history.jsonl" "$d/f2" || fail "$C/history.jsonl changed"; }
+t_orca_dirs() { local x
+  inst --no-optional; assert_status "$st" 0 "$err"
+  while IFS= read -r x; do dirrec "$x" || fail "no dir record for $x"; done < <(orca_dirs)
+  for x in "$HOME/.local" "$HOME/.local/state" "$C"; do ! dirrec "$x" || fail "dir record for generic $x"; done
+  foreign_add
+  inst --uninstall; assert_status "$st" 0 "$out $err"; assert_not_contains "$out" "left:"; foreign_same
+  while IFS= read -r x; do [ ! -e "$x" ] || fail "$x not removed"; done < <(orca_dirs); }
+both t_orca_dirs
+t_orca_dirs_cfg() {
+  export CLAUDE_CONFIG_DIR=$d/cfg; C=$d/cfg
+  inst --no-optional; assert_status "$st" 0 "$err"
+  ! dirrec "$d/cfg" || fail "dir record for the config dir"
+  echo hist > "$d/cfg/history.jsonl"
+  inst --uninstall; assert_status "$st" 0 "$out $err"; assert_not_contains "$out" "left:"
+  assert_eq "$(cat "$d/cfg/history.jsonl")" hist "config dir file changed"; }
+both t_orca_dirs_cfg
+t_orca_dirs_xdg() {
+  export XDG_STATE_HOME=$d/xdg; M=$d/xdg/orca/install.manifest
+  inst --no-optional; assert_status "$st" 0 "$err"
+  dirrec "$d/xdg/orca" || fail "no dir record for the state dir"; ! dirrec "$d/xdg" || fail "dir record for $d/xdg"; }
+both t_orca_dirs_xdg
+
+# 8.4 an older manifest's dir records for generic parents are ignored by uninstall and dropped by install
+old_dirs() { printf 'dir\t%s\n' "$HOME/.local" "$HOME/.local/state" "$C" >> "$M"; }
+no_old_dirs() { local x; for x in "$HOME/.local" "$HOME/.local/state" "$C"; do ! dirrec "$x" || fail "$1: dir record for $x"; done; }
+t_old_uninst() { local x
+  inst --no-optional; assert_status "$st" 0 "$err"; old_dirs; foreign_add
+  inst --uninstall; assert_status "$st" 0 "$out $err"; assert_not_contains "$out" "left:"; foreign_same
+  for x in "$HOME/.local" "$HOME/.local/state" "$C"; do [ -d "$x" ] || fail "$x removed"; done; }
+both t_old_uninst
+t_old_reinst() {
+  inst --no-optional; assert_status "$st" 0 "$err"; cp "$M" "$d/m0"; old_dirs; foreign_add
+  a=$(snapshot "$HOME" | grep -v 'install\.manifest')
+  inst --no-optional; assert_status "$st" 0 "$err"
+  cmp -s "$M" "$d/m0" || fail "manifest is not the fresh one: $(diff "$d/m0" "$M")"
+  assert_eq "$(snapshot "$HOME" | grep -v 'install\.manifest')" "$a" "the rewrite changed something besides the manifest"
+  b=$(snapshot "$HOME"); inst --no-optional; assert_status "$st" 0 "$err"
+  assert_eq "$(snapshot "$HOME")" "$b" "third install changed something"; }
+both t_old_reinst
+t_old_force() {
+  inst --no-optional; assert_status "$st" 0 "$err"; old_dirs; mk_src2
+  SRC=$d/src2 inst --force --no-optional; assert_status "$st" 0 "$err"; no_old_dirs "--force"; }
+one t_old_force link
 
 # 1.17b uninstall with a user file
 t_userfile() {
