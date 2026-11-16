@@ -105,6 +105,8 @@ lock "$A" on
 edithome() { local h=$1; shift; payload "$@" | HOME=$h bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?; }
 assert_eq "$(edithome "$(dirname "$B")" Edit "$A" "~/b/tests/x.sh")" 2 "~/ path into locked B, from unlocked A: blocked"
 assert_eq "$(edithome "$plain" Edit "$B" "~/b/tests/x.sh")" 0 "~/ path into a non-repo HOME, from locked B: passes"
+# An unset HOME leaves ~ as written instead of aborting the hook (exit 1 lets the edit through unchecked).
+assert_eq "$(payload Edit "$A" "~/b/tests/x.sh" | env -u HOME bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1; echo $?)" 0 "unset HOME, ~/ path from unlocked A: hook exits 0, not 1"
 lock "$A" off
 
 # On Windows testGlob sees the physical path, which has only / separators. B locked.

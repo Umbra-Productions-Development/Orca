@@ -139,8 +139,9 @@ case "$tool" in
     ;;
   Edit|Write|MultiEdit)
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
-    # ~ and ~/ expand to $HOME, as Claude Code does, for the test lock and the leak scan alike.
-    case "$f" in "~") f=$HOME;; "~/"*) f=$HOME/${f#"~/"};; esac
+    # ~ and ~/ expand to $HOME, as Claude Code does, for the test lock and the leak scan alike. With HOME unset or
+    # empty ~ stays as written: set -u would abort the hook, and exit 1 lets the edit through unchecked.
+    if [ -n "${HOME:-}" ]; then case "$f" in "~") f=$HOME;; "~/"*) f=$HOME/${f#"~/"};; esac; fi
     # The test-edit lock ends with return, never exit: the leak scan below must run for every edit.
     test_lock() { local win p t n anc m froot glob
       [ -n "$f" ] || return 0
