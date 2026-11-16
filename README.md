@@ -22,7 +22,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 ## What it enforces
 
 - **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree. `git push` is refused without a fresh marker; `git merge` is always refused.
-- **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set for the worktree.
+- **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set in the worktree that holds the file, whatever the session's cwd.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
 - **Stacked PRs:** `orca-lc stack add|list|rebase|prs` keeps one branch per change in the worktree and opens their PRs on each other. `prs` runs only from the top of the stack, behind the same gate, and `rebase` carries the stack over a squash merge. It drives gh-stack or plain git + `gh pr`, as `stackTool` says.
@@ -76,7 +76,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `gate` | Command that must pass before a push |
 | `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has, and a hit fails it; `discover`, `role start` and `inbox send` refuse denylisted text, and pretool blocks such writes into the shared handoffs and discoveries, and any write there it could not scan (a stale install: re-run `install.sh`). Default off |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
-| `testGlob` | Regex for test file paths, guarded by the test lock |
+| `testGlob` | Regex for test file paths, guarded by the test lock. Matched against the edited file's absolute physical path (links resolved), so anchor it to a directory such as `[/\\]tests[/\\]`, not to the repo root (`^tests/` never matches) |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |

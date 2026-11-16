@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# PreToolUse. Active only where <repo>/.orca/config.json exists. Exit 2 blocks; stderr reaches the session.
+# PreToolUse. Active only where <repo>/.orca/config.json exists: the repo a push, commit or edited file acts on,
+# else the session cwd's. Exit 2 blocks; stderr reaches the session.
 set -uo pipefail
 in=$(cat)
 cwd=$(jq -r '.cwd // empty' <<<"$in"); cd "${cwd:-.}" 2>/dev/null || exit 0
@@ -12,8 +13,17 @@ advise() { jq -n --arg m "$1" '{systemMessage:$m, hookSpecificOutput:{hookEventN
 # existing directory is resolved through cd -P, so a symlink after a missing dir and ".." is still followed; a missing
 # one is kept as written, and ".." drops the last component. readlink -f fails past one missing part; BSD has no -m.
 # The result goes to $ap, not stdout: $(...) would strip a trailing newline from the last name.
+# Reads ".." physically, after any link before it: use it to compare directories, as the leak scan does. For
+# the path an edit names use textpath first, as the test lock does, so no ".." is left for abspath to read.
+# A non-empty $2 (Windows) also takes a drive (C:/) or UNC (//host) root as absolute.
 abspath() { local p="$1" c d; ap=""
   case "$p" in /*) d=/;; *) d=$(pwd -P);; esac
+  if [ -n "${2:-}" ]; then case "$p" in
+    # The drive root itself goes through cd -P too, so a file right under it reads /c/x.sh as in Git Bash.
+    [A-Za-z]:/*) d=${p:0:2}; p=${p:3}
+      [ -d "$d/" ] && { d=$(CDPATH='' cd -P -- "$d/" 2>/dev/null && pwd -P) || return 1; };;
+    //?*) p=${p#//}; d=//${p%%/*}; case "$p" in */*) p=${p#*/};; *) p="";; esac;;
+  esac; fi
   while [ -n "$p" ]; do
     c=${p%%/*}; if [ "$c" = "$p" ]; then p=""; else p=${p#*/}; fi
     case "$c" in ""|.) ;; ..) d=${d%/*}; d=${d:-/};; *) d="${d%/}/$c";; esac
@@ -24,6 +34,19 @@ abspath() { local p="$1" c d; ap=""
 }
 # Top of the repo holding $1 when it carries .orca/config.json, else nothing.
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
+# textpath <path with / separators>: . and .. collapsed as text (like Node's path.resolve), links not
+# followed. Keeps a leading /, // (UNC) or drive (C:/); .. above the root stays at the root.
+# Reads ".." as text, the way Claude Code resolves a file_path before it follows any link: use it for the
+# path an edit names, then abspath for its physical form. For comparing directories use abspath alone.
+textpath() {
+  local s=$1 pre="" c out=() parts=() IFS=/
+  case "$s" in //*) pre=//;; /*) pre=/;; [A-Za-z]:/*) pre=${s:0:3};; esac
+  read -rd '' -a parts < <(printf %s "${s#"$pre"}") || true
+  for c in "${parts[@]}"; do
+    case "$c" in ""|.) ;; ..) [ ${#out[@]} -gt 0 ] && unset 'out[${#out[@]}-1]';; *) out+=("$c");; esac
+  done
+  echo "$pre${out[*]}"
+}
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
 
 # git_targets <verb> <command> [dir]: the directory each `git [global opts] <verb>` in the command acts on,
@@ -79,9 +102,10 @@ git_seg() {
   else echo "$d"; fi
 }
 
-# push and commit are judged in the repo they act on, not the session's cwd: a push into an Orca repo is
-# gated from wherever it is typed, and one into a repo without .orca/config.json is left alone even from
-# an Orca cwd. Everything else stays active only where the cwd's repo carries the config.
+# push, commit and file edits are judged in the repo they act on, not the session's cwd: a push into an
+# Orca repo is gated from wherever it is typed, and one into a repo without .orca/config.json is left alone
+# even from an Orca cwd. An Edit/Write is judged by the repo and worktree holding the file: its testGlob,
+# its test lock. Everything else stays active only where the cwd's repo carries the config.
 root=$(orca_root .)
 case "$tool" in
   Bash)
@@ -114,16 +138,53 @@ case "$tool" in
     fi
     ;;
   Edit|Write|MultiEdit)
-    [ -n "$root" ] || exit 0
     f=$(jq -r '.tool_input.file_path // ""' <<<"$in")
-    glob=$(jq -r '.testGlob // empty' "$root/.orca/config.json")
-    if [ -n "$glob" ] && grep -qE "$glob" <<<"$f" && [ ! -f "$(git rev-parse --git-dir)/orca-allow-test-edits" ]; then
-      block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' and say why in the commit body"
-    fi
+    # ~ and ~/ expand to $HOME, as Claude Code does, for the test lock and the leak scan alike. With HOME unset or
+    # empty ~ stays as written: set -u would abort the hook, and exit 1 lets the edit through unchecked.
+    if [ -n "${HOME:-}" ]; then case "$f" in "~") f=$HOME;; "~/"*) f=$HOME/${f#"~/"};; esac; fi
+    # The test-edit lock ends with return, never exit: the leak scan below must run for every edit.
+    test_lock() { local win p t n anc m froot glob
+      [ -n "$f" ] || return 0
+      # Absolute when it starts with /, or on Windows (Git Bash, MSYS, Cygwin) with a drive (C:\ or C:/) or \\
+      # (UNC); anything else is relative to the payload cwd.
+      # On Windows \ reads as /; elsewhere it is an ordinary filename character and stays in its segment.
+      # Then . and .. collapse as text, as Claude Code does before it follows any link.
+      win=""; case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) win=1;; esac
+      case "$f" in
+        /*) p=$f;;
+        [A-Za-z]:[\\/]*|'\\'*) if [ -n "$win" ]; then p=$f; else p=$cwd/$f; fi;;
+        *) p=$cwd/$f;;
+      esac
+      [ -n "$win" ] && p=${p//\\//}
+      p=$(textpath "$p")
+      # testGlob always matches the physical path m. A symlinked file is judged as its target: readlink -f
+      # gives it already physical, for that repo, that lock, that path. Otherwise each existing dir goes
+      # through cd -P, so a symlinked dir shows as its target, and the missing tail stays as written; p if a
+      # dir can't be entered.
+      if [ -L "$p" ] && t=$(readlink -f "$p" 2>/dev/null) && [ -n "$t" ]; then m=$t
+      elif abspath "$p" "$win"; then m=$ap; else m=$p; fi
+      # Nearest existing ancestor of the file's directory, for its repo and lock: a new file in a new dir
+      # resolves through the first one that exists. Ends at a fixpoint (/, a missing drive root): no repo.
+      anc=${m%/*}
+      while :; do
+        case "$anc" in ""|[A-Za-z]:) anc=$anc/;; esac
+        [ -d "$anc" ] && break
+        n=${anc%/*}; case "$n" in ""|[A-Za-z]:) n=$n/;; esac
+        [ "$n" != "$anc" ] || return 0
+        anc=$n
+      done
+      froot=$(orca_root "$anc")
+      [ -n "$froot" ] || return 0
+      glob=$(jq -r '.testGlob // empty' "$froot/.orca/config.json")
+      if [ -n "$glob" ] && grep -qE "$glob" <<<"$m" && [ ! -f "$(git -C "$anc" rev-parse --absolute-git-dir)/orca-allow-test-edits" ]; then
+        block "test file edit blocked. Fixing code must not weaken its checks. If the test itself is wrong or a scenario is missing, run 'orca-lc test-lock on' in the worktree that holds the file and say why in the commit body"
+      fi
+    }
+    test_lock
     # Handoffs and discoveries are read by every session: scan what is about to land there. Labels never carry the
     # file name, so no output line can echo a denylisted one. Exit 1 blocks with the hits; any exit but 0 and 1 (an
     # unreadable denylist, an orca-lc without leak-check) blocks too, since the write was not checked.
-    if [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
+    if [ -n "$root" ] && [ "$(jq -r '.leakCheck // empty' "$root/.orca/config.json")" = true ]; then
       sh=$(orca-lc config sharedDir 2>/dev/null); sh=${sh:-$root/.orca}
       dd=$(orca-lc config discoveriesDir 2>/dev/null); dd=${dd:-discoveries}
       case "$f" in */*) dir=${f%/*}; dir=${dir:-/};; *) dir=.;; esac # not dirname: $(...) strips a trailing newline
