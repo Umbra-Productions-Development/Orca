@@ -675,10 +675,14 @@ exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) an
   herdr agent wait "$name" --until unknown --timeout 10000 >/dev/null 2>&1
   ! herdr agent list 2>/dev/null | jq -e --arg n "$name" 'any(.result.agents[]; (.agent_name // .name)==$n)' >/dev/null || die "$name did not exit after /exit; close it in tab '${name#*-}'"
 }
-# <workspace> <label>: first pane of the tab role start opened with that label (kept after retire), empty when none
+# <workspace> <label>: first pane of a tab role start opened with that label (kept after retire), empty when none.
+# A pane another agent still runs in (a deduped <ticket>-<role>2, one started by hand) is skipped, so no start is typed into it.
 role_tab_pane() {
-  local tab; tab=$(herdr tab list --workspace "$1" 2>/dev/null | jq -r --arg l "$2" '[.result.tabs[] | select(.label==$l)][0].tab_id // empty')
-  [ -n "$tab" ] && herdr pane list --workspace "$1" 2>/dev/null | jq -r --arg t "$tab" '[.result.panes[] | select(.tab_id==$t)][0].pane_id // empty'
+  local tabs busy; tabs=$(herdr tab list --workspace "$1" 2>/dev/null | jq -c --arg l "$2" '[.result.tabs[] | select(.label==$l) | .tab_id]')
+  [ "${tabs:-[]}" != "[]" ] || return 0
+  busy=$(herdr agent list 2>/dev/null | jq -c '[.result.agents[].pane_id]')
+  herdr pane list --workspace "$1" 2>/dev/null | jq -r --argjson t "$tabs" --argjson b "${busy:-[]}" \
+    '. as $in | [$t[] as $x | [$in.result.panes[] | select(.tab_id==$x)][0].pane_id // empty | select(. as $p | $b | index($p) | not)][0] // empty'
 }
 
 cmd_role() {
