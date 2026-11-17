@@ -36,7 +36,7 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 | Agent | What |
 |---|---|
 | `orca-apply` | The apply role as a background subagent of the orchestrator: works its handoff, commits task by task, runs `applyChecks` and the gate, reports |
-| `orca-review` | The review role as a background subagent of the orchestrator: evidence, review passes, `reviewChecks`, the verifier, the findings report. Never edits code |
+| `orca-review` | The review role as a background subagent of the orchestrator: evidence, skill passes and checks, then reconciles the agent passes and the verifier that the orchestrator dispatches into the findings report. Never edits code |
 | `orca-verifier` | Clean-context pass before a task is reported done: runs the gate, reads the diff against `tasks.md` |
 | `orca-complexity` | Default review pass: needless complexity in the diff |
 | `orca-spec` | Default review pass: the diff against the openspec change, or the ticket's acceptance criteria |
