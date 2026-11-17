@@ -21,4 +21,4 @@
 
 - [x] 4.1 `tests/role-sessions.test.sh`: the fake herdr additions and cases 1–14 from design.md "Tests"; PR #84's reuse cases gain `--new`. `tests/init.test.sh`: the new key. (`orca-lc test-lock on`, reason in the commit body, `test-lock off`.)
 - [x] 4.2 On Linux with a real herdr: start a role; after the session has read its handoff, rerun the same command (expect `already sent:`, exit 0); rerun with a different body (expect the refusal), then with `--new`; check that `/clear` changes herdr's `agent_session.value` and that the ledger file is under the new id. Report a mismatch to the orchestrator (design.md "Risks").
-- [ ] 4.3 `orca-lc gate` passes; tick "Verified on Linux" on #18.
+- [x] 4.3 `orca-lc gate` passes; tick "Verified on Linux" on #18.
