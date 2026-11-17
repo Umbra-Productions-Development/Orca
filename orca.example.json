@@ -18,7 +18,11 @@
   "skipDefaultPasses": [],
   "envFiles": [".env"],
   "linkPaths": [],
-  "claude": { "mcp": { "apply": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } }, "review": { "mcpServers": {} } } },
+  "claude": { "mcp": {
+    "propose": { "mcpServers": {} },
+    "apply": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } },
+    "review": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@latest"] } } }
+  } },
   "envCommand": "",
   "ports": ["web", "db"],
   "portScheme": { "base": 3000, "slots": 100, "step": 10 },
