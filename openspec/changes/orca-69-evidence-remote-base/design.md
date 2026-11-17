@@ -35,13 +35,14 @@ The rest of the file is unchanged. A merge-base failure (unrelated histories) di
 
 ## worktree up
 
-When `worktree up` creates a worktree, it gets its base from `pick_base` instead of its own fetch. Refs are shared by every worktree of a repository, so running the helper from the current checkout picks the same base as running it against the main checkout; apply may give the helper a directory argument instead. Then:
+When `worktree up` creates a worktree, its order is:
 
-- label `no base`: die before creating anything, naming the base branch (`no base: neither origin/<b> nor <b> exists`). `HEAD~1` is never a base for a new branch;
-- otherwise the base goes to `herdr worktree create --base` or `git worktree add -b`, as now;
-- when the new branch is cut from that base (not when an existing local or remote ticket branch is reused), print `base <ref> (<label>)`, next to the existing `workspace` and `ports` lines.
-
-The ticket-branch fetch becomes `GIT_TERMINAL_PROMPT=0 git -C "$main" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch"`, still non-fatal, so an existing remote ticket branch is found even when origin's fetch refspec leaves it out. A missing remote branch makes that fetch fail, which is expected and stays silent.
+1. Fetch the ticket branch: `GIT_TERMINAL_PROMPT=0 git -C "$main" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch"`, still non-fatal, so an existing remote ticket branch is found even when origin's fetch refspec leaves it out. A missing remote branch makes that fetch fail, which is expected and stays silent.
+2. An existing local `$branch` is reused as now. No base is picked.
+3. An existing `origin/$branch` is reused without `--track`: `git -C "$main" worktree add -b "$branch" "$dir" "origin/$branch"`, then `git config branch.$branch.remote origin` and `git config branch.$branch.merge refs/heads/$branch`. `--track` (and `git branch -u`) refuse a remote-tracking ref that no configured fetch refspec maps, which is exactly the case step 1 now reaches; the two config keys give the same upstream, and `@{upstream}` resolves to `origin/$branch`. No base is picked.
+4. Otherwise the new branch is cut from the base, which comes from `pick_base` instead of `worktree up`'s own fetch. `pick_base` runs in the current checkout, as the old code's fetch and `cfg '.baseBranch'` did; refs are shared by every worktree of a repository, so the base is the same as from the main checkout. Then:
+   - label `no base`: die before creating anything, naming the base branch (`no base: neither origin/<b> nor <b> exists`). `HEAD~1` is never a base for a new branch;
+   - otherwise the base goes to `herdr worktree create --base` or `git worktree add -b`, as now, and `worktree up` prints `base <ref> (<label>)`, next to the existing `workspace` and `ports` lines.
 
 An existing worktree directory is left as it is: no fetch, no base line.
 
@@ -59,7 +60,8 @@ New file `tests/base.test.sh` (a test edit: `orca-lc test-lock on`, reason in th
 7. **worktree up, refspec leaves main out**: `stale_repo`, then `git update-ref refs/remotes/origin/main main` (origin/main back at the seed) and `git config remote.origin.fetch '+refs/heads/t-*:refs/remotes/origin/t-*'`. `orca-lc worktree up T-2` prints `base origin/main (fetched)`, and the new worktree holds `upstream.txt`.
 8. **worktree up, fetch failed, earlier origin/main**: `stale_repo`, then `git remote set-url origin` to a missing path. `worktree up T-2` prints `base origin/main (fetch failed)`, and the new worktree holds `upstream.txt` (it is cut from origin/main, not the older local main).
 9. **worktree up, no base**: `stale_repo`, `git remote remove origin`, `git branch -D main`. `worktree up T-2` exits non-zero, its message names `main`, and no `T-2` directory exists.
-10. **worktree up, remote ticket branch outside the refspec**: a second clone pushes `t-3/work` with a file `ticket.txt`; the repo narrows `remote.origin.fetch` to `+refs/heads/main:refs/remotes/origin/main`. `worktree up T-3` reuses the remote branch: the worktree holds `ticket.txt`, and its branch tracks `origin/t-3/work`.
+10. **worktree up, remote ticket branch outside the refspec**: a second clone pushes `t-3/work` with a file `ticket.txt`; the repo narrows `remote.origin.fetch` to `+refs/heads/main:refs/remotes/origin/main`. `worktree up T-3` reuses the remote branch: the worktree holds `ticket.txt`, `git -C <worktree> rev-parse --abbrev-ref @{upstream}` prints `origin/t-3/work`, and no `base` line is printed.
+11. **worktree up, existing local branch, no base**: `stale_repo`, `git remote remove origin`, `git branch -D main`, `git branch t-4/work`. `worktree up T-4` succeeds and reuses `t-4/work`: an existing ticket branch needs no base.
 
 Cases 1, 7, 8 and 10 must fail before their fix and pass after it (1 is already shown).
 
@@ -82,9 +84,12 @@ Cases 1, 7, 8 and 10 must fail before their fix and pass after it (1 is already 
 - `worktree up` with neither `origin/<baseBranch>` nor `<baseBranch>` dies naming the base before creating anything — user (amendment Q2, recommended, accepted).
 - `worktree up` prints `base <ref> (<label>)` when it cuts a new branch — user (amendment Q3, recommended, accepted).
 - `worktree up`'s ticket-branch fetch uses the same explicit refspec — user (amendment Q4, recommended, accepted).
+- A reused remote ticket branch gets its upstream from `branch.<b>.remote` and `branch.<b>.merge`, not `--track`, which refuses a ref no fetch refspec maps — propose, from the ORCA-69 proposal review's should-fix 1.
+- `worktree up` picks a base, and dies on `no base`, only when it cuts a new branch; reusing an existing ticket branch needs no base — propose, from the ORCA-69 proposal review's suggestion 1.
+- `pick_base` runs in the current checkout, as `worktree up`'s old fetch and config read did — propose, from the ORCA-69 proposal review's suggestion 2.
 
 ## Risks
 
 - A fetch per call adds network latency to `test-affected`; it is one branch, quiet, and non-fatal offline.
 - `origin` is assumed to be the remote name, as `worktree up` already assumed.
-- `worktree up` now dies where it used to fall through to `git worktree add` with an unresolvable base; that call failed anyway, so only the message changes.
+- `worktree up` now dies where it used to fall through to `git worktree add` with an unresolvable base; that call failed anyway, so only the message changes. Reusing a ticket branch never reaches that check.
