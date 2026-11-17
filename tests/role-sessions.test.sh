@@ -242,6 +242,10 @@ BODY="apply job B" run role start ABC-1 apply --new
 check '--new clears the session and sends the new job' 'grep -q "prompt abc1-apply /clear" "$H/log" && [ "$(prompts)" = 2 ] && B=$(sent_path) && [ -n "$B" ] && [ -f "$rd/$(apsid)" ] && [ "$(apsid)" != sidA ]'
 check 'an unchanged owner prints nothing' '! grep -q "^owner" "$H/out"'
 B=$(sent_path)
+# A failed hash must not make every body look the same (an empty hash would match the ledger and drop the job).
+mkdir -p "$tmp/nohash"; printf '#!/bin/sh\n[ "$1" = hash-object ] && exit 1\nexec %s "$@"\n' "$(command -v git)" >"$tmp/nohash/git"; chmod +x "$tmp/nohash/git"
+PATH="$tmp/nohash:$PATH" BODY="apply job Z" run role start ABC-1 apply
+check 'a body that cannot be hashed refuses, never already sent' '[ "$(cat "$H/rc")" = 1 ] && grep -q "could not hash the handoff body" "$H/out" && ! grep -q "already sent" "$H/out" && [ "$(prompts)" = 2 ] && [ "$(live_apply)" = "$B" ]'
 
 BODY="apply job C" run role start ABC-1 apply
 check 'a different body while the last handoff is unread refuses with (not read yet)' '[ "$(cat "$H/rc")" = 1 ] && grep -q "already received $B (not read yet)" "$H/out" && [ "$(live_apply)" = "$B" ]'
@@ -249,6 +253,8 @@ BODY="apply job C" run role start ABC-1 apply --new
 C=$(sent_path)
 # Names are checked by content: an archived handoff frees its file name, so a new one written the same second takes it.
 check '--new replaces the unread handoff' '[ "$(live_apply)" = "$C" ] && grep -qx "apply job C" "$C" && [ "$(find "$hd/archive" -name "apply-*" -exec grep -lx "apply job B" {} + | wc -l)" = 1 ] && [ "$(prompts)" = 3 ]'
+rm "$rd/$(apsid)"; BODY="apply job C" run role start ABC-1 apply
+check 'a handoff sent to this session with this body is already sent, even with its ledger file missing' '[ "$(cat "$H/rc")" = 0 ] && grep -qx "already sent: $C" "$H/out" && [ "$(prompts)" = 3 ] && [ "$(live_apply)" = "$C" ]'
 
 gone_apply; s0=$(starts); BODY="apply job C" run role start ABC-1 apply
 check 'a session gone before reading: the same body opens a new one and resends the same handoff' '[ "$(cat "$H/rc")" = 0 ] && [ "$(starts)" = $((s0+1)) ] && [ "$(sent_path)" = "$C" ] && [ "$(fmv sent-to "$C")" = "$(apsid)" ] && [ "$(prompts)" = 4 ]'
