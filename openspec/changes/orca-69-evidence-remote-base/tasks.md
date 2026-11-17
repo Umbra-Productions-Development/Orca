@@ -27,4 +27,4 @@
 - [x] 5.4 `tests/base.test.sh`: cases 5–11 in design.md "Tests" (`orca-lc test-lock on`, reason in commit body, `test-lock off`), committed before 4.x.
 - [x] 5.5 Confirm cases 7, 8 and 10 fail before 4.x and pass after; say so in the commit bodies.
 - [x] 5.6 `docs/daily-use.md`: say `worktree up` cuts new branches from the fetched `origin/<baseBranch>` and prints the base it used.
-- [ ] 5.7 Run `orca-lc gate`; it passes.
+- [x] 5.7 Run `orca-lc gate`; it passes.
