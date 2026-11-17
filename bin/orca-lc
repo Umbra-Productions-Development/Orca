@@ -723,7 +723,8 @@ cmd_role() {
       else
         local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
           other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
-          [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first";;
+          [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
+          [ -n "$other" ] && [ "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status' <<<"$all")" = blocked ] && die "$replace is blocked at a prompt; answer it in tab '${replace#*-}', then rerun";;
         esac
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
