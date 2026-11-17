@@ -1,3 +1,4 @@
+: "${ORCA_TEST_TMP:?run via tests/run.sh}"
 # install.sh installs into $CLAUDE_CONFIG_DIR when set, else $HOME/.claude, registers hook commands that follow the
 # variable at run time, keeps one entry per Orca hook on rerun, and migrates only Orca's old default matcher. Run: tests/run.sh tests/install-config-dir.test.sh
 src="$ORCA_SRC"

@@ -11,6 +11,7 @@
 
 In `tests/install-config-dir.test.sh` (renamed with `git mv` so history follows):
 
+- First line `: "${ORCA_TEST_TMP:?run via tests/run.sh}"`, before any command, so a direct run stops at once instead of running `install.sh` from the wrong `src` and leaving a temp dir behind.
 - Drop the shebang and `set -uo pipefail`, as the other `*.test.sh` files do; keep the header comment, its "Run:" line becoming `tests/run.sh tests/install-config-dir.test.sh`.
 - `src="$ORCA_SRC"` (set by `lib.sh`), or use `$ORCA_SRC` directly.
 - `tmp=$(mktemp -d)` stays (it now lands under the runner's `TMPDIR`); the `trap … EXIT` goes.
@@ -26,6 +27,7 @@ No case is added, removed or reworded.
 - A thin local `ok()` wraps `lib.sh`'s `fail`, so case lines are unchanged and only FAIL lines print — user (recommended, accepted).
 - `src` from `$ORCA_SRC`, temp dirs from the runner's `TMPDIR` without a trap, `HOME` switches and `unset CLAUDE_CONFIG_DIR` kept in the file, `exit $fail` dropped, "Run:" line updated — user (recommended, accepted).
 - #85 and #61 are separate changes and separate PRs, using the same approach — user (settled in ORCA-61's grilling, confirmed here).
+- The file opens with an `ORCA_TEST_TMP` guard, as #61's converted `install-keep.test.sh` does, so a direct run fails fast and leaks no temp dir — user (review suggestion, accepted).
 - No spec delta: test-only wiring, no behaviour change — user (recommended, accepted).
 
 ## Risks
