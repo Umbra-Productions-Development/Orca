@@ -124,4 +124,9 @@ cp "$(command -v bash)" "$tmp/bin/claude"; export ORCA_PS_STOP=$$
 check 'an agent inside another agent pane does not rename the pane' '! grep -q "^rename" "$H/log"'
 (cd "$main" && "$tmp/bin/claude" -c '"$0" name --set >/dev/null; :' "$lc")
 check 'the pane own agent names it' 'grep -q "^rename" "$H/log"'
+# macOS ps prints comm as the executable's full path.
+mkdir -p "$tmp/macps"; printf '#!/usr/bin/env bash\ncase " $* " in *" comm= "*) c=$(%s "$@") && echo "/opt/bin/$c";; *) exec %s "$@";; esac\n' "$(command -v ps)" "$(command -v ps)" >"$tmp/macps/ps"; chmod +x "$tmp/macps/ps"
+renames=$(grep -c "^rename" "$H/log")
+(cd "$main" && PATH="$tmp/macps:$PATH" "$tmp/bin/claude" -c '"$0" -c "\"$1\" name --set >/dev/null; :"; :' "$tmp/bin/claude" "$lc")
+check 'a nested agent is found where ps prints the full path (macOS)' '[ "$(grep -c "^rename" "$H/log")" = "$renames" ]'
 rm -f "$tmp/bin/claude"

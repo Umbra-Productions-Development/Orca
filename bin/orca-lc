@@ -95,8 +95,9 @@ role_from_tab() {
       // (if ["orchestrator","propose","apply","review"] | index($k) then $k else "session" end)' "$f"
 }
 # An agent started inside another agent's pane (claude -p from a Bash tool) inherits the pane id; it must not rename that pane.
-nested_agent() { local p=$PPID own=""; while [ "${p:-1}" -gt 1 ] && [ "$p" != "${ORCA_PS_STOP:-}" ]; do  # ORCA_PS_STOP: tests stop the walk at their own shell
-  [ "$(ps -o comm= -p "$p" 2>/dev/null)" = claude ] && { [ -n "$own" ] && return 0; own=1; }
+# macOS prints comm as the full path, so only its last part is compared. Git Bash has no ps -o: the walk ends at once and the guard does nothing.
+nested_agent() { local p=$PPID own="" c; while [ "${p:-1}" -gt 1 ] && [ "$p" != "${ORCA_PS_STOP:-}" ]; do  # ORCA_PS_STOP: tests stop the walk at their own shell
+  c=$(ps -o comm= -p "$p" 2>/dev/null); [ "${c##*/}" = claude ] && { [ -n "$own" ] && return 0; own=1; }
   p=$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' '); done; return 1; }
 cmd_name() {
   local f; f=$(idfile)
