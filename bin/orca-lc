@@ -24,8 +24,9 @@ USAGE='usage: orca-lc <command> [args]
   review-queue                     open PRs by others awaiting my review
   test-lock on|off|status          allow edits to test files in this worktree
   worktree up <ticket> [branch] [--stack] | down <ticket> [--force]
-  role start <ticket> <role> [--as <name>] [--replace <name>] < body
-                                   reuse the live role session (/clear) or open one; handoff on stdin + first prompt
+  role start <ticket> <role> [--as <name>] [--replace <name>] [--new] < body
+                                   open the role session; handoff on stdin + first prompt, sent once (a rerun skips what is done)
+                                   --new: clear a live idle session that already had a job (/clear) and give it this one
   role retire <ticket> <role> [--wait]  exit the role session, keep its tab (--wait: let a working session finish first)
   role owner <ticket> [--set <role>]  the role that owns the ticket now
   stack add <change>|list|rebase|prs  stacked PRs: a branch per change in this worktree
@@ -665,7 +666,42 @@ owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 # Prefix or -suffix only, so preview and reapply stay extra sessions.
 canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) echo propose;; apply*|*-apply) echo apply;; *) echo "$1";; esac; }
 ticket_slug() { tkey "${1//-/}"; }
-ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
+ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id, pane:(.pane_id // "")} | select(.name|startswith($p))]'; }
+# Sets a handoff's front-matter field, just before the closing ---; an empty value removes it.
+fm_set() { local tmp; tmp="$3.tmp.$$"
+  awk -v k="$1" -v v="$2" 'NR==1 {print; next}
+    !done && $0=="---" {if (v!="") print k": "v; done=1; print; next}
+    !done && ($0==k":" || index($0, k": ")==1) {next} {print}' "$3" >"$tmp" && mv "$tmp" "$3"; }
+# <name> <ticket> <role> [--changed-from <id>]: the Claude session id herdr reports for a live agent.
+# Polled for ORCA_SID_WAIT seconds (default 10) until it is set and, with --changed-from, differs from
+# <id>: /clear starts a new Claude session, and herdr may report the old id for a moment. Nothing is
+# ever stamped or compared with an empty id, so this dies rather than return one.
+session_id() { local n="$1" t="$2" r="$3" prev="" s i=0 max
+  [ "${4:-}" = --changed-from ] && prev="$5"; max=$(( ${ORCA_SID_WAIT:-10} * 2 ))
+  while :; do
+    s=$(herdr agent get "$n" 2>/dev/null | jq -r '(.result.agent // .result).agent_session.value // empty' 2>/dev/null)
+    [ -n "$s" ] && [ "$s" != "$prev" ] && { echo "$s"; return 0; }
+    i=$((i+1)); [ "$i" -gt "$max" ] && break; sleep 0.5; done
+  local why="herdr has not reported a session id for $n yet"; [ -n "$s" ] && why="herdr still reports $n's session id from before /clear"
+  die "$why; rerun this command in a few seconds. If it keeps failing, check tab '$r' or retire the session (orca-lc role retire $t $r) and rerun"; }
+# <name> <tab label> <pane> [herdr output]: a role session stuck at startup. Prints herdr's own words and
+# the pane's last lines, so the user sees the real prompt instead of a guess, then exits 1.
+startup_blocked() { local scr
+  { echo "orca-lc: $1 is waiting at a prompt in tab '$2' (pane $3):"
+    [ -n "${4:-}" ] && printf '%s\n' "$4" | sed 's/^/  herdr: /'
+    scr=$(herdr pane read "$3" --source visible --lines 40 2>/dev/null) && printf '%s\n' "$scr" | grep -v '^[[:space:]]*$' | tail -6 | sed 's/^/  | /'
+    echo "Answer it there, then rerun this command."; } >&2
+  exit 1; }
+# Received ledger: one file per Claude session that got a handoff, in received/<ticket>/<session id>.
+# It outlives the handoff (archived on read, pruned by tidy), so it answers "which job did this session get".
+ledger_get() { sed -n "s/^$1: //p" "$2" | head -1; }
+# The ledger's handoff as a message names it: its path, or where it went once read.
+ledger_handoff() { local p; p=$(ledger_get handoff "$1")
+  if [ -f "$p" ]; then echo "$p"; else echo "$p (read and archived; written $(ledger_get written "$1"))"; fi; }
+# roleStartTimeoutMs: herdr agent start's --timeout, a positive integer capped at herdr's 300000.
+role_start_timeout() { local v; v=$(cfg '.roleStartTimeoutMs' 60000)
+  [[ $v =~ ^[0-9]+$ ]] && [ $((10#$v)) -gt 0 ] || die "roleStartTimeoutMs must be a positive integer of milliseconds, not '$v'"
+  v=$((10#$v)); [ "$v" -gt 300000 ] && v=300000; echo "$v"; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
 exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab (label = the name's role part)
   local name tab; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
@@ -697,29 +733,48 @@ cmd_role() {
       echo "$r${a:+ $a}";;
     start)
       need ticket "${1:-}"; need role "${2:-}"
-      local as="" replace="" a=("${@:3}"); while [ ${#a[@]} -gt 0 ]; do case "${a[0]}" in
-        --as) need name "${a[1]:-}"; as="${a[1]}";; --replace) need name "${a[1]:-}"; replace="${a[1]}";;
-        *) usage "role start <ticket> <role> [--as <name>] [--replace <name>]";; esac; a=("${a[@]:2}"); done
+      local as="" replace="" new="" a=("${@:3}") n; while [ ${#a[@]} -gt 0 ]; do n=2; case "${a[0]}" in
+        --as) need name "${a[1]:-}"; as="${a[1]}";; --replace) need name "${a[1]:-}"; replace="${a[1]}";; --new) new=1; n=1;;
+        *) usage "role start <ticket> <role> [--as <name>] [--replace <name>] [--new]";; esac; a=("${a[@]:$n}"); done
+      [ -n "$new" ] && [ -n "$replace" ] && die "--new and --replace do not combine: --replace exits an extra session, --new clears a role's own"
       # The role names the shared handoff file and the tab; scanned first, so no later message echoes unscanned text.
       leak_guard "role start ticket" "$1" "role start role" "$2" || exit $?
       inherdr || die "role start needs herdr"
       [ -t 0 ] && die "pipe the handoff body on stdin: orca-lc role start <ticket> <role> <<'EOF' ... EOF"
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       leak_guard "role start handoff" "$body" || exit $?
-      local t r dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); dir=$(wt_dir "$t")
+      local t r dir ws name to H; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); dir=$(wt_dir "$t")
       case "$r" in propose|apply|review) [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session";; esac
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
-      name="$(ticket_slug "$t")-$r"
-      # One live session per role: an idle one is cleared and reused, so each job gets a fresh context without a second process.
-      # This also makes a rerun after answering a startup prompt skip to the handoff and first prompt.
+      name="$(ticket_slug "$t")-$r"; to=$(role_start_timeout) || exit 1
+      H=$(printf '%s\n' "$body" | sha1sum | cut -c1-40)
+      # One live session per role. A rerun is idempotent: the handoff and the first prompt go out once, and the
+      # received ledger says which job a session already got. Reusing a session that had a job needs --new.
       # Every refusal, the handoff's own included, comes before /clear or a replace: a refused start never costs a session its context.
-      local all ag; all=$(ticket_agents "$(ticket_slug "$t")"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
+      local all ag sid="" rdir led="" L="" o resume="" clear=""; all=$(ticket_agents "$(ticket_slug "$t")"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
+      rdir=$(tdir "$(shared)/received" "$t")
       if [ -n "$ag" ]; then
-        case "$(jq -r .status <<<"$ag")" in
-          working) die "$name is working; let it finish, or retire it (orca-lc role retire $t $r), then rerun";;
-          blocked) die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command";;
-        esac
+        # Blocked first: a session stuck at a startup prompt may not have a session id yet.
+        [ "$(jq -r .status <<<"$ag")" = blocked ] && startup_blocked "$name" "$r" "$(jq -r .pane <<<"$ag")"
+        sid=$(session_id "$name" "$t" "$r") || exit 1; led="$rdir/$sid"
+        [ -f "$led" ] && [ "$(ledger_get body-sha1 "$led")" = "$H" ] && { echo "already sent: $(ledger_handoff "$led")"; return 0; }
+      fi
+      # The live handoff for this role. Same body, unsent or sent to a session that is gone: resend it as is.
+      # A different body is replaced by the write below; nobody is left to read an orphaned one.
+      for o in "$(tdir "$(shared)/handoffs" "$t")"/"$r"-[0-9]*.md; do
+        [ -f "$o" ] && [ -z "$(fm consumed-by "$o")" ] && { L="$o"; break; }; done
+      if [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ]; then
+        { [ -z "$(fm sent-to "$L")" ] || [ "$(fm sent-to "$L")" != "$sid" ]; } && resume="$L"
+      fi
+      if [ -n "$ag" ]; then
+        [ "$(jq -r .status <<<"$ag")" = working ] && die "$name is working; let it finish, or retire it (orca-lc role retire $t $r), then rerun"
+        if [ -f "$led" ]; then
+          local got nr=""; got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && nr=" (not read yet)"
+          [ -n "$new" ] || die "$name is live and already received $got$nr; rerun with --new to clear it and send this one"
+          clear=1
+        fi
+        # No ledger file: the session never got a job (it stopped at a startup prompt on the first run). It carries on, no /clear.
       else
         local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
           other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
@@ -730,22 +785,32 @@ cmd_role() {
         # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
         [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
       fi
-      local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
-      if [ -n "$ag" ]; then
+      local f="$resume"
+      if [ -z "$f" ]; then f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"; fm_set body-sha1 "$H" "$f"; fi
+      if [ -n "$clear" ]; then
         herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"
         herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
-      else
+        # The handoff is written but unsent if this dies, so a rerun with --new resumes it.
+        sid=$(session_id "$name" "$t" "$r" --changed-from "$sid") || exit 1
+      elif [ -z "$ag" ]; then
         [ -n "$other" ] && exit_role_agent "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")"
-        local pane; pane=$(role_tab_pane "$ws" "$r")
+        local pane out; pane=$(role_tab_pane "$ws" "$r")
         [ -n "$pane" ] || pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --env "ORCA_TICKET=$t" --no-focus | jq -r '.result.root_pane.pane_id // empty')
         [ -n "$pane" ] || die "herdr tab create returned no pane"
-        if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
-          die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
-        fi
-        [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
+        out=$(herdr agent start "$name" --kind claude --pane "$pane" --timeout "$to" 2>&1) || startup_blocked "$name" "$r" "$pane" "$out"
+        [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && startup_blocked "$name" "$r" "$pane"
+        sid=$(session_id "$name" "$t" "$r") || exit 1
       fi
-      case "$r" in propose|apply|review) cmd_role owner "$t" --set "$r" >/dev/null;; esac
-      cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
+      case "$r" in propose|apply|review) local was; was=$(cat "$(owner_file "$t")" 2>/dev/null)
+        cmd_role owner "$t" --set "$r" >/dev/null; [ "$was" = "$r" ] || echo "owner: ${was:+$was -> }$r";; esac
+      # Stamped before the prompt: the session may read and archive the handoff the moment it gets it.
+      local now; now=$(date -Is); mkdir -p "$rdir"
+      fm_set sent "$now" "$f"; fm_set sent-to "$sid" "$f"
+      printf 'handoff: %s\nwritten: %s\nbody-sha1: %s\nsent: %s\n' "$f" "$(fm written "$f")" "$H" "$now" >"$rdir/$sid"
+      if ! (cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."); then
+        fm_set sent "" "$f"; fm_set sent-to "" "$f"; rm -f "$rdir/$sid"
+        die "the first prompt to $name failed; $f is written but not sent, rerun this command to send it"
+      fi
       echo "handoff $f";;
     retire)
       need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role retire needs herdr"
@@ -771,7 +836,7 @@ init_defaults() { jq -n --arg p "$(basename "$1")" --arg s "$1/.orca" --argjson 
   reviewPasses: ["security-review"], applyChecks: [], reviewChecks: [],
   standardsFile: "", reviewExcludes: "", skipDefaultPasses: [], envFiles: [".env"], linkPaths: [],
   envCommand: "", ports: [], portScheme: {base: 3000, slots: 100, step: 10}, stackUp: "", stackDown: "",
-  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7, minFreeMemMb: 3000}'; }
+  migrateCommand: "", prShareLimit: 1500, stackTool: "auto", discoveriesDir: "discoveries", handoffArchiveDays: 7, minFreeMemMb: 3000, roleStartTimeoutMs: 60000}'; }
 # testGlob/sourceGlob: the pair of each language found, joined with | in this order; [/\\] matches Windows separators too.
 init_langs() { local m="$1" t=() s=() IFS='|'
   [ -f "$m/tsconfig.json" ] && { t+=('\.test\.tsx?$'); s+=('src/|\.tsx?\b'); }
