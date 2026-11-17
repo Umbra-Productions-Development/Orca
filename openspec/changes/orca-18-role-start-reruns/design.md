@@ -11,27 +11,32 @@ herdr 0.9.5 facts this design uses:
 
 Refusals come first, as in PR #84, so a refused start still never costs a session its context.
 
-1. Parse args (`--as`, `--replace`, new `--new`), leak guards, worktree, workspace, name, `ag` (the live `<ticket>-<role>` agent, if any).
-2. **Live handoff check.** `L` is the live (unconsumed) handoff for the ticket and role. `H` is the sha1 of the body on stdin.
-   - `L` has `body-sha1: H` and `sent:` → print `already sent: L` and exit 0. This holds whatever state the session is in.
-   - `L` has `sent:` and a different hash → without `--new`, refuse: `<L> was sent to <name> and not read yet; rerun with --new to replace it`.
-   - `L` has `body-sha1: H` and no `sent:` → keep `L` (`resume=L`); step 5 does not write a new one.
-3. **Live session** (`ag` set):
-   - `working` → refuse (PR #84's message).
-   - `blocked` → refuse with the blocked-startup report (below).
-   - It already received a handoff, meaning a handoff for this ticket and role, live or archived, whose `sent-to` equals the session's current `agent_session.value` → without `--new`, refuse: `<name> is live and already received <handoff>; rerun with --new to clear it and send this one`.
-   - Otherwise it is a session that never got a job, such as one that was stuck at a startup prompt on the first run: carry on without `/clear`.
-4. **No live session:** PR #84's extra/`--replace` and memory checks, unchanged.
-5. Write the handoff unless `resume` is set, with the new frontmatter key `body-sha1:`. `cmd_handoff write` archives a live handoff it replaces, as before.
-6. Live session with `--new` → `/clear` and wait (PR #84). No live session → open it (PR #84) with `--timeout $(roleStartTimeoutMs)`. On failure or `blocked`, die with the blocked-startup report.
-7. Owner (propose/apply/review): read the old owner, set the new one, and print `owner: <old> -> <new>` when they differ (`owner: <new>` when none was recorded). Nothing is printed when the owner is unchanged.
-8. Stamp `sent: <date -Is>` and `sent-to: <agent_session.value read now>` into the handoff, then `cmd_notify`. If `cmd_notify` fails, remove both stamps and die. Stamping before sending avoids a race with the receiving session archiving the file as soon as it reads it.
+**Received ledger.** For each Claude session that got a handoff, `role start` writes one file, `$(shared)/received/<ticket>/<session id>`, holding three lines: `handoff: <path at send time>`, `body-sha1: <hash>` and `sent: <date -Is>`. This file, not the handoff, answers "did this session already get a job, and which one". It survives the session reading and archiving its handoff, and `cmd_tidy` never deletes it, because tidy only prunes `handoffs/` and `inbox/`. A session's id is `agent_session.value` from `herdr agent get`. An empty id never matches a ledger file (review findings 1, 3, 5).
 
-`--new` is accepted on every role; on a session that never received a handoff it changes nothing. It can be combined with `--as`. It cannot be combined with `--replace`: `--replace` is for extra sessions, which PR #84 handles.
+**`session_id <name>`.** This helper polls `herdr agent get` for up to 10 s until `agent_session.value` is non-empty. If it is still empty, it dies with `herdr has not reported a session id for <name> yet; rerun this command in a few seconds` (review finding 3). Every place that needs the id calls it, so nothing is stamped or compared with an empty id.
+
+1. Parse args (`--as`, `--replace`, new `--new`), leak guards, worktree, workspace, name, `ag` (the live `<ticket>-<role>` agent, if any). `H` is the sha1 of the body on stdin.
+2. `ag` is `blocked` → refuse with the blocked-startup report (below). This runs before step 3, because a session stuck at a startup prompt may not have an id yet.
+3. `ag` set → `sid=$(session_id "$name")`. A ledger file for `sid` whose `body-sha1` is `H` → print `already sent: <handoff>` and exit 0. This holds whether the session has read its handoff or not, and whether it is idle or working (review finding 1).
+4. `L` is the live (unconsumed) handoff for the ticket and role.
+   - `L` is stamped `sent-to: <id>` and `<id>` is the live session's `sid` → the session has not read it yet. Step 5 handles it as a received job.
+   - `L` is stamped `sent-to` an id that is not live (the session died or was retired before reading it) → `L` is orphaned. With the same body, keep it (`resume=L`) and resend it in step 9. With a different body, step 7 replaces it. No refusal: nobody is left to read it (review finding 2).
+   - `L` is not stamped and has `body-sha1: H` → `resume=L`. With a different body, step 7 replaces it, as `cmd_handoff write` already does.
+5. Live session (`ag` set):
+   - `working` → refuse (PR #84's message).
+   - A ledger file for `sid` exists (it got a different job; same-body was settled in step 3) → without `--new`, refuse with `<name> is live and already received <handoff from ledger>; rerun with --new to clear it and send this one`. When that handoff is still the live `L`, the message adds `(not read yet)`. This settles decision Q6.
+   - No ledger file for `sid` → a session that never got a job, such as one that was stuck at a startup prompt on the first run. Carry on. `--new` changes nothing here, and no `/clear` is sent (review suggestion 4).
+6. No live session: PR #84's extra/`--replace` and memory checks, unchanged.
+7. Write the handoff unless `resume` is set, with the new frontmatter key `body-sha1:`. `cmd_handoff write` archives a live handoff it replaces, as before.
+8. A live session that has a ledger file, with `--new` → `/clear`, wait (PR #84), then `sid=$(session_id "$name")` again, because `/clear` starts a new Claude session. No live session → open it (PR #84) with `--timeout $(roleStartTimeoutMs)`. If the start fails or the session is `blocked`, die with the blocked-startup report. Otherwise `sid=$(session_id "$name")`.
+9. Owner (propose/apply/review): read the old owner, set the new one, and print `owner: <old> -> <new>` when they differ (`owner: <new>` when none was recorded). Nothing is printed when the owner is unchanged.
+10. Stamp `sent: <date -Is>` and `sent-to: <sid>` into the handoff, write the ledger file for `sid`, then run `cmd_notify`. If `cmd_notify` fails, remove the stamps and the ledger file and die. Stamping before sending avoids a race with the session archiving the file as soon as it reads it.
+
+`--new` is accepted on every role and can be combined with `--as`. It cannot be combined with `--replace`: `--replace` is for extra sessions, which PR #84 handles. Ledger files are never pruned in this change; they are a few bytes each, one per session that received a job.
 
 ## Blocked-startup report
 
-One helper, used by the three die paths (start failure, blocked after start, live session blocked):
+One helper, used by three die paths: start failure, blocked after start, and live session blocked (step 2). PR #84's `--replace` of a blocked extra session keeps its short message. That session is not starting up, and `tests/role-sessions.test.sh` already checks that message (review suggestion 6).
 
 ```
 <name> is waiting at a prompt in tab '<label>' (pane <pane>):
@@ -53,12 +58,16 @@ The fake herdr gains `agent_session.value` on agents (a new id per `agent start`
 1. A start that fails at `agent start` prints herdr's error, the tab label, the pane and the pane text, and no longer says "folder trust".
 2. A live blocked session refuses with the same report.
 3. A rerun after a startup prompt: the first run fails at start, the agent then shows up idle, and the rerun sends the handoff and first prompt once, with no `/clear`.
-4. A rerun with the same body after a full start prints `already sent:`, with no second prompt and no new handoff file.
+4. A rerun with the same body after a full start prints `already sent:` with no second prompt and no new handoff file, both before and after the session reads (archives) its handoff.
 5. A handoff written but not sent (notify failure): the rerun sends the first prompt only and keeps the same handoff file.
 6. The same role started twice with a different body, after the first handoff was read, refuses and names the session and handoff; with `--new` it clears and sends.
-7. A different body while the last handoff is sent and unread refuses; `--new` replaces it.
-8. `owner: propose -> apply` is printed on change and nothing is printed on an unchanged owner.
-9. `roleStartTimeoutMs` reaches `agent start --timeout`, and 900000 is capped to 300000.
+7. A different body while the last handoff is sent and unread refuses with `(not read yet)`; `--new` replaces it.
+8. A session retired or gone before reading its handoff: rerunning the same body opens a new session and resends that same handoff file; a different body replaces it. Neither refuses.
+9. An empty `agent_session.value`, for longer than the poll lasts: `role start` dies before stamping or prompting; the handoff stays unsent and the next rerun resumes it.
+10. `owner: propose -> apply` is printed on change and nothing is printed on an unchanged owner.
+11. `roleStartTimeoutMs` reaches `agent start --timeout`, and 900000 is capped to 300000.
+
+The fake herdr's `agent get` can return an empty `agent_session` for the case 9 run, and the poll's 10 s can be overridden for tests (`ORCA_SID_WAIT`).
 
 PR #84's cases that reuse a live session (`review2` folds and reuses with `/clear`, plus the reuse refusals) gain `--new`. `tests/init.test.sh` checks `roleStartTimeoutMs: 60000`. Editing tests requires `orca-lc test-lock on`, with the reason in the commit body.
 
@@ -72,9 +81,14 @@ PR #84's cases that reuse a live session (`review2` folds and reuses with `/clea
 - A different body while the last handoff is sent and unread refuses; `--new` replaces it — user (recommended, accepted).
 - `role start` prints `owner: <old> -> <new>` only on change — user (recommended, accepted).
 - The Windows `agent_pane_busy` → `pane run` fallback and the claude starter prompt are a follow-up under #37, and verification is Linux only — user (recommended, accepted).
-- The body is compared by a `body-sha1:` frontmatter key. Stamps are written before `cmd_notify` and removed if it fails. `/clear` is skipped for a session that never received a handoff. The timeout covers `agent start` only — propose (derived from the decisions above).
+- The body is compared by a `body-sha1:` frontmatter key. Stamps are written before `cmd_notify` and removed if it fails. The timeout covers `agent start` only — propose (derived from the decisions above).
+- "Already received" and "already sent" are read from a ledger kept per session id in `$(shared)/received/<ticket>/`, not from handoffs, which are archived on read and pruned by tidy — proposal review findings 1 and 5.
+- A sent handoff whose session is gone before reading it is resent (same body) or replaced (different body) without `--new` — proposal review finding 2.
+- An empty session id is polled for 10 s and then dies before anything is stamped or sent; an empty id never matches — proposal review finding 3.
+- `--new` on a session that never received a handoff sends no `/clear` — proposal review suggestion 4.
+- PR #84's `--replace` blocked-extra refusal keeps its short message — proposal review suggestion 6.
 
 ## Risks
 
-- `sent-to` relies on herdr's `agent_session.value` tracking Claude's session id after `/clear`. If herdr updates it late, the stamp could record the pre-`/clear` id, and a later rerun would not see that the session already got a job. Step 2 still catches a live same-body handoff, and a working session still refuses. Apply checks this against a real herdr session (task 4.2) and reports any mismatch to the orchestrator before shipping.
+- After `/clear`, step 8 reads the new id once it is non-empty. If herdr still reports the pre-`/clear` id at that moment and switches later, the ledger is written under the old id, and a later rerun would see the new id as "never received". Same-body reruns still find the stamped live handoff in step 4, and a working session still refuses. Apply checks this against a real herdr session (task 4.2) and reports a mismatch to the orchestrator before shipping. Possible fixes then: wait in step 8 until the id differs from the pre-`/clear` one, or write the ledger under both ids.
 - This change rewrites PR #84's reuse cases. If #84 changes again before merge, this branch rebases with `orca-lc stack rebase`.
