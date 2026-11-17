@@ -1,0 +1,29 @@
+## Conversion
+
+`tests/run.sh` runs each file as `bash -c '. lib.sh; cd "$TMPDIR"; . <file>; [ "$fails" = 0 ] && : > <marker>'`. So in the converted file:
+
+- `src` is `$ORCA_SRC`. `$(dirname "$0")` no longer works: when sourced under `bash -c … _`, `$0` is `_`.
+- `tmp` is `$TMPDIR`, and the file has no `mktemp -d` and no EXIT trap of its own; `run.sh` removes `$TMPDIR` after the file. The names the script creates under it (`probe-src`, `probe`, `elsewhere`, `other-orca`, `repo`, `home2`) do not clash with `lib.sh`'s `home` and `bin`.
+- `HOME` starts as `lib.sh`'s `$TMPDIR/home`; the nested-skill section still switches to `$TMPDIR/home2`.
+- `unset CLAUDE_CONFIG_DIR` stays at the top of the file, as `tests/init.test.sh` does, so `install.sh` never writes to a real config dir from the environment.
+- `ok` becomes `ok() { [ "$1" = 0 ] || fail "$2"; }` (the `tests/leak-check.test.sh` pattern); the `fail=0` variable and the final `exit $fail` go. Call sites stay as they are, which keeps the diff to the header and the helpers.
+- The "skip link cases" line becomes `echo "  SKIP: ln -s copies here (no native symlinks); link cases skipped"`, matching `tests/worktree.test.sh`.
+- The header comment's `Run: tests/install-keep.sh` becomes `Run: tests/run.sh tests/install-keep.test.sh`.
+
+What stays: `install.sh` runs only from `$ORCA_SRC` or from the scratch clone in `$TMPDIR/repo`, always with a temp `HOME`, so it never relinks the real install. The stale fixture `git show 6468a79:skills/orca/SKILL.md` and `install.sh`'s own `shipped()` (`git log --all`) need the checkout's full history. That holds for the gate, which runs in a local checkout; a shallow clone would fail the "stale copy refreshed" check.
+
+## Verification
+
+Native Linux only. Before conversion, the script passed 20/20 there in about 1.7s, with the link cases running. After conversion: `tests/run.sh tests/install-keep.test.sh` passes; flipping one expectation (for example, the `cmp` in "fresh install puts Orca's grilling in place" against a wrong file) makes `run.sh` report the file as failed; then `orca-lc gate` passes.
+
+## Decisions
+
+- Rename to `tests/install-keep.test.sh` and convert to `lib.sh` helpers; `tests/run.sh` is not edited — user (recommended, accepted).
+- `unset CLAUDE_CONFIG_DIR` stays in the test file, not `lib.sh` — user (recommended, accepted).
+- Output is only `FAIL:` lines like the rest of the suite, plus one `SKIP:` line where `ln -s` copies — user (recommended, accepted).
+- No spec delta — user (recommended, accepted).
+- #61 and #85 are separate changes in separate PRs, using the same approach; they share no file, `tests/run.sh` included — user.
+
+## Overlap with #85
+
+#85 brings `tests/install-config-dir.sh` into the gate the same way. Both tickets were expected to edit `tests/run.sh`; under the decision above, neither does. They share no file, so the PRs merge in either order.
