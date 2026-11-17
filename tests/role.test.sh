@@ -16,3 +16,36 @@ assert_contains "$out" "no owner recorded"
 
 orca-lc role owner abc-3 --set >/dev/null 2>&1; assert_status $? 2 "--set without a role"
 assert_eq "$(orca-lc role owner abc-3 2>&1)" apply "a refused --set changed the owner"
+
+# role start: claude.mcp.<role> becomes the session's whole MCP set (--strict-mcp-config --mcp-config <json>);
+# a role without an entry starts with no MCP flags; an entry without an mcpServers object is refused.
+mkdir -p "$TMPDIR/stub"; export HERDR_ENV=1 PATH="$TMPDIR/stub:$PATH"
+cat > "$TMPDIR/stub/herdr" <<'STUB'
+#!/bin/sh
+case "$1 $2" in
+  "workspace list") jq -nc --arg d "$WT" '{result:{workspaces:[{workspace_id:"w1",worktree:{checkout_path:$d}}]}}';;
+  "agent list") if [ -e "$TMPDIR/start.args" ]; then jq -nc --arg n "orca9-$ROLE" --arg c "$MAINR" '{result:{agents:[{name:$n,cwd:$c,agent_status:"idle"}]}}'; else echo '{"result":{"agents":[]}}'; fi;;
+  "tab create") echo '{"result":{"root_pane":{"pane_id":"p1"}}}';;
+  "agent start") printf '%s\n' "$@" > "$TMPDIR/start.args";;
+  "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';;
+  *) echo '{}';;
+esac
+STUB
+chmod +x "$TMPDIR/stub/herdr"
+# The stub lists the role's agent once it was started, so the closing notify finds it.
+set_mcp='{"project":"p","gate":"true","claude":{"mcp":{"apply":{"mcpServers":{"pw":{"command":"npx","args":["a b"]}}},"bad":["pw"]}}}'
+r=$(new_repo "$set_mcp"); export WT; WT="$(native "$(dirname "$r")")/ORCA-9"; mkdir "$WT"; export MAINR; MAINR=$(native "$r"); cd "$r" || exit 1
+start() { rm -f "$TMPDIR/start.args"; export ROLE="$1"; out=$(echo "do it" | orca-lc role start ORCA-9 "$1" 2>&1); st=$?; }
+start apply; assert_status $st 0 "role start apply: $out"
+args=$(cat "$TMPDIR/start.args" 2>/dev/null)
+assert_eq "$(sed -n '/^--$/,$p' <<<"$args" | sed -n 2,3p | tr '\n' ' ')" "--strict-mcp-config --mcp-config " "no MCP flags after --: $args"
+assert_eq "$(tail -1 <<<"$args" | jq -c .)" '{"mcpServers":{"pw":{"command":"npx","args":["a b"]}}}' "--mcp-config value"
+start review; assert_status $st 0 "role start review: $out"
+assert_not_contains "$(cat "$TMPDIR/start.args" 2>/dev/null)" "--strict-mcp-config" "role without claude.mcp entry got MCP flags"
+start bad; assert_status $st 1 "bad entry: $out"
+assert_contains "$out" "claude.mcp.bad in .orca/config.json needs an mcpServers object"
+[ ! -e "$TMPDIR/start.args" ] || fail "bad entry still started a session"
+r=$(new_repo '{"project":"p","gate":"true","claude":{"mcp":["pw"]}}'); WT="$(native "$(dirname "$r")")/ORCA-9"; mkdir "$WT"; MAINR=$(native "$r"); cd "$r" || exit 1
+start apply; assert_status $st 1 "claude.mcp not an object: $out"
+assert_contains "$out" "claude.mcp in .orca/config.json must be an object keyed by role"
+[ ! -e "$TMPDIR/start.args" ] || fail "claude.mcp not an object still started a session"

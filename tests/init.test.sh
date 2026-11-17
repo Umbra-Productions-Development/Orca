@@ -1,7 +1,6 @@
 # orca-lc init: detection, prompts, confirmation, rerun, .gitignore (#10)
-# MCP detection reads ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json; HOME is the harness's temp dir, and
-# lib.sh does not unset CLAUDE_CONFIG_DIR, so no real Claude config is read.
-unset CLAUDE_CONFIG_DIR
+# MCP detection reads ${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json; lib.sh points HOME at the harness's temp
+# dir and unsets CLAUDE_CONFIG_DIR, so no real Claude config is read.
 export GH_STUB; GH_STUB=$(mktemp -d); export PATH="$ORCA_SRC/tests/stub:$PATH"
 ex="$ORCA_SRC/orca.example.json"
 nolang_test='(^|[/\\])(tests?|__tests__|spec)[/\\]|[._-](test|spec)\.[^/\\]*$|(^|[/\\])test_[^/\\]*$'
