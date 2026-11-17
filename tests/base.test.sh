@@ -78,7 +78,7 @@ assert_contains "$out" "base origin/main (fetch failed)" "fetch failed: base lin
 # 9. worktree up, no base: dies naming the base branch before creating anything
 r=$(stale_repo); d=$(dirname "$r"); git -C "$r" remote remove origin; git -C "$r" branch -qD main
 out=$(wt_up "$r" T-2); assert_status $? 1 "no base: worktree up succeeded"
-assert_contains "$out" "main" "no base: message names the base branch"
+assert_contains "$out" "no base: neither origin/main nor main exists" "no base: orca-lc did not die naming the base"
 [ ! -e "$d/T-2" ] || fail "no base: T-2 created"
 
 # 10. worktree up, remote ticket branch outside origin's refspec: reused, upstream set by config
