@@ -43,3 +43,56 @@ r=$(stale_repo '{"project":"proj","gate":"true","testCommand":"echo"}')
 out=$(cd "$r" && orca-lc test-affected 2>&1)
 assert_contains "$out" "mine.txt" "test-affected: own change"
 assert_not_contains "$out" "upstream.txt" "test-affected: base-branch commit leaked"
+
+# 5. evidence, fetch failed: an earlier origin/main still beats the stale local main
+r=$(stale_repo); git -C "$r" remote set-url origin "$(dirname "$r")/missing.git"
+out=$(evidence "$r")
+assert_contains "$out" "Base: origin/main (fetch failed)" "fetch failed: Base line"
+assert_not_contains "$out" "upstream.txt" "fetch failed: fell back to the stale local main"
+
+# 6. evidence, no merge base: dies naming the base, the last evidence file stays as it was
+r=$(stale_repo); f="$(git -C "$r" rev-parse --absolute-git-dir)/orca-evidence.md"
+evidence "$r" >/dev/null; before=$(cat "$f")
+git -C "$r" branch orphan "$(git -C "$r" commit-tree "$(git -C "$r" mktree </dev/null)" -m orphan)"
+out=$(cd "$r" && orca-lc evidence orphan 2>&1); assert_status $? 1 "no merge base: evidence succeeded"
+assert_contains "$out" "orphan" "no merge base: message names the base"
+assert_eq "$(cat "$f")" "$before" "no merge base: evidence file changed"
+
+# worktree up <repo> <ticket> -> its output; worktrees land next to the repo
+wt_up() { (cd "$1" && orca-lc worktree up "$2" 2>&1); }
+
+# 7. worktree up, origin's refspec leaves main out: the explicit refspec still updates origin/main
+r=$(stale_repo); d=$(dirname "$r")
+git -C "$r" update-ref refs/remotes/origin/main main
+git -C "$r" config remote.origin.fetch '+refs/heads/t-*:refs/remotes/origin/t-*'
+out=$(wt_up "$r" T-2); assert_status $? 0 "refspec without main: worktree up failed: $out"
+assert_contains "$out" "base origin/main (fetched)" "refspec without main: base line"
+[ -f "$d/T-2/upstream.txt" ] || fail "refspec without main: worktree not cut from the fetched origin/main"
+
+# 8. worktree up, fetch failed: cut from the earlier origin/main, not the older local main
+r=$(stale_repo); d=$(dirname "$r"); git -C "$r" remote set-url origin "$d/missing.git"
+out=$(wt_up "$r" T-2); assert_status $? 0 "fetch failed: worktree up failed: $out"
+assert_contains "$out" "base origin/main (fetch failed)" "fetch failed: base line"
+[ -f "$d/T-2/upstream.txt" ] || fail "fetch failed: worktree cut from the stale local main"
+
+# 9. worktree up, no base: dies naming the base branch before creating anything
+r=$(stale_repo); d=$(dirname "$r"); git -C "$r" remote remove origin; git -C "$r" branch -qD main
+out=$(wt_up "$r" T-2); assert_status $? 1 "no base: worktree up succeeded"
+assert_contains "$out" "main" "no base: message names the base branch"
+[ ! -e "$d/T-2" ] || fail "no base: T-2 created"
+
+# 10. worktree up, remote ticket branch outside origin's refspec: reused, upstream set by config
+r=$(stale_repo); d=$(dirname "$r"); c=$(mktemp -d)/clone
+git clone -q "$d/remote.git" "$c"; git -C "$c" checkout -q -b t-3/work
+echo t > "$c/ticket.txt"; git -C "$c" add -A; git -C "$c" commit -qm ticket; git -C "$c" push -q origin t-3/work
+git -C "$r" config remote.origin.fetch '+refs/heads/main:refs/remotes/origin/main'
+out=$(wt_up "$r" T-3); assert_status $? 0 "remote ticket branch: worktree up failed: $out"
+[ -f "$d/T-3/ticket.txt" ] || fail "remote ticket branch: not reused"
+assert_eq "$(git -C "$r" config branch.t-3/work.remote)" origin "remote ticket branch: upstream remote"
+assert_eq "$(git -C "$r" config branch.t-3/work.merge)" refs/heads/t-3/work "remote ticket branch: upstream merge"
+assert_not_contains "$out" "base " "remote ticket branch: base line printed for a reused branch"
+
+# 11. worktree up, existing local ticket branch and no base: reused, no base needed
+r=$(stale_repo); d=$(dirname "$r"); git -C "$r" remote remove origin; git -C "$r" branch -qD main; git -C "$r" branch t-4/work
+out=$(wt_up "$r" T-4); assert_status $? 0 "local ticket branch, no base: worktree up failed: $out"
+assert_contains "$out" "on t-4/work" "local ticket branch, no base: not reused"
