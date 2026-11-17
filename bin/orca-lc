@@ -280,7 +280,15 @@ cmd_leak_check() {
   return 1
 }
 
-base_ref() { local b; b=$(cfg '.baseBranch' main); git merge-base HEAD "$b" 2>/dev/null || git rev-parse HEAD~1; }
+# pick_base -> sets the caller's base and base_label: origin/<baseBranch> after fetching it, else the local
+# branch, else HEAD~1. The explicit refspec updates origin/<b> even when origin's fetch refspec leaves it out.
+pick_base() {
+  local b fetch="fetch failed"; b=$(cfg '.baseBranch' main)
+  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1 && fetch=fetched
+  if git rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null; then base="origin/$b" base_label=$fetch
+  elif git rev-parse -q --verify "$b^{commit}" >/dev/null; then base=$b base_label="local; fetch failed"
+  else base=HEAD~1 base_label="no base"; fi
+}
 has() { command -v "$1" >/dev/null; }
 ensure_graphs() { # codegraph and codebase-memory indexes for this checkout, when those tools are installed
   has codegraph && { [ -d .codegraph ] || codegraph init >/dev/null 2>&1; }
@@ -292,21 +300,26 @@ cmd_test_affected() {
   local tc; tc=$(cfg '.testCommand'); [ -n "$tc" ] || die "set testCommand in .orca/config.json"
   has codegraph || die "test-affected needs codegraph"
   local r; r=$(root) || die "not in a repo"; cd "$r" || exit 1; load_env; ensure_graphs
-  local files; files=$( { git diff --name-only "$(base_ref)"; git ls-files --others --exclude-standard; } | sort -u | codegraph affected --stdin --quiet 2>/dev/null)
+  local base base_label mb; pick_base; mb=$(git merge-base HEAD "$base" 2>/dev/null) || mb=$(git rev-parse HEAD~1)
+  local files; files=$( { git diff --name-only "$mb"; git ls-files --others --exclude-standard; } | sort -u | codegraph affected --stdin --quiet 2>/dev/null)
   [ -n "$files" ] || { echo "orca-lc: no affected test files"; return 0; }
   echo "$files"; bash -c "$tc $(echo "$files" | tr '\n' ' ')"
 }
 cmd_evidence() {
   local r; r=$(root) || die "not in a repo"; cd "$r" || exit 1; ensure_graphs
-  local base="${1:-$(cfg '.baseBranch' main)}" out; out="$(gitdir)/orca-evidence.md"
-  { echo "# Change evidence — $(git branch --show-current) vs $base @ $(date -Is)"; echo
+  local base base_label mb out; out="$(gitdir)/orca-evidence.md"
+  if [ $# -gt 0 ]; then base=$1 base_label=given; else pick_base; fi
+  # Before the redirect opens: a failure here must not truncate the last good evidence file.
+  mb=$(git merge-base HEAD "$base" 2>/dev/null) || die "no merge base between HEAD and $base"
+  { echo "# Change evidence — $(git branch --show-current) @ $(date -Is)"
+    echo "Base: $base ($base_label)"; echo "Merge base: $(git log -1 --format='%H %s' "$mb")"; echo
     echo "## Blast radius (codebase-memory detect_changes, inbound)"; echo '```'
-    if has codebase-memory-mcp; then codebase-memory-mcp cli detect_changes --project "$(cbm_project)" --base-branch "$base" --limit 20 2>/dev/null | awk '/^changed_files:/{skip=1; print; next} /^seed_symbols:/{skip=0} !skip'
+    if has codebase-memory-mcp; then codebase-memory-mcp cli detect_changes --project "$(cbm_project)" --base-branch "$mb" --limit 20 2>/dev/null | awk '/^changed_files:/{skip=1; print; next} /^seed_symbols:/{skip=0} !skip'
     else echo "codebase-memory-mcp not installed"; fi; echo '```'; echo
     echo "## Affected test files (codegraph affected)"; echo '```'
-    if has codegraph; then git diff --name-only "$(git merge-base HEAD "$base")" | codegraph affected --stdin --quiet 2>/dev/null
+    if has codegraph; then git diff --name-only "$mb" | codegraph affected --stdin --quiet 2>/dev/null
     else echo "codegraph not installed"; fi; echo '```'; echo
-    echo "## Changed files"; echo '```'; git diff --stat "$(git merge-base HEAD "$base")" | tail -30; echo '```'
+    echo "## Changed files"; echo '```'; git diff --stat "$mb" | tail -30; echo '```'
   } > "$out"; echo "$out"
 }
 
