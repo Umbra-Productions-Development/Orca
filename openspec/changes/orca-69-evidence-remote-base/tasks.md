@@ -1,6 +1,6 @@
 ## 1. Base selection
 
-- [x] 1.1 `bin/orca-lc` `base_ref`: fetch `origin <baseBranch>`, prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
+- [x] 1.1 `bin/orca-lc` `pick_base` (replaces `base_ref`): fetch `origin <baseBranch>` with the explicit refspec and `GIT_TERMINAL_PROMPT=0`, prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
 
 ## 2. evidence
 
@@ -12,9 +12,18 @@
 
 - [x] 3.1 `cmd_test_affected`: diff against the merge base with the helper's base.
 
-## 4. Tests and docs
+## 4. worktree up
 
-- [x] 4.1 New `tests/base.test.sh` with the four cases in design.md "Tests" (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
-- [x] 4.2 Confirm case 1 fails before 2.x and passes after.
-- [x] 4.3 `docs/daily-use.md`: say `evidence` and `test-affected` measure against the fetched `origin/<baseBranch>` by default.
-- [x] 4.4 Run `orca-lc gate`; it passes.
+- [ ] 4.1 `cmd_worktree up`: take the base from `pick_base`; die naming the base on `no base`, before creating anything (design.md "worktree up").
+- [ ] 4.2 Print `base <ref> (<label>)` when the new branch is cut from the base, not when a ticket branch is reused.
+- [ ] 4.3 Ticket-branch fetch: explicit `+refs/heads/<branch>:refs/remotes/origin/<branch>` refspec and `GIT_TERMINAL_PROMPT=0`, still non-fatal.
+
+## 5. Tests and docs
+
+- [x] 5.1 New `tests/base.test.sh` with the four cases in design.md "Tests" (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
+- [x] 5.2 Confirm case 1 fails before 2.x and passes after.
+- [x] 5.3 `docs/daily-use.md`: say `evidence` and `test-affected` measure against the fetched `origin/<baseBranch>` by default.
+- [ ] 5.4 `tests/base.test.sh`: cases 5–10 in design.md "Tests" (`orca-lc test-lock on`, reason in commit body, `test-lock off`), committed before 4.x.
+- [ ] 5.5 Confirm cases 7, 8 and 10 fail before 4.x and pass after; say so in the commit bodies.
+- [ ] 5.6 `docs/daily-use.md`: say `worktree up` cuts new branches from the fetched `origin/<baseBranch>` and prints the base it used.
+- [ ] 5.7 Run `orca-lc gate`; it passes.
