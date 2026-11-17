@@ -1,7 +1,8 @@
-#!/usr/bin/env bash
 # install.sh replaces only what Orca installed: a third-party skill of the same name is kept, a stale copy of
 # Orca's own (a directory with subdirectories too) is refreshed. Run: tests/run.sh tests/install-keep.test.sh
 # lib.sh's sandbox: HOME is $TMPDIR/home, install.sh runs only from $ORCA_SRC or a clone under $TMPDIR.
+# Run directly, HOME and $sk would be the real ~/.claude: stop unless run.sh set up the sandbox.
+: "${ORCA_TEST_TMP:?run via tests/run.sh, which sandboxes HOME}"
 src="$ORCA_SRC"; tmp="$TMPDIR"; unset CLAUDE_CONFIG_DIR XDG_STATE_HOME
 sk="$HOME/.claude/skills"
 
