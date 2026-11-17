@@ -67,3 +67,20 @@ if command -v setsid >/dev/null && env --default-signal=INT true 2>/dev/null; th
   for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$(cat "$TMPDIR/cpid")" 2>/dev/null || break; sleep 0.3; done
   kill -0 "$(cat "$TMPDIR/cpid")" 2>/dev/null && { fail "no-timeout gate child survived a Ctrl-C"; kill "$(cat "$TMPDIR/cpid")"; }
 fi
+
+# Inline output goes to the fd 1 orca-lc was given, never a reopened /dev/stdout.
+# A file keeps what was written to it before the gate.
+r=$(cfgr 'echo GATE-RAN'); { echo before; (cd "$r" && orca-lc gate --inline); } > "$TMPDIR/out.txt" 2>&1
+assert_contains "$(cat "$TMPDIR/out.txt")" before; assert_contains "$(cat "$TMPDIR/out.txt")" GATE-RAN
+# A socket (a Node or Python caller capturing output) gets the gate's output and status.
+if command -v python3 >/dev/null; then
+  out=$(cd "$r" && python3 -I -c '
+import socket, subprocess, sys
+a, b = socket.socketpair()
+p = subprocess.Popen(["orca-lc", "gate", "--inline"], stdout=b, stderr=subprocess.STDOUT); b.close()
+data = b"".join(iter(lambda: a.recv(65536), b""))
+sys.stdout.write(data.decode() + "status=%d\n" % p.wait())')
+  assert_contains "$out" GATE-RAN; assert_contains "$out" ORCA_GATE_PASS; assert_contains "$out" status=0
+fi
+# A pipe gets the same.
+out=$(cd "$r" && orca-lc gate --inline | cat); assert_contains "$out" ORCA_GATE_PASS

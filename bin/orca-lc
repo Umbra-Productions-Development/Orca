@@ -152,16 +152,18 @@ cmd_gate() {
   local r; r=$(root) || die "not in a repo"
   local g; g=$(cfg '.gate'); [ -n "$g" ] || die "no gate in .orca/config.json"
   cd "$r" || exit 1
-  local log old pane="" out=/dev/stdout rc; log="$(gitdir)/orca-gate.log"; old="$(gitdir)/orca-gate-pane"; : > "$log"
+  local log old pane="" rc; log="$(gitdir)/orca-gate.log"; old="$(gitdir)/orca-gate-pane"; : > "$log"
   if [ "${1:-}" != "--inline" ] && inherdr; then
     [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
     pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
     # The pane only follows the log (and stops when this process ends); closing it cannot change the result.
     if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"
     # BSD tail has no --pid: it falls back to a plain follow, which the pane close or the next run ends.
-    else herdr pane run "$pane" "tail -n +1 -f --pid=$$ $(printf %q "$log") 2>/dev/null || tail -n +1 -f $(printf %q "$log")" >/dev/null; out=/dev/null; fi
+    else herdr pane run "$pane" "tail -n +1 -f --pid=$$ $(printf %q "$log") 2>/dev/null || tail -n +1 -f $(printf %q "$log")" >/dev/null; fi
   fi
-  run_gate "$g" 2>&1 | tee -a "$log" > "$out"; rc=${PIPESTATUS[0]}
+  # Inline output goes to the fd 1 we were given: reopening /dev/stdout fails on a socket and truncates a file.
+  if [ -n "$pane" ]; then run_gate "$g" 2>&1 | tee -a "$log" >/dev/null; rc=${PIPESTATUS[0]}
+  else run_gate "$g" 2>&1 | tee -a "$log"; rc=${PIPESTATUS[0]}; fi
   [ -n "$pane" ] || return $rc
   tail -60 "$log"
   if [ $rc = 0 ]; then herdr pane close "$pane" >/dev/null; echo "orca-lc: gate PASS, pane closed"; return 0; fi
