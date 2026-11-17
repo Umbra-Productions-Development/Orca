@@ -503,7 +503,8 @@ cmd_worktree() {
         elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then
           # Not --track: it refuses a remote-tracking ref no fetch refspec maps. The two keys are the upstream.
           git -C "$main" worktree add -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
-          git -C "$main" config "branch.$branch.remote" origin; git -C "$main" config "branch.$branch.merge" "refs/heads/$branch"
+          { git -C "$main" config "branch.$branch.remote" origin && git -C "$main" config "branch.$branch.merge" "refs/heads/$branch"; } ||
+            echo "WARNING: upstream not set; git push -u origin $branch"
         else
           # Cut from the fetched remote base: the main checkout's own branch may be stale or somebody else's.
           local base base_label; pick_base
