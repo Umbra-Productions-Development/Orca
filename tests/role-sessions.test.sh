@@ -1,0 +1,245 @@
+# orca-lc role start/retire against a fake herdr: reuse with --new, name folding, extras replace, memory guard, retire keeps the tab,
+# kept tabs are reused, reruns send once (the received ledger), the blocked-startup report, roleStartTimeoutMs.
+lc="$ORCA_SRC/bin/orca-lc"
+tmp=$(mktemp -d)
+main="$tmp/main"; wt="$tmp/ABC-1"; H="$tmp/h"; mkdir -p "$main/.orca" "$H" "$tmp/bin"
+git -C "$main" init -q && git -C "$main" -c user.name=t -c user.email=t@t commit -q --allow-empty -m init
+git -C "$main" worktree add -q -b abc-1 "$wt"
+echo '{"ticketPattern":"ABC-[0-9]+"}' >"$main/.orca/config.json"
+echo '[]' >"$H/agents"; echo '[]' >"$H/tabs"; : >"$H/log"
+printf 'MemAvailable:   8192000 kB\n' >"$H/meminfo"
+
+# Fake herdr: agents and tabs live in $H as JSON; every mutating call is logged. Each agent start and /clear gives a new
+# Claude session id (sidN). Switch files in $H: start-fails (agent start errors, no agent), no-sid (agent get reports no id),
+# stale (N or never: polls of agent get that still report the id from before /clear), prompt-fails (a prompt other than /clear fails).
+cat >"$tmp/bin/herdr" <<EOF
+#!/usr/bin/env bash
+H="$H"; wt="$wt"
+EOF
+cat >>"$tmp/bin/herdr" <<'EOF'
+put() { local f="$1"; shift; jq -c "$@" "$H/$f" >"$H/$f.n" && mv "$H/$f.n" "$H/$f"; }
+newsid() { local n; n=$(( $(cat "$H/n" 2>/dev/null || echo 0) + 1 )); echo "$n" >"$H/n"; echo "sid$n"; }
+case "$1 $2" in
+  "workspace list") jq -n --arg d "$wt" '{result:{workspaces:[{workspace_id:"w1",worktree:{checkout_path:$d}}]}}';;
+  "agent list") jq '{result:{agents:.}}' "$H/agents";;
+  "agent get") a=$(jq -c --arg n "$3" '.[] | select(.name==$n)' "$H/agents"); [ -n "$a" ] || exit 1
+               if [ -f "$H/no-sid" ]; then a=$(jq -c 'del(.agent_session)' <<<"$a")
+               elif [ -n "$(jq -r '.pending // empty' <<<"$a")" ]; then left=$(cat "$H/stale" 2>/dev/null || echo 0)
+                 if [ "$left" = never ]; then :; elif [ "$left" -gt 0 ]; then echo $((left-1)) >"$H/stale"
+                 else put agents --arg n "$3" 'map(if .name==$n then .agent_session.value=.pending | del(.pending) else . end)'
+                      a=$(jq -c --arg n "$3" '.[] | select(.name==$n)' "$H/agents"); fi; fi
+               jq -n --argjson a "$a" '{result:{agent:$a}}';;
+  "pane read") printf ' Do you trust the files in this folder?\n\n   1. Yes, proceed\n   2. No, exit\n\n Enter to confirm\n';;
+  "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
+                 u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
+                 [ "$st" = working ] && [ -f "$H/goes-blocked" ] && grep -qw blocked <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="blocked" else . end)'; exit 0; }
+                 [ "$st" = working ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
+                 grep -qw "$st" <<<"$u";;
+  "agent prompt") [ -f "$H/prompt-fails" ] && [ "$4" != /clear ] && exit 1
+                  echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(select(.name!=$n))'
+                  [ "$4" = /clear ] && put agents --arg n "$3" --arg s "$(newsid)" 'map(if .name==$n then .agent_status="done" | .pending=$s else . end)'; :;;
+  "agent start") [ -f "$H/start-fails" ] && { echo '{"error":{"code":"agent_start_timeout","message":"agent did not become ready"}}'; exit 1; }
+                 put agents --arg n "$3" --arg p "$7" --arg c "$wt" --arg s "$(newsid)" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c, agent_session:{value:$s}}]'; echo "start $3 timeout $9" >>"$H/log";;
+  "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
+                put tabs --arg t "tp$n" --arg l "$l" '. + [{tab_id:$t, label:$l}]'; jq -n --arg p "p$n" '{result:{root_pane:{pane_id:$p}}}';;
+  "tab list") jq '{result:{tabs:.}}' "$H/tabs";;
+  "pane list") jq '{result:{panes:[.[] | {pane_id:(.tab_id|ltrimstr("t")), tab_id}]}}' "$H/tabs";;
+  "tab get") jq --arg t "$3" '{result:{tab:(.[] | select(.tab_id==$t))}}' "$H/tabs";;
+  "tab close") echo "close $3" >>"$H/log"; put agents --arg t "$3" 'map(select(.tab_id!=$t))'; put tabs --arg t "$3" 'map(select(.tab_id!=$t))';;
+  "agent rename") echo "rename $3 $4" >>"$H/log";;
+  *) :;;
+esac
+EOF
+chmod +x "$tmp/bin/herdr"
+# The orchestrator has a session id, as a real one does, so its rerun may replace the live handoff it wrote (#48).
+export PATH="$tmp/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=orch HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=torch CLAUDE_SESSION_ID=orch-sid ORCA_MEMINFO="$H/meminfo"
+(cd "$main" && ORCA_PS_STOP=$$ "$lc" name --set >/dev/null 2>&1); : >"$H/log"
+
+# Each run gives a new job unless BODY names one: a rerun with the same body is the idempotent case.
+jobn=0; run() { jobn=$((jobn+1)); (cd "$main" && "$lc" "$@" <<<"${BODY:-job $jobn}" >"$H/out" 2>&1); echo $? >"$H/rc"; }
+check() { # check <description> <condition>
+  eval "$2" || fail "$1: $(cat "$H/out")"
+}
+agents() { jq -r '[.[].name] | sort | join(" ")' "$H/agents"; }
+set_status() { jq -c --arg n "$1" --arg s "$2" 'map(if .name==$n then .agent_status=$s else . end)' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"; }
+
+run role start ABC-1 review
+check 'first start opens a session' '[ "$(agents)" = abc1-review ] && grep -q "start abc1-review" "$H/log"'
+check 'a new role tab carries its ticket' 'grep -q "tab create .*--env ORCA_TICKET=ABC-1" "$H/log"'
+check 'a session names itself from the tab ticket, whatever the folder' '[ "$(cd "$main" && HERDR_ENV= ORCA_TICKET=XY-7 ORCA_ROLE=apply "$lc" name --set | jq -r .name)" = xy7-apply ]'
+run role start ABC-1 review2 --new
+check 'review2 folds into review and reuses it with /clear' '[ "$(agents)" = abc1-review ] && grep -q "prompt abc1-review /clear" "$H/log" && [ "$(grep -c "^start" "$H/log")" = 1 ]'
+check 'reuse sends the first prompt' 'grep -q "prompt abc1-review .*handoff read ABC-1 review" "$H/log"'
+# A live handoff from another session refuses the start (#48); the reused session must keep its context.
+other() { (cd "$main" && HERDR_ENV= HERDR_PANE_ID=other CLAUDE_SESSION_ID=other-sid "$lc" "$@"); }
+other name --set >/dev/null; hf=$(other handoff write ABC-1 review --as other); clears=$(grep -c /clear "$H/log")
+run role start ABC-1 review --new
+check 'a refused handoff leaves the reused session uncleared' 'grep -q "from session other-sid" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
+other handoff consume "$hf" >/dev/null
+set_status abc1-review working; run role start ABC-1 reviewer --new
+check 'a working session refuses reuse' '[ "$(grep -c /clear "$H/log")" = 1 ] && grep -q "is working" "$H/out"'
+set_status abc1-review idle
+
+run role start ABC-1 walk
+check 'an extra session opens' '[ "$(agents)" = "abc1-review abc1-walk" ]'
+run role start ABC-1 tour
+check 'a second extra refuses while one is live' '[ "$(agents)" = "abc1-review abc1-walk" ] && grep -q "extra session is live" "$H/out"'
+run role start ABC-1 tour --replace abc1-walk
+check '--replace exits the extra, keeps its tab, opens the new one' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "prompt abc1-walk /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"walk\")" "$H/tabs" >/dev/null'
+
+printf 'MemAvailable:   1024000 kB\n' >"$H/meminfo"
+run role start ABC-1 propose
+check 'low memory refuses a new session and lists idle ones' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "under minFreeMemMb 3000.*abc1-review" "$H/out"'
+run role start ABC-1 review --new
+check 'low memory still allows reuse' 'grep -q "^handoff " "$H/out"'
+ORCA_MEMINFO="$H/none" run role start ABC-1 propose
+check 'unknown free memory (no /proc/meminfo) opens the session' 'jq -e "any(.name==\"abc1-propose\")" "$H/agents" >/dev/null'
+run role retire ABC-1 propose
+echo '{"ticketPattern":"ABC-[0-9]+","minFreeMemMb":500}' >"$main/.orca/config.json"
+run role start ABC-1 propose
+check 'minFreeMemMb sets the threshold' '[ "$(agents)" = "abc1-propose abc1-review abc1-tour" ]'
+
+run role retire ABC-1 tour
+check 'retire exits the session and keeps its tab' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "prompt abc1-tour /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"tour\")" "$H/tabs" >/dev/null'
+set_status abc1-review working; run role retire ABC-1 review
+check 'retire refuses a working session without --wait' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "pass --wait" "$H/out"'
+run role retire ABC-1 review --wait
+check 'retire --wait waits for idle, then retires' '[ "$(agents)" = abc1-propose ] && grep -q "wait abc1-review idle" "$H/log" && grep -q "prompt abc1-review /exit" "$H/log"'
+exits=$(grep -c "prompt abc1-propose /exit" "$H/log"); set_status abc1-propose blocked; run role retire ABC-1 propose
+check 'retire refuses a blocked session and types nothing into its prompt' 'grep -q "abc1-propose is blocked at a prompt" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+set_status abc1-propose working; touch "$H/goes-blocked"; run role retire ABC-1 propose --wait
+check 'retire --wait stops when the session turns blocked' 'grep -q "abc1-propose is blocked at a prompt" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+rm -f "$H/goes-blocked"; set_status abc1-propose idle
+tabs=$(jq length "$H/tabs"); run role start ABC-1 review
+check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
+jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
+run role retire ABC-1 mine
+check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
+jq -c '. + [{name:"abc1-stuck", agent_status:"idle", tab_id:"tstuck"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+jq -c '. + [{tab_id:"tstuck", label:"stuck"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
+run role retire ABC-1 stuck
+check 'retire fails when the session does not exit' '! grep -q "^retired" "$H/out" && grep -q "abc1-stuck did not exit" "$H/out"'
+jq -c 'map(select(.name!="abc1-stuck"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+run role start ABC-1 code-review --new
+check 'code-review folds into review' 'grep -q "^handoff .*/review-" "$H/out"'
+clears=$(grep -c /clear "$H/log"); run role start ABC-1 review --replace abc1-mine
+check '--replace on a core role refuses' 'grep -q "replace is for extra sessions" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
+for n in preview reapply; do run role start ABC-1 $n
+  check "$n stays an extra session" 'grep -q "extra session is live on ABC-1: abc1-mine" "$H/out"'; done
+live() { find "$main/.orca" -name "tour-*.md" -not -path "*/archive/*" | wc -l; }
+before=$(live); set_status abc1-mine blocked; run role start ABC-1 tour --replace abc1-mine
+check '--replace refuses a blocked session before writing the handoff' 'grep -q "abc1-mine is blocked at a prompt" "$H/out" && [ "$(live)" = "$before" ]'
+set_status abc1-mine idle
+set_status abc1-propose done; run role start ABC-1 propose --new
+check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
+run role retire ABC-1 review
+jq -c '. + [{name:"abc1-review2", agent_status:"idle", pane_id:"p1", tab_id:"tp1"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+tabs=$(jq length "$H/tabs"); run role start ABC-1 review
+check 'start never types into a kept tab another agent still runs in' '[ "$(jq length "$H/tabs")" = $((tabs+1)) ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" != p1 ]'
+cp "$(command -v bash)" "$tmp/bin/claude"; export ORCA_PS_STOP=$$
+(cd "$main" && "$tmp/bin/claude" -c '"$0" -c "\"$1\" name --set >/dev/null; :"; :' "$tmp/bin/claude" "$lc")   # "; :" keeps bash from exec-ing away each claude
+check 'an agent inside another agent pane does not rename the pane' '! grep -q "^rename" "$H/log"'
+(cd "$main" && "$tmp/bin/claude" -c '"$0" name --set >/dev/null; :' "$lc")
+check 'the pane own agent names it' 'grep -q "^rename" "$H/log"'
+# macOS ps prints comm as the executable's full path.
+mkdir -p "$tmp/macps"; printf '#!/usr/bin/env bash\ncase " $* " in *" comm= "*) c=$(%s "$@") && echo "/opt/bin/$c";; *) exec %s "$@";; esac\n' "$(command -v ps)" "$(command -v ps)" >"$tmp/macps/ps"; chmod +x "$tmp/macps/ps"
+renames=$(grep -c "^rename" "$H/log")
+(cd "$main" && PATH="$tmp/macps:$PATH" "$tmp/bin/claude" -c '"$0" -c "\"$1\" name --set >/dev/null; :"; :' "$tmp/bin/claude" "$lc")
+check 'a nested agent is found where ps prints the full path (macOS)' '[ "$(grep -c "^rename" "$H/log")" = "$renames" ]'
+rm -f "$tmp/bin/claude"
+
+# ---- reruns send once, the blocked-startup report, roleStartTimeoutMs (#18). Runs on the apply role, unused above.
+export ORCA_SID_WAIT=0
+hd="$main/.orca/handoffs/abc-1"; rd="$main/.orca/received/abc-1"
+apsid() { jq -r '.[] | select(.name=="abc1-apply") | .agent_session.value // ""' "$H/agents"; }
+live_apply() { find "$hd" -maxdepth 1 -name 'apply-*.md' | sort; }
+gone_apply() { jq -c 'map(select(.name!="abc1-apply"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"; }
+prompts() { grep -c "prompt abc1-apply .*handoff read ABC-1 apply" "$H/log"; }
+starts() { grep -c "^start abc1-apply" "$H/log"; }
+sent_path() { sed -n 's/^handoff //p' "$H/out"; }
+fmv() { sed -n "2,/^---\$/{s/^$1: //p;}" "$2" | head -1; }
+(cd "$main" && "$lc" role owner ABC-1 --set propose >/dev/null)
+
+touch "$H/start-fails"; BODY="apply job A" run role start ABC-1 apply
+check 'a failed start prints herdr own error, the tab, the pane and its last lines' 'grep -q "abc1-apply is waiting at a prompt in tab .apply. (pane p[0-9]*):" "$H/out" && grep -q "^  herdr: .*agent_start_timeout" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && grep -q "^  | .*Enter to confirm" "$H/out" && grep -q "Answer it there, then rerun" "$H/out"'
+check 'the startup report no longer guesses folder trust' '! grep -q "folder trust" "$H/out"'
+check 'a failed start sends nothing' '[ "$(prompts)" = 0 ] && [ "$(live_apply | wc -l)" = 1 ] && [ -z "$(fmv sent "$(live_apply)")" ]'
+rm "$H/start-fails"; pane=$(sed -nE 's/.*\(pane ([^)]+)\).*/\1/p' "$H/out" | head -1); A=$(live_apply)
+# The user answered the prompt: the session is now live and idle, and never got a job.
+jq -c --arg p "$pane" --arg c "$wt" '. + [{name:"abc1-apply", agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c, agent_session:{value:"sidA"}}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+clears=$(grep -c /clear "$H/log"); s0=$(starts); BODY="apply job A" run role start ABC-1 apply
+check 'a rerun after a startup prompt sends the same handoff and the first prompt once, no /clear' '[ "$(prompts)" = 1 ] && [ "$(sent_path)" = "$A" ] && [ "$(grep -c /clear "$H/log")" = "$clears" ] && [ "$(starts)" = "$s0" ]'
+check 'the sent handoff is stamped and the ledger names it' '[ "$(fmv sent-to "$A")" = sidA ] && [ -n "$(fmv sent "$A")" ] && [ -n "$(fmv body-sha1 "$A")" ] && grep -qxF "handoff: $A" "$rd/sidA"'
+check 'a changed owner is printed' 'grep -qx "owner: propose -> apply" "$H/out"'
+
+BODY="apply job A" run role start ABC-1 apply
+check 'a same-body rerun after a full start says already sent and exits 0' '[ "$(cat "$H/rc")" = 0 ] && grep -qx "already sent: $A" "$H/out" && [ "$(prompts)" = 1 ] && [ "$(live_apply)" = "$A" ]'
+(cd "$main" && HERDR_ENV= HERDR_PANE_ID=apane "$lc" handoff read ABC-1 apply >/dev/null)
+BODY="apply job A" run role start ABC-1 apply
+check 'after the session read its handoff, a same-body rerun still says already sent' '[ "$(cat "$H/rc")" = 0 ] && [ "$(prompts)" = 1 ] && [ -z "$(live_apply)" ]'
+check 'a read ledger handoff is named as read and archived' 'grep -q "^already sent: $A (read and archived; written 20" "$H/out"'
+
+clears=$(grep -c /clear "$H/log"); BODY="apply job B" run role start ABC-1 apply
+check 'a second job for a live session that had one refuses, naming it and its handoff' '[ "$(cat "$H/rc")" = 1 ] && grep -q "abc1-apply is live and already received $A (read and archived" "$H/out" && grep -q "rerun with --new" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ] && [ -z "$(live_apply)" ]'
+BODY="apply job B" run role start ABC-1 apply --new
+check '--new clears the session and sends the new job' 'grep -q "prompt abc1-apply /clear" "$H/log" && [ "$(prompts)" = 2 ] && B=$(sent_path) && [ -n "$B" ] && [ -f "$rd/$(apsid)" ] && [ "$(apsid)" != sidA ]'
+check 'an unchanged owner prints nothing' '! grep -q "^owner" "$H/out"'
+B=$(sent_path)
+# A failed hash must not make every body look the same (an empty hash would match the ledger and drop the job).
+mkdir -p "$tmp/nohash"; printf '#!/bin/sh\n[ "$1" = hash-object ] && exit 1\nexec %s "$@"\n' "$(command -v git)" >"$tmp/nohash/git"; chmod +x "$tmp/nohash/git"
+PATH="$tmp/nohash:$PATH" BODY="apply job Z" run role start ABC-1 apply
+check 'a body that cannot be hashed refuses, never already sent' '[ "$(cat "$H/rc")" = 1 ] && grep -q "could not hash the handoff body" "$H/out" && ! grep -q "already sent" "$H/out" && [ "$(prompts)" = 2 ] && [ "$(live_apply)" = "$B" ]'
+
+BODY="apply job C" run role start ABC-1 apply
+check 'a different body while the last handoff is unread refuses with (not read yet)' '[ "$(cat "$H/rc")" = 1 ] && grep -q "already received $B (not read yet)" "$H/out" && [ "$(live_apply)" = "$B" ]'
+BODY="apply job C" run role start ABC-1 apply --new
+C=$(sent_path)
+# Names are checked by content: an archived handoff frees its file name, so a new one written the same second takes it.
+check '--new replaces the unread handoff' '[ "$(live_apply)" = "$C" ] && grep -qx "apply job C" "$C" && [ "$(find "$hd/archive" -name "apply-*" -exec grep -lx "apply job B" {} + | wc -l)" = 1 ] && [ "$(prompts)" = 3 ]'
+rm "$rd/$(apsid)"; BODY="apply job C" run role start ABC-1 apply
+check 'a handoff sent to this session with this body is already sent, even with its ledger file missing' '[ "$(cat "$H/rc")" = 0 ] && grep -qx "already sent: $C" "$H/out" && [ "$(prompts)" = 3 ] && [ "$(live_apply)" = "$C" ]'
+
+gone_apply; s0=$(starts); BODY="apply job C" run role start ABC-1 apply
+check 'a session gone before reading: the same body opens a new one and resends the same handoff' '[ "$(cat "$H/rc")" = 0 ] && [ "$(starts)" = $((s0+1)) ] && [ "$(sent_path)" = "$C" ] && [ "$(fmv sent-to "$C")" = "$(apsid)" ] && [ "$(prompts)" = 4 ]'
+gone_apply; BODY="apply job D" run role start ABC-1 apply
+D=$(sent_path)
+check 'a session gone before reading: a different body replaces the handoff without refusing' '[ "$(cat "$H/rc")" = 0 ] && [ "$(live_apply)" = "$D" ] && grep -qx "apply job D" "$D" && [ "$(prompts)" = 5 ]'
+
+touch "$H/prompt-fails"; BODY="apply job E" run role start ABC-1 apply --new
+E=$(live_apply)
+check 'a failed first prompt leaves the handoff written but unsent' '[ "$(cat "$H/rc")" = 1 ] && grep -q "written but not sent" "$H/out" && [ -z "$(fmv sent-to "$E")" ] && [ -z "$(fmv sent "$E")" ] && [ ! -e "$rd/$(apsid)" ]'
+rm "$H/prompt-fails"; clears=$(grep -c /clear "$H/log"); BODY="apply job E" run role start ABC-1 apply
+check 'the rerun sends only the first prompt, with the same handoff' '[ "$(cat "$H/rc")" = 0 ] && [ "$(sent_path)" = "$E" ] && [ "$(prompts)" = 6 ] && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
+
+gone_apply; touch "$H/no-sid"; BODY="apply job F" run role start ABC-1 apply
+F=$(live_apply)
+check 'no session id from herdr: dies before stamping or prompting, naming the tab and role retire' '[ "$(cat "$H/rc")" = 1 ] && grep -q "has not reported a session id for abc1-apply" "$H/out" && grep -q "tab .apply." "$H/out" && grep -q "orca-lc role retire ABC-1 apply" "$H/out" && [ "$(prompts)" = 6 ] && [ -z "$(fmv sent "$F")" ]'
+rm "$H/no-sid"; s0=$(starts); BODY="apply job F" run role start ABC-1 apply
+check 'once herdr reports the id, the rerun resumes the unsent handoff' '[ "$(cat "$H/rc")" = 0 ] && [ "$(sent_path)" = "$F" ] && [ "$(starts)" = "$s0" ] && [ "$(prompts)" = 7 ]'
+
+old=$(apsid); echo 2 >"$H/stale"; ORCA_SID_WAIT=2 BODY="apply job G" run role start ABC-1 apply --new
+G=$(sent_path)
+check 'after /clear the ledger is written under the new session id, not the old' '[ "$(cat "$H/rc")" = 0 ] && [ "$(apsid)" != "$old" ] && grep -qxF "handoff: $G" "$rd/$(apsid)" && grep -qxF "handoff: $F" "$rd/$old"'
+BODY="apply job G" run role start ABC-1 apply
+check 'a same-body rerun after a reuse says already sent' 'grep -qx "already sent: $G" "$H/out" && [ "$(prompts)" = 8 ]'
+echo never >"$H/stale"; BODY="apply job H" run role start ABC-1 apply --new
+Hh=$(live_apply)
+check 'an id that never changes after /clear: dies before stamping or prompting' '[ "$(cat "$H/rc")" = 1 ] && grep -q "still reports abc1-apply.s session id from before /clear" "$H/out" && grep -q "orca-lc role retire ABC-1 apply" "$H/out" && [ "$(prompts)" = 8 ] && [ -z "$(fmv sent "$Hh")" ]'
+rm -f "$H/stale"
+
+set_status abc1-apply blocked; BODY="apply job I" run role start ABC-1 apply --new
+check 'a live blocked session refuses with the startup report' '[ "$(cat "$H/rc")" = 1 ] && grep -q "abc1-apply is waiting at a prompt in tab .apply. (pane " "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && ! grep -q "herdr:" "$H/out"'
+set_status abc1-apply idle
+run role start ABC-1 apply --new --replace abc1-mine
+check '--new and --replace do not combine' '[ "$(cat "$H/rc")" = 1 ] && grep -q "do not combine" "$H/out"'
+
+check 'agent start gets the default timeout' 'grep -q "^start abc1-apply timeout 60000$" "$H/log"'
+cfgf="$main/.orca/config.json"; cp "$cfgf" "$H/cfg"
+jq '.roleStartTimeoutMs = 900000' "$H/cfg" >"$cfgf"; gone_apply; run role start ABC-1 apply
+check 'roleStartTimeoutMs over 300000 is capped' '[ "$(tail -1 <<<"$(grep "^start abc1-apply" "$H/log")")" = "start abc1-apply timeout 300000" ]'
+jq '.roleStartTimeoutMs = 120000' "$H/cfg" >"$cfgf"; gone_apply; run role start ABC-1 apply
+check 'roleStartTimeoutMs reaches agent start' '[ "$(tail -1 <<<"$(grep "^start abc1-apply" "$H/log")")" = "start abc1-apply timeout 120000" ]'
+jq '.roleStartTimeoutMs = "soon"' "$H/cfg" >"$cfgf"; gone_apply; s0=$(starts); run role start ABC-1 apply
+check 'a roleStartTimeoutMs that is not a positive integer dies with the key' '[ "$(cat "$H/rc")" = 1 ] && grep -q "roleStartTimeoutMs must be a positive integer" "$H/out" && [ "$(starts)" = "$s0" ]'
+cp "$H/cfg" "$cfgf"
