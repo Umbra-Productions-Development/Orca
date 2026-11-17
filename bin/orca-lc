@@ -496,14 +496,22 @@ cmd_worktree() {
       # Refuse --stack before creating anything when its command cannot run.
       [ $stack = 1 ] && { if [ -d "$dir" ]; then stack_check stackUp "$dir"; else stack_check stackUp "$main"; fi; }
       if [ ! -d "$dir" ]; then
-        # Cut from the remote base: the main checkout's own branch may be stale or somebody else's.
-        local base; base="$(cfg '.baseBranch' main)"; git -C "$main" fetch -q origin "$base" 2>/dev/null && base="origin/$base"
-        # Reuse the ticket's branch where it exists: the local one as it is, else track the remote one.
-        git -C "$main" fetch -q origin "$branch" 2>/dev/null
+        # Reuse the ticket's branch where it exists: the local one as it is, else the remote one. The explicit
+        # refspec finds a remote branch origin's fetch refspec leaves out; a missing one fails silently.
+        GIT_TERMINAL_PROMPT=0 git -C "$main" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1
         if git -C "$main" show-ref -q --verify "refs/heads/$branch"; then git -C "$main" worktree add "$dir" "$branch" || die "git worktree add failed"
-        elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then git -C "$main" worktree add --track -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
-        elif inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
-        else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
+        elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then
+          # Not --track: it refuses a remote-tracking ref no fetch refspec maps. The two keys are the upstream.
+          git -C "$main" worktree add -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
+          git -C "$main" config "branch.$branch.remote" origin; git -C "$main" config "branch.$branch.merge" "refs/heads/$branch"
+        else
+          # Cut from the fetched remote base: the main checkout's own branch may be stale or somebody else's.
+          local base base_label; pick_base
+          [ "$base_label" != "no base" ] || die "no base: neither origin/$(cfg '.baseBranch' main) nor $(cfg '.baseBranch' main) exists; nothing created"
+          if inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
+          else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
+          echo "base $base ($base_label)"
+        fi
       fi
       # Every worktree gets its own workspace, grouped under the repository's: open one for a worktree
       # made outside herdr or whose workspace was closed.
