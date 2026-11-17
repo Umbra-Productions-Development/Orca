@@ -75,6 +75,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `baseBranch` | Branch new worktrees start from |
 | `gate` | Command that must pass before a push |
 | `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has, and a hit fails it; `discover`, `role start` and `inbox send` refuse denylisted text, and pretool blocks such writes into the shared handoffs and discoveries, and any write there it could not scan (a stale install: re-run `install.sh`). Default off |
+| `gateTimeoutMin` | Minutes before a hung gate is stopped (`ORCA_GATE_TIMEOUT`, exit 124). Fractions allowed. Default `30` |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
