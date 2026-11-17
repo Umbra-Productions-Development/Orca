@@ -27,6 +27,7 @@ assert_eq "$(cfgv "$r" ticketPattern)" "[A-Z]+-[0-9]+"
 assert_eq "$(cfgv "$r" testGlob)" "$nolang_test"
 assert_eq "$(cfgv "$r" sourceGlob)" ""
 assert_eq "$(jq -c .ports "$f")" "[]"
+assert_eq "$(cfgv "$r" minFreeMemMb)" "3000" "minFreeMemMb default"
 grep -qxF .orca "$r/.gitignore" || fail ".gitignore lacks .orca: $(cat "$r/.gitignore" 2>&1)"
 for v in myproj ABC- vitest stack-up.sh stack-down.sh '"web"' 'Open each changed screen'; do
   assert_not_contains "$(cat "$f")" "$v" "sample value $v written"; done
