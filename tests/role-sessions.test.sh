@@ -113,6 +113,10 @@ clears=$(grep -c /clear "$H/log"); run role start ABC-1 review --replace abc1-mi
 check '--replace on a core role refuses' 'grep -q "replace is for extra sessions" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
 for n in preview reapply; do run role start ABC-1 $n
   check "$n stays an extra session" 'grep -q "extra session is live on ABC-1: abc1-mine" "$H/out"'; done
+live() { find "$main/.orca" -name "tour-*.md" -not -path "*/archive/*" | wc -l; }
+before=$(live); set_status abc1-mine blocked; run role start ABC-1 tour --replace abc1-mine
+check '--replace refuses a blocked session before writing the handoff' 'grep -q "abc1-mine is blocked at a prompt" "$H/out" && [ "$(live)" = "$before" ]'
+set_status abc1-mine idle
 set_status abc1-propose done; run role start ABC-1 propose
 check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
 run role retire ABC-1 review
