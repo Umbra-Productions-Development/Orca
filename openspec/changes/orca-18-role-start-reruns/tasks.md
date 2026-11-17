@@ -1,9 +1,9 @@
 ## 1. role start
 
 - [ ] 1.1 `bin/orca-lc` `cmd_role start`: parse `--new` (refused together with `--replace`); USAGE line updated.
-- [ ] 1.2 `session_id` helper (polls `agent_session.value` up to 10 s, `ORCA_SID_WAIT` for tests, dies on empty) and the received ledger `$(shared)/received/<ticket>/<sid>` (design.md "Flow").
+- [ ] 1.2 `session_id` helper (polls `agent_session.value` up to 10 s, `ORCA_SID_WAIT` for tests, dies on empty; `--changed-from <id>`) and the received ledger in `tdir "$(shared)/received" <ticket>` with `handoff`, `written`, `body-sha1`, `sent` (design.md "Flow"); `(read and archived; written <stamp>)` for an archived ledger handoff.
 - [ ] 1.3 Steps 2–5: blocked refusal first; `already sent:` from the ledger; orphaned or unsent live handoff resumed or replaced; refusal for a session with a ledger file without `--new` (`(not read yet)` when its handoff is still live); no `/clear` for a session with no ledger file.
-- [ ] 1.4 `body-sha1:` frontmatter key; step 10's stamps and ledger file written before `cmd_notify` and removed if it fails; `session_id` re-read after `/clear`.
+- [ ] 1.4 `body-sha1:` frontmatter key; step 10's stamps and ledger file written before `cmd_notify` and removed if it fails; `session_id --changed-from` the pre-`/clear` id after `/clear`.
 - [ ] 1.5 Blocked-startup report helper (design.md), used by the three die paths; the "folder trust" text removed; the `--replace` blocked-extra message unchanged.
 - [ ] 1.6 Owner line: `owner: <old> -> <new>` only on change.
 
@@ -19,6 +19,6 @@
 
 ## 4. Tests and verification
 
-- [ ] 4.1 `tests/role-sessions.test.sh`: the fake herdr additions and cases 1–11 from design.md "Tests"; PR #84's reuse cases gain `--new`. `tests/init.test.sh`: the new key. (`orca-lc test-lock on`, reason in the commit body, `test-lock off`.)
-- [ ] 4.2 On Linux with a real herdr: start a role; after the session has read its handoff, rerun the same command (expect `already sent:`, exit 0); rerun with a different body (expect the refusal), then with `--new`; check that the ledger id matches herdr's `agent_session.value` a few seconds after `/clear`. Report a mismatch to the orchestrator (design.md "Risks").
+- [ ] 4.1 `tests/role-sessions.test.sh`: the fake herdr additions and cases 1–14 from design.md "Tests"; PR #84's reuse cases gain `--new`. `tests/init.test.sh`: the new key. (`orca-lc test-lock on`, reason in the commit body, `test-lock off`.)
+- [ ] 4.2 On Linux with a real herdr: start a role; after the session has read its handoff, rerun the same command (expect `already sent:`, exit 0); rerun with a different body (expect the refusal), then with `--new`; check that `/clear` changes herdr's `agent_session.value` and that the ledger file is under the new id. Report a mismatch to the orchestrator (design.md "Risks").
 - [ ] 4.3 `orca-lc gate` passes; tick "Verified on Linux" on #18.
