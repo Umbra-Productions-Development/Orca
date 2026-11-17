@@ -115,6 +115,10 @@ for n in preview reapply; do run role start ABC-1 $n
   check "$n stays an extra session" 'grep -q "extra session is live on ABC-1: abc1-mine" "$H/out"'; done
 set_status abc1-propose done; run role start ABC-1 propose
 check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
+run role retire ABC-1 review
+jq -c '. + [{name:"abc1-review2", agent_status:"idle", pane_id:"p1", tab_id:"tp1"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+tabs=$(jq length "$H/tabs"); run role start ABC-1 review
+check 'start never types into a kept tab another agent still runs in' '[ "$(jq length "$H/tabs")" = $((tabs+1)) ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" != p1 ]'
 cp "$(command -v bash)" "$tmp/bin/claude"; export ORCA_PS_STOP=$$
 (cd "$main" && "$tmp/bin/claude" -c '"$0" -c "\"$1\" name --set >/dev/null; :"; :' "$tmp/bin/claude" "$lc")   # "; :" keeps bash from exec-ing away each claude
 check 'an agent inside another agent pane does not rename the pane' '! grep -q "^rename" "$H/log"'
