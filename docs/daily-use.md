@@ -42,7 +42,7 @@ Open Claude Code in the project's main checkout, in a herdr tab labelled `orches
 orca-lc worktree up ABC-12 --stack
 ```
 
-That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
+That cuts a branch from the fetched `origin/<baseBranch>` into its own worktree next to the main checkout and prints `base <ref> (<label>)` for the base it used (an existing ticket branch, local or on origin, is reused instead), opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
 
 The orchestrator never explores, writes specs or code, or reviews. It routes.
 
@@ -66,6 +66,7 @@ The orchestrator starts `apply` the same way. Ownership moves forward: only the 
 Apply implements `tasks.md`, commit by commit. While it works:
 
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
+- `orca-lc test-affected` and `orca-lc evidence` measure against `origin/<baseBranch>`, fetched first, so a stale local base branch never leaks its missing commits into the diff; `evidence <base>` uses the base you give it as is, and the evidence file's header names the base and merge base it used.
 - Editing a test file is blocked. When a test is genuinely wrong, `orca-lc test-lock on`, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
 - `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. Any later edit makes the mark stale. With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.
