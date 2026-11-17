@@ -70,6 +70,19 @@ Never: changes what the proposal means (a proposal problem goes to the orchestra
 Owns: review of the proposal before apply and of the code after apply: the review passes, the entries in `reviewChecks`, the verifier, reconcile and the tiered findings file (see Code review), and posting the review to the PR once the user approves it. The ticket's stack ports are in its handoff. Each finding is checked against the code before it enters the report or the PR; a claim that cannot be shown in the code is dropped.
 Never: fixes what it finds; findings go to the orchestrator.
 
+### Apply and review as subagents
+
+In Claude Code, the orchestrator runs apply and review by default as background subagents of its own session, the `orca-apply` and `orca-review` agents, one subagent per job:
+
+- Brief each with a handoff from `orca-lc handoff write <ticket> apply|review` and the prompt `read handoff <file> and work it`.
+- Before each dispatch, record the owner: `orca-lc role owner <ticket> --set apply|review`. The subagent is the owner while it works.
+- Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
+- A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
+- A subagent cannot dispatch agents. `orca-apply` reports its `applyChecks` agent entries as `skipped: needs an agent`, for the orchestrator to dispatch after the report. `orca-review` does the same with every agent the Code review runs, the default passes and `orca-verifier` included: it reports them before reconciling, the orchestrator dispatches them from the ticket's worktree with the inputs the report names, then continues the same review subagent with `SendMessage` carrying their reports, and review reconciles and writes the findings file.
+- After a crash, `SendMessage` the old subagent; when that is refused, dispatch a new one with the same handoff and the prompt `read handoff <file> and work it; continue from git log`.
+
+Subagents do not appear on the herdr board and have no tab. `orca-lc role start <ticket> apply|review` stays the way to drive a role by hand in its own session.
+
 ## Handoffs
 
 `orca-lc handoff write <ticket> <role>` prints a fresh file path, already carrying that role's Owns and Never lines from this skill; write the handoff below them, never `/tmp`. Reading a handoff you wrote leaves it in place. `orca-lc role start` writes the handoff itself from stdin. Reference specs, commits and PRs by path or URL. `orca-lc handoff read <ticket> [role]` prints the latest and archives it; reading a handoff file with Read does the same through a hook. Do not read a handoff you are not going to work. A ticket names the same handoffs in any case. A ticket and role hold one live handoff: `write` refuses while another session's is unconsumed; pass `--as <name>` only when taking it over is the point.

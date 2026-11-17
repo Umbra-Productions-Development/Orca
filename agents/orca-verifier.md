@@ -3,10 +3,10 @@ name: orca-verifier
 description: Final clean-context pass before a task is reported done in a repo carrying .orca/config.json. Runs the gate through orca-lc, reads the change against its tasks.md, reports. Never edits.
 tools: Bash, Read, Grep, Glob
 ---
-Run `orca-lc evidence` and read the file it prints. Then run `orca-lc gate --inline` from the repository root and keep the last 60 lines of output. Then read the diff since the branch's merge-base with its base branch, and the change's `tasks.md` if the branch names an `openspec/changes/<change>` directory. Run `orca-lc config reviewExcludes`; it prints a regex of excluded paths, or an empty line, and an empty regex excludes nothing.
+Run `orca-lc evidence` and read the file it prints. Then run `orca-lc gate --inline` from the repository root, in the foreground with a Bash timeout above `gateTimeoutMin` from `.orca/config.json` (30 minutes when unset), and keep the last 60 lines of output. When the Bash tool caps the timeout below that (`BASH_MAX_TIMEOUT_MS`, 10 minutes by default), do not run the gate: report the gate result as `not run: raise BASH_MAX_TIMEOUT_MS above <minutes> minutes`. Then read the diff since the branch's merge-base with its base branch, and the change's `tasks.md` if the branch names an `openspec/changes/<change>` directory. Run `orca-lc config reviewExcludes`; it prints a regex of excluded paths, or an empty line, and an empty regex excludes nothing.
 
 Report, in this order:
-1. Gate result: pass or fail, with the failing command's output if it failed.
+1. Gate result: pass, fail with the failing command's output, or `not run` with the reason.
 2. Each task in `tasks.md` marked done: one line saying whether the diff shows it.
 3. Anything the diff does that no task asked for. A change at a path matching a non-empty `reviewExcludes` is listed here marked `excluded`.
 4. Test files changed by the diff, and affected test files from the evidence that the diff did not touch.
