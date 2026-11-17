@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 # install.sh replaces only what Orca installed: a third-party skill of the same name is kept, a stale copy of
-# Orca's own (a directory with subdirectories too) is refreshed. Run: tests/install-keep.sh
-set -uo pipefail
-src="$(cd "$(dirname "$0")/.." && pwd)"
-tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR
+# Orca's own (a directory with subdirectories too) is refreshed. Run: tests/run.sh tests/install-keep.test.sh
+# lib.sh's sandbox: HOME is $TMPDIR/home, install.sh runs only from $ORCA_SRC or a clone under $TMPDIR.
+src="$ORCA_SRC"; tmp="$TMPDIR"; unset CLAUDE_CONFIG_DIR
 sk="$HOME/.claude/skills"
 
-fail=0
-ok() { if [ "$1" = 0 ]; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
+ok() { [ "$1" = 0 ] || fail "$2"; }
 run() { out=$(bash "$src/install.sh" "$@" 2>&1); st=$?; }
 # ln -s copies in Git Bash without Developer Mode; the link cases need real links.
 mkdir "$tmp/probe-src"; ln -s "$tmp/probe-src" "$tmp/probe" 2>/dev/null; [ -L "$tmp/probe" ] && links=1 || links=0
@@ -45,7 +42,7 @@ if [ "$links" = 1 ]; then
   run; [ "$st" = 1 ]; ok $? "a link into another Orca checkout still refuses without --force"
   run --force; [ "$(readlink "$sk/orca")" = "$src/skills/orca" ]; ok $? "--force moves it to this checkout"
 else
-  echo "skip link cases: ln -s does not make links here"
+  echo "  SKIP: ln -s copies here (no native symlinks); link cases skipped"
 fi
 
 # A copy directory with a subdirectory: no shipped skill has one yet, so commit one in a scratch clone.
@@ -61,4 +58,3 @@ run2; ok $st "install over a copy directory with a subdirectory exits 0"
 cmp -s "$sk/nested/ref/notes.md" "$repo/skills/nested/ref/notes.md"; ok $? "copy with a subdirectory recognised as Orca's and refreshed"
 rm -rf "$sk/nested"; cp -R "$repo/skills/nested" "$sk/nested"; rm -f "$sk/nested/ref/notes.md"; echo mine > "$sk/nested/ref/mine.md"
 run2 --force; [ -f "$sk/nested/ref/mine.md" ]; ok $? "a subdirectory holding a foreign file keeps the whole directory"
-exit $fail
