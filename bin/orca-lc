@@ -696,8 +696,10 @@ startup_blocked() { local scr
 # It outlives the handoff (archived on read, pruned by tidy), so it answers "which job did this session get".
 ledger_get() { sed -n "s/^$1: //p" "$2" | head -1; }
 # The ledger's handoff as a message names it: its path, or where it went once read.
+# An archived handoff frees its file name, and one written the same second may take it: same body, same file.
+ledger_is() { [ -f "$2" ] && [ "$(fm body-sha1 "$2")" = "$(ledger_get body-sha1 "$1")" ]; }
 ledger_handoff() { local p; p=$(ledger_get handoff "$1")
-  if [ -f "$p" ]; then echo "$p"; else echo "$p (read and archived; written $(ledger_get written "$1"))"; fi; }
+  if ledger_is "$1" "$p"; then echo "$p"; else echo "$p (read and archived; written $(ledger_get written "$1"))"; fi; }
 # roleStartTimeoutMs: herdr agent start's --timeout, a positive integer capped at herdr's 300000.
 role_start_timeout() { local v; v=$(cfg '.roleStartTimeoutMs' 60000)
   [[ $v =~ ^[0-9]+$ ]] && [ $((10#$v)) -gt 0 ] || die "roleStartTimeoutMs must be a positive integer of milliseconds, not '$v'"
@@ -748,7 +750,8 @@ cmd_role() {
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       name="$(ticket_slug "$t")-$r"; to=$(role_start_timeout) || exit 1
-      H=$(printf '%s\n' "$body" | sha1sum | cut -c1-40)
+      # git is always there; sha1sum is not (macOS ships shasum). An empty hash would match every ledger, so it dies.
+      H=$(printf '%s\n' "$body" | git hash-object --stdin 2>/dev/null); [[ $H =~ ^[0-9a-f]{40,64}$ ]] || die "could not hash the handoff body (git hash-object failed)"
       # One live session per role. A rerun is idempotent: the handoff and the first prompt go out once, and the
       # received ledger says which job a session already got. Reusing a session that had a job needs --new.
       # Every refusal, the handoff's own included, comes before /clear or a replace: a refused start never costs a session its context.
@@ -764,13 +767,15 @@ cmd_role() {
       # A different body is replaced by the write below; nobody is left to read an orphaned one.
       for o in "$(tdir "$(shared)/handoffs" "$t")"/"$r"-[0-9]*.md; do
         [ -f "$o" ] && [ -z "$(fm consumed-by "$o")" ] && { L="$o"; break; }; done
+      # Sent to this very session with this body, though its ledger file is missing: already sent all the same.
+      [ -n "$L" ] && [ -n "$sid" ] && [ "$(fm sent-to "$L")" = "$sid" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && { echo "already sent: $L"; return 0; }
       if [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ]; then
         { [ -z "$(fm sent-to "$L")" ] || [ "$(fm sent-to "$L")" != "$sid" ]; } && resume="$L"
       fi
       if [ -n "$ag" ]; then
         [ "$(jq -r .status <<<"$ag")" = working ] && die "$name is working; let it finish, or retire it (orca-lc role retire $t $r), then rerun"
         if [ -f "$led" ]; then
-          local got nr=""; got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && nr=" (not read yet)"
+          local got nr=""; got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && ledger_is "$led" "$L" && nr=" (not read yet)"
           [ -n "$new" ] || die "$name is live and already received $got$nr; rerun with --new to clear it and send this one"
           clear=1
         fi
