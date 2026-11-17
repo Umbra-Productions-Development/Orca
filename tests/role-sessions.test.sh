@@ -21,6 +21,7 @@ case "$1 $2" in
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
   "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
+                 [ "$st" = working ] && [ -f "$H/goes-blocked" ] && grep -qw blocked <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="blocked" else . end)'; exit 0; }
                  [ "$st" = working ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
                  grep -qw "$st" <<<"$u";;
   "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(select(.name!=$n))'
@@ -90,6 +91,11 @@ set_status abc1-review working; run role retire ABC-1 review
 check 'retire refuses a working session without --wait' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "pass --wait" "$H/out"'
 run role retire ABC-1 review --wait
 check 'retire --wait waits for idle, then retires' '[ "$(agents)" = abc1-propose ] && grep -q "wait abc1-review idle" "$H/log" && grep -q "prompt abc1-review /exit" "$H/log"'
+exits=$(grep -c "prompt abc1-propose /exit" "$H/log"); set_status abc1-propose blocked; run role retire ABC-1 propose
+check 'retire refuses a blocked session and types nothing into its prompt' 'grep -q "abc1-propose is blocked at a prompt" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+set_status abc1-propose working; touch "$H/goes-blocked"; run role retire ABC-1 propose --wait
+check 'retire --wait stops when the session turns blocked' 'grep -q "abc1-propose is blocked at a prompt" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+rm -f "$H/goes-blocked"; set_status abc1-propose idle
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
 jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"

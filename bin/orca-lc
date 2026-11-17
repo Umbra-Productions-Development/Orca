@@ -669,6 +669,8 @@ mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/pro
 exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab (label = the name's role part)
   local name tab; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
   [ "$(herdr tab get "$tab" 2>/dev/null | jq -r '.result.tab.label // empty')" = "${name#*-}" ] || die "tab $tab of $name was not opened by role start; exit it yourself"
+  # /exit and Enter typed into a permission or trust prompt can pick its highlighted option, so a blocked session is left to the user.
+  [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '${name#*-}', then rerun"
   herdr agent prompt "$name" "/exit" >/dev/null 2>&1
   herdr agent wait "$name" --until unknown --timeout 10000 >/dev/null 2>&1
   ! herdr agent list 2>/dev/null | jq -e --arg n "$name" 'any(.result.agents[]; (.agent_name // .name)==$n)' >/dev/null || die "$name did not exit after /exit; close it in tab '${name#*-}'"
@@ -746,7 +748,7 @@ cmd_role() {
       [ -n "$ag" ] || die "no live session named $name"
       if [ "$(jq -r .status <<<"$ag")" = working ]; then
         [ "${3:-}" = --wait ] || die "$name is working; retire it once it reports, or pass --wait"
-        herdr agent wait "$name" --until idle --until done >/dev/null 2>&1 || die "herdr wait on $name failed"
+        herdr agent wait "$name" --until idle --until done --until blocked >/dev/null 2>&1 || die "herdr wait on $name failed"
       fi
       exit_role_agent "$ag"; echo "retired $name";;
     *) usage "role start|owner|retire";;
