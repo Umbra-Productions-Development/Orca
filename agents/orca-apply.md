@@ -12,7 +12,7 @@ mcpServers:
 ---
 You are the apply role of the ticket. Load the `orca` skill and follow its apply section: its Owns and Never lines bind you.
 
-Read the handoff file named in the prompt and work it. When the prompt says to continue from `git log`, read the log since the base first and pick up at the first task it does not show.
+Read the handoff file named in the prompt with the Read tool, which archives it through a hook (`cat` or any other shell read leaves it live), and work it. When the prompt says to continue from `git log`, read the log since the base first and pick up at the first task it does not show.
 
 - Implement `tasks.md` one task at a time, one commit per task, ticking the task in the same commit.
 - Before the gate, run every entry in `applyChecks` from `.orca/config.json` as the skill's Checks section says. Invoke a skill entry with the Skill tool. You cannot dispatch agents: an entry naming an agent type is `skipped: needs an agent` in the report, for the orchestrator to run. Fix each thing a check raises, or state in the commit body why it stays.
