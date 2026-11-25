@@ -305,9 +305,9 @@ git_seg() {
 
 # main_targets <verb> <command> [dir]: origin/main's reading (38a39ea git_targets/git_seg), kept verbatim but
 # for the names, and run in the caller's locale as on main (its [A-Za-z] ranges follow it). Push and commit
-# detection take the union of its targets and git_targets', so the new reading can only add to what main gates. It reads heredoc bodies and # as commands, as main did.
-# It prints the directory each `git [global opts] <verb>` in the command acts on,
-# one per line. Words split with shell quoting; ; & | ( ) and newlines end a segment. `cd <dir>` carries
+# detection take the union of its targets and git_targets', so the new reading can only add to what main
+# gates. It reads heredoc bodies and # as commands, as main did. It prints the directory each
+# `git [global opts] <verb>` in the command acts on, one per line. Words split with shell quoting; ; & | ( ) and newlines end a segment. `cd <dir>` carries
 # into later segments (relative to the one before, from the payload cwd); -C stacks on it; --git-dir names
 # the repo, whose worktree is printed (--work-tree, else a linked worktree's, else the .git's parent).
 # `bash|sh -c "<cmd>"` is read as a command too.
