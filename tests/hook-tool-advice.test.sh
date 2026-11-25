@@ -30,15 +30,15 @@ quiet $'git commit -F - <<EOF\nless noise in tail output\nhead notes.txt\nEOF'
 quiet $'git commit -F - <<EOF\nit\'s done\nhead notes.txt\nEOF'
 
 # once per session per kind
-assert_contains "$(run 'cat one' s1)" "Read tool"
+o=$(run 'cat one' s1); assert_contains "$o" "Read tool"; assert_eq "${o%% *}" 0 "exit 0 for 'cat one' s1"
 assert_eq "$(run 'cat other' s1)" "0 " "second read in a session is quiet"
 assert_eq "$(run 'head other.txt' s1)" "0 " "a read by another command in the same session is quiet"
-assert_contains "$(run 'grep -r x .' s1)" "Grep tool" "another kind still fires"
-assert_contains "$(run 'cat other' s2)" "Read tool" "another session fires again"
-assert_contains "$(run 'cat other' '')" "Read tool" "no session_id: first"
-assert_contains "$(run 'cat other' '')" "Read tool" "no session_id: every time"
-assert_contains "$(run 'cat other' '../x')" "Read tool" "unsafe session_id: first"
-assert_contains "$(run 'cat other' '../x')" "Read tool" "unsafe session_id: not a marker"
+o=$(run 'grep -r x .' s1); assert_contains "$o" "Grep tool" "another kind still fires"; assert_eq "${o%% *}" 0 "exit 0 for 'grep -r x .' s1"
+o=$(run 'cat other' s2); assert_contains "$o" "Read tool" "another session fires again"; assert_eq "${o%% *}" 0 "exit 0 for 'cat other' s2"
+o=$(run 'cat other' ''); assert_contains "$o" "Read tool" "no session_id: first"; assert_eq "${o%% *}" 0 "exit 0 for 'cat other' ''"
+o=$(run 'cat other' ''); assert_contains "$o" "Read tool" "no session_id: every time"; assert_eq "${o%% *}" 0 "exit 0 for 'cat other' ''"
+o=$(run 'cat other' '../x'); assert_contains "$o" "Read tool" "unsafe session_id: first"; assert_eq "${o%% *}" 0 "exit 0 for 'cat other' '../x'"
+o=$(run 'cat other' '../x'); assert_contains "$o" "Read tool" "unsafe session_id: not a marker"; assert_eq "${o%% *}" 0 "exit 0 for 'cat other' '../x'"
 assert_eq "$(ls "$r/.git" | grep -c '^x')" 0 "nothing outside orca-tool-advice/"
 assert_eq "$(ls "$r/.git/orca-tool-advice" | grep -c '\.\.')" 0 "no ../x marker"
 
