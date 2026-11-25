@@ -396,9 +396,11 @@ case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
     # one parse for every consumer; push and commit add the raw reading when it is ambiguous, and origin/main's
-    # reading always, so nothing is gated less than on main
+    # reading always, so nothing is gated less than on main. main_targets builds words from contiguous
+    # characters, dropping only ' " and \ (at every bash -c level too), so it is skipped for a verb the
+    # command does not hold once those are removed
     _treset; S_AMB=0; tokenize "$cmd"
-    tg=$({ git_targets "push commit"; [ "$S_AMB" = 0 ] || raw_targets "push commit" "$cmd"; for v in push commit; do main_targets "$v" "$cmd" | sed "s/^/$v /"; done; } | awk '!x[$0]++')
+    tg=$({ git_targets "push commit"; [ "$S_AMB" = 0 ] || raw_targets "push commit" "$cmd"; for v in push commit; do [[ ${cmd//[\'\"\\]/} != *"$v"* ]] || main_targets "$v" "$cmd" | sed "s/^/$v /"; done; } | awk '!x[$0]++')
     while IFS= read -r t; do
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
