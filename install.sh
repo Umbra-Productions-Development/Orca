@@ -524,4 +524,4 @@ for l in "${ROWS[@]}"; do
   else echo "$name: not installed ($en); see $link"; fi
 done
 echo "recommended tools present:${present:- none}"
-echo "per project: copy orca.example.json to <repo>/.orca/config.json"
+echo "per project: run orca-lc init in the repository"
