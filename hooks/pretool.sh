@@ -60,8 +60,8 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # An unquoted # starting a word right after a blank, newline, ; & or | (or at the start), outside ${ }, $( ),
 # backticks, arithmetic and [[ ]], comments out the rest of its line. $'..' and $".." drop the $, as bash
 # does ($'..' follows \' and \\). < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic,
-# plain ( ) in them counted in pd; ${ } depth is bc, $( ) depth sd, bt is 1 in backticks, dk 1 in [[ ]]
-# (opened by a segment's first word), sb the open [ depth inside the current word (a[i] subscripts).
+# plain ( ) in them counted in pd; ${ } depth is bc, $( ) depth sd, bt is 1 in backticks, dk 1 from any unquoted [[ word to ]],
+# sb the open [ depth inside the current word (a[i] subscripts).
 # S_AMB (the caller's) is set to 1 when the parse is ambiguous, for anything this does not model exactly:
 # a quote, ${ }, $( ), backtick or arithmetic left open; a heredoc with no exact terminator; a << read while
 # a ${ }, $( ) or backtick is open; any other # that starts a word (after ), (, a redirect, an fd word,
@@ -121,7 +121,7 @@ _tw() {
       # any word after << is a heredoc delimiter, as in bash (-EOF, 1, $x); shifts in (( )) and $[ ] never get here
       case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1; [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1;; esac; rop=""
     else
-      if [ "$has" = 0 ]; then case "$tok" in '[[') [ ${#w[@]} -gt 0 ] || dk=1;; ']]') dk=0;; esac; fi
+      if [ "$has" = 0 ]; then case "$tok" in '[[') dk=1;; ']]') dk=0;; esac; fi   # any [[ word: if, !, time, { may come first
       w+=("$tok"); fi
   fi; tok=""; has=0; sb=0
 }
