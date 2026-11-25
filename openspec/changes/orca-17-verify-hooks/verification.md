@@ -9,6 +9,7 @@ Filled by the apply session after merge (tasks.md section 5, design.md "Live che
 | Date | |
 | `claude --version` (run version; README minimum stays 2.1.318) | |
 | Stable checkout `rev-parse --short HEAD` (expected `1604372`) | |
+| Stable checkout `status --short` | |
 | `readlink -f "$(command -v orca-lc)"` | |
 | SessionStart matcher | |
 | `orca-lc gate-fresh` exit | |
@@ -30,4 +31,4 @@ Filled by the apply session after merge (tasks.md section 5, design.md "Live che
 
 ## Observations (no pass or fail)
 
-- 5.8: where the `/fork` copy ran, and whether `orca-lc peers` listed it:
+- 5.8: pane agent session id after `/fork`; where the copy ran; whether `orca-lc peers` listed it:

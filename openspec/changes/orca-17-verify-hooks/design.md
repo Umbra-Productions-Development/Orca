@@ -47,7 +47,7 @@ Checks: `git push` without a fresh gate is blocked; `git merge` is blocked; an E
 
 How they run (tasks.md 5.0-5.9 hold the exact commands and pass lines):
 
-- Who: the apply session `orca17-apply`, in its tab of the ORCA-17 workspace, cwd the ORCA-17 worktree. Every hook under test fires on that session's own tool calls or turn ends. The orchestrator writes the second-session handoff (5.6). The user types `/fork` (5.8) and `/branch` (5.7) in apply's tab, since only a typed slash command starts them.
+- Who: the apply session `orca17-apply`, in its tab of the ORCA-17 workspace, cwd the ORCA-17 worktree. Every hook under test fires on that session's own tool calls or turn ends. The orchestrator writes the second-session handoff (5.6). The orchestrator starts apply fresh with `orca-lc role start ORCA-17 apply`, so 5.4 sees a `startup` SessionStart. The user types `/fork` (5.8) and `/branch` (5.7) in apply's tab, since only a typed slash command starts them. In 2.1.332 `/fork` leaves the user in the original conversation and starts a background copy; its directive tells the copy to reply once and stop, so it does no apply work in the shared worktree.
 - Probes that do nothing if the hook fails: `git push --dry-run` to a throwaway ref, `git merge --ff-only HEAD`, a Write of a new `tests/` file that apply deletes on a fail.
 - The gate stays stale through 5.5: apply never runs `orca-lc gate` during the checks, and 5.0 records that `gate-fresh` exits 1.
 - Stop's `systemMessage` reaches the user only, so apply cannot see it in its context. It ends a turn after a marker line, and on its next turn reads its own pane with `herdr pane read` and quotes what follows the marker.
@@ -72,6 +72,10 @@ How they run (tasks.md 5.0-5.9 hold the exact commands and pass lines):
 - Live checks are run by the apply session on its own tool calls and turn ends; the orchestrator writes the 5.6 handoff; the user types `/fork` and `/branch` in apply's tab — propose (ORCA-17 propose handoff).
 - Each probe is harmless when the hook fails to block it (`--dry-run` push, `--ff-only HEAD` merge, a new probe file deleted on a fail) — propose.
 - `/fork` (5.8) runs before `/branch` (5.7), since `/branch` leaves the pane identity on the parent's id — propose.
+- 5.8 passes on `orca-lc name` `.id` unchanged; the pane's herdr agent session id after `/fork` is an observation only, since herdr's own SessionStart hook can repoint it at the copy while Orca's guard is correct — orchestrator (proposal review @23a8da7 should-fix 2).
+- The user types `/fork` with an exact directive that keeps the background copy idle — orchestrator (proposal review @23a8da7 should-fix 1).
+- 5.0 opens with the orchestrator starting apply fresh via `orca-lc role start ORCA-17 apply` — orchestrator (proposal review @23a8da7 should-fix 3).
+- How `verification.md` reaches main is left to the orchestrator — propose (proposal review @23a8da7 suggestion 4).
 - Stop's line is checked by apply reading its own pane with `herdr pane read` after a marker line, since `systemMessage` never reaches Claude — propose.
 - Results are recorded in a new `verification.md` in this change, committed by apply — propose (ORCA-17 propose handoff).
 - Live checks run against the stable install as it stands, `Orca-stable` at `1604372`, with no pull and no `install.sh` rerun; `verification.md` records that sha, and 5.3 exercises the pre-#140 test lock in the session's own worktree only — user (via orchestrator, against propose's recommendation to update first).
