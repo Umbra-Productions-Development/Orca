@@ -122,11 +122,11 @@ assert_not_contains "$out" "base " "upstream not set: base line printed for a re
 # 13. evidence, ssh origin: the fetch runs the user's ssh command with BatchMode=yes, so ssh never prompts on the tty
 r=$(stale_repo); git -C "$r" remote set-url origin sshhost:/remote.git; s=$(mktemp -d)
 printf '#!/bin/sh\necho "$*" >> %s/log\nexit 1\n' "$s" > "$s/ssh"; chmod +x "$s/ssh"
-out=$(unset GIT_SSH; GIT_SSH_COMMAND="$s/ssh -i k" evidence "$r")
+out=$(unset GIT_SSH GIT_SSH_VARIANT; GIT_SSH_COMMAND="$s/ssh -i k" evidence "$r")
 assert_contains "$out" "Base: origin/main (fetch failed)" "ssh origin: Base line"
 assert_contains "$(cat "$s/log")" "-i k -o BatchMode=yes" "ssh origin: GIT_SSH_COMMAND not kept or BatchMode missing"
 : > "$s/log"; git -C "$r" config core.sshCommand "$s/ssh -p 2"
-(unset GIT_SSH_COMMAND GIT_SSH; evidence "$r" >/dev/null)
+(unset GIT_SSH_COMMAND GIT_SSH GIT_SSH_VARIANT; evidence "$r" >/dev/null)
 assert_contains "$(cat "$s/log")" "-p 2 -o BatchMode=yes" "ssh origin: core.sshCommand not kept or BatchMode missing"
 # a GIT_SSH program alone is left as is: it may not take ssh's -o
 : > "$s/log"; git -C "$r" config --unset core.sshCommand
@@ -142,6 +142,12 @@ git -C "$r" config --unset ssh.variant
 (unset GIT_SSH GIT_SSH_COMMAND; GIT_SSH_VARIANT=simple evidence "$r" >/dev/null)
 assert_eq "$(grep -c . "$s/log")" 3 "ssh variants: not every fetch ran the ssh program"
 assert_not_contains "$(cat "$s/log")" "BatchMode" "ssh variants: BatchMode given to plink or simple"
+# as in git, a set but empty GIT_SSH_VARIANT means ssh over ssh.variant, and plink.exe as a setting is ssh
+: > "$s/log"; git -C "$r" config ssh.variant plink
+(unset GIT_SSH; GIT_SSH_VARIANT='' GIT_SSH_COMMAND="$s/ssh -e" evidence "$r" >/dev/null)
+(unset GIT_SSH; GIT_SSH_VARIANT=plink.exe GIT_SSH_COMMAND="$s/ssh -x" evidence "$r" >/dev/null)
+assert_contains "$(cat "$s/log")" "-e -o BatchMode=yes" "ssh variants: empty GIT_SSH_VARIANT not read as ssh"
+assert_contains "$(cat "$s/log")" "-x -o BatchMode=yes" "ssh variants: plink.exe setting not read as ssh"
 
 # 14. evidence and test-affected, no base branch anywhere: HEAD~1, labelled no base
 r=$(stale_repo '{"project":"proj","gate":"true","testCommand":"echo"}'); git -C "$r" remote remove origin; git -C "$r" branch -qD main
