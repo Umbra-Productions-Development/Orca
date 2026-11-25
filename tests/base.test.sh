@@ -133,3 +133,23 @@ assert_contains "$(cat "$s/log")" "-p 2 -o BatchMode=yes" "ssh origin: core.sshC
 (unset GIT_SSH_COMMAND; GIT_SSH="$s/ssh" evidence "$r" >/dev/null)
 assert_not_contains "$(cat "$s/log")" "BatchMode" "ssh origin: BatchMode added to a GIT_SSH program"
 [ -s "$s/log" ] || fail "ssh origin: GIT_SSH program not run"
+# plink and the simple variant take no -o: by program name, by ssh.variant, by GIT_SSH_VARIANT
+: > "$s/log"; cp "$s/ssh" "$s/PLink.exe"
+(unset GIT_SSH GIT_SSH_VARIANT; GIT_SSH_COMMAND="\"$s/PLink.exe\" -batch" evidence "$r" >/dev/null)
+git -C "$r" config core.sshCommand "$s/ssh"; git -C "$r" config ssh.variant plink
+(unset GIT_SSH GIT_SSH_COMMAND GIT_SSH_VARIANT; evidence "$r" >/dev/null)
+git -C "$r" config --unset ssh.variant
+(unset GIT_SSH GIT_SSH_COMMAND; GIT_SSH_VARIANT=simple evidence "$r" >/dev/null)
+assert_eq "$(grep -c . "$s/log")" 3 "ssh variants: not every fetch ran the ssh program"
+assert_not_contains "$(cat "$s/log")" "BatchMode" "ssh variants: BatchMode given to plink or simple"
+
+# 14. evidence and test-affected, no base branch anywhere: HEAD~1, labelled no base
+r=$(stale_repo '{"project":"proj","gate":"true","testCommand":"echo"}'); git -C "$r" remote remove origin; git -C "$r" branch -qD main
+h1=$(git -C "$r" rev-parse HEAD~1)
+out=$(evidence "$r")
+assert_contains "$out" "Base: HEAD~1 (no base)" "no base: Base line"
+assert_contains "$out" "Merge base: $h1" "no base: merge base is HEAD~1"
+assert_contains "$out" "mine.txt" "no base: own change listed"
+out=$(cd "$r" && orca-lc test-affected 2>&1)
+assert_contains "$out" "mine.txt" "no base: test-affected own change"
+assert_not_contains "$out" "upstream.txt" "no base: test-affected reached past HEAD~1"
