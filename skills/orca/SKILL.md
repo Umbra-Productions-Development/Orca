@@ -98,7 +98,7 @@ Subagents do not appear on the herdr board and have no tab. `orca-lc role start 
 This is the review of the code after apply; proposal review keeps its own form and may write to the same findings file, which the code review overwrites. After `orca-lc evidence`, the review session:
 
 1. Computes the review paths: the diff's paths since the merge-base with the base, minus those matching `reviewExcludes` from `.orca/config.json`. The `when` patterns of `reviewPasses` and `reviewChecks` match against these paths.
-2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. Then runs every `reviewChecks` entry over the review paths. For the default passes:
+2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. Then runs every `reviewChecks` entry over the review paths. A review run as the `orca-review` subagent dispatches none of these agents, nor the verifier in step 3: it reports them for the orchestrator (see Apply and review as subagents). For the default passes:
    - A `reviewPasses` entry naming a default pass is not run again.
    - A `reviewPasses` entry naming a skipped default is not run at all.
    - A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too.
