@@ -52,6 +52,8 @@ assert_eq "$(hook "$r" $'cat <<1\ngit push\n1' | tail -1)" 0 "a body line after 
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ngit push' | tail -1)" 0 "cd carries through an ambiguous parse"
 assert_eq "$(hook "$r" $'cd ../fresh && x=$(cat <<EOF\nhi\nEOF\n)\ngit push' | tail -1)" 0 "cd carries past a heredoc in \$( )"
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ncd ../stale\ngit push' | tail -1)" 2 "a later cd to a stale tree still gates"
+assert_eq "$(hook "$r" $'cat <<EOF\ncd ../fresh\nEOF\necho ${x/ #/}\ngit push' | tail -1)" 2 "a cd in a heredoc body moves no push in the fallback"
+assert_eq "$(hook "$r" $'cat <<EOF\ncd ../fresh\nEOF\necho $(echo a)#b; git push' | tail -1)" 2 "a cd in a heredoc body moves no push after # after )"
 assert_eq "$(hook "$d/fresh" 'git push origin HEAD')" 0 "plain push from a fresh cwd"
 assert_eq "$(hook "$r" "cd $d/fresh && git push")" 0 "cd <fresh> && git push from a stale cwd"
 assert_eq "$(hook "$r" 'cd ../fresh && git push')" 0 "relative cd resolves against the payload cwd"
