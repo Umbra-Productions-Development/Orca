@@ -161,7 +161,7 @@ cmd_gate() {
     # The pane only follows the log (and stops when this process ends); closing it cannot change the result.
     if [ -z "$pane" ]; then echo "orca-lc: no pane available, running inline"
     # BSD tail has no --pid: it falls back to a plain follow, which the pane close or the next run ends.
-    else herdr pane run "$pane" "tail -n +1 -f --pid=$$ $(printf %q "$log") 2>/dev/null || tail -n +1 -f $(printf %q "$log")" >/dev/null; fi
+    else local q; q=$(printf %q "$log"); herdr pane run "$pane" "tail -n +1 -f --pid=$$ $q 2>/dev/null || tail -n +1 -f $q" >/dev/null; fi
   fi
   # Inline output goes to the fd 1 we were given: reopening /dev/stdout fails on a socket and truncates a file.
   if [ -n "$pane" ]; then run_gate "$g" 2>&1 | tee -a "$log" >/dev/null; rc=${PIPESTATUS[0]}
