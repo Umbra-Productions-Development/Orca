@@ -22,6 +22,7 @@ case "$1 $2" in
   "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
                  [ "$st" = working ] && [ -f "$H/goes-blocked" ] && grep -qw blocked <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="blocked" else . end)'; exit 0; }
+                 [ "$st" = unknown ] && [ -f "$H/unknown-settles" ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
                  [ "$st" = working ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
                  grep -qw "$st" <<<"$u";;
   "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(if .name==$n then .agent=null | .agent_status="idle" else . end)'
@@ -86,6 +87,9 @@ check 'low memory still allows reuse' 'grep -q "^handoff " "$H/out"'
 run role start ABC-1 walk --replace abc1-tour
 check 'low memory still allows --replace, which frees a session' '[ "$(agents)" = "abc1-review abc1-walk" ]'
 run role start ABC-1 tour --replace abc1-walk
+set_status abc1-review working; set_status abc1-tour working; run role start ABC-1 propose
+check 'low memory with no idle session says so instead of an empty list' 'grep -q "No session on ABC-1 is idle" "$H/out"'
+set_status abc1-review idle; set_status abc1-tour idle
 ORCA_MEMINFO="$H/none" run role start ABC-1 propose
 check 'unknown free memory (no /proc/meminfo) opens the session' 'jq -e "any(.name==\"abc1-propose\")" "$H/agents" >/dev/null'
 run role retire ABC-1 propose
@@ -109,6 +113,9 @@ check 'retire --wait stops when the session turns blocked' 'grep -q "abc1-propos
 rm -f "$H/goes-blocked"; set_status abc1-propose idle
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
+set_status abc1-review unknown; touch "$H/unknown-settles"; run role retire ABC-1 review --wait
+check 'retire --wait waits on an unknown session, then retires it' 'grep -q "^retired abc1-review" "$H/out" && grep -q "wait abc1-review idle" "$H/log"'
+rm -f "$H/unknown-settles"; run role start ABC-1 review
 add_agent abc1-mine tuser; add_tab tuser scratch
 run role retire ABC-1 mine
 check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
@@ -125,6 +132,9 @@ for n in preview reapply; do run role start ABC-1 $n
 live() { find "$main/.orca" -name "tour-*.md" -not -path "*/archive/*" | wc -l; }
 before=$(live); set_status abc1-mine blocked; run role start ABC-1 tour --replace abc1-mine
 check '--replace refuses a blocked session before writing the handoff' 'grep -q "abc1-mine is blocked at a prompt" "$H/out" && [ "$(live)" = "$before" ]'
+set_status abc1-mine idle
+for st in working unknown; do set_status abc1-mine $st; run role start ABC-1 tour --replace abc1-mine
+  check "--replace refuses a $st extra and types nothing into it" 'grep -q "abc1-mine is $st" "$H/out" && [ "$(live)" = "$before" ] && ! grep -q "prompt abc1-mine /exit" "$H/log"'; done
 set_status abc1-mine idle
 run role start ABC-1 tour --replace abc1-mine
 check '--replace refuses a tab role start did not open before writing the handoff' 'grep -q "tab of abc1-mine was not opened by role start" "$H/out" && [ "$(live)" = "$before" ]'
