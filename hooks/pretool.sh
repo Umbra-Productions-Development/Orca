@@ -114,7 +114,11 @@ _tr() {
     '<<<'|'<<-'|'&>>') op=${s:i:3}; i=$((i+2));;
     *) case "${s:i:2}" in
       '<<'|'>>'|'>|'|'&>') op=${s:i:2}; i=$((i+1));;
-      '>&'|'<&') i=$((i+2)); while [[ "${s:i:1}" == [0-9-] ]]; do t+=${s:i:1}; i=$((i+1)); done; i=$((i-1))
+      # >&word with no fd digit, - or $ after it writes stdout and stderr to the file word, as &> does
+      '>&') if [[ "${s:i+2:1}" == [0-9\$-] ]]; then i=$((i+2)); while [[ "${s:i:1}" == [0-9-] ]]; do t+=${s:i:1}; i=$((i+1)); done; i=$((i-1))
+          r+=(">&$GS&$t"); rop=""; return; fi
+        op='&>'; i=$((i+1));;
+      '<&') i=$((i+2)); while [[ "${s:i:1}" == [0-9-] ]]; do t+=${s:i:1}; i=$((i+1)); done; i=$((i-1))
         r+=(">&$GS&$t"); rop=""; return;;
       *) op=$c;;
     esac;;
@@ -272,7 +276,7 @@ case "$tool" in
       advise "Reading a source file: codegraph_explore <file or symbol> gives line-numbered source plus who calls it; Read gives the file. Bash cat sends the whole file as command output."
     fi
     # Bash reading, searching or writing files the dedicated tools cover: once per session per kind.
-    [ "$(jq -r '.toolAdvice' "$root/.orca/config.json")" = false ] && exit 0
+    [ "$(jq '.toolAdvice == false' "$root/.orca/config.json")" = true ] && exit 0   # only a JSON false, not "false"
     ta=$(tool_scan); [ -n "$ta" ] || exit 0
     ta_kind=${ta%% *} ta_cmd=${ta#* }; ta_mk=$ta_kind; case "$ta_kind" in edit) ta_mk=write;; glob) ta_mk=search;; esac
     sid=$(jq -r '.session_id // ""' <<<"$in")
