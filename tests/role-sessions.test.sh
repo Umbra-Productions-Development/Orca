@@ -210,6 +210,7 @@ rm -f "$tmp/bin/claude"
 # ---- reruns send once, the blocked-startup report, roleStartTimeoutMs (#18). Runs on the apply role, unused above.
 export ORCA_SID_WAIT=0
 hd="$main/.orca/handoffs/abc-1"; rd="$main/.orca/received/abc-1"
+appane() { jq -r '.[] | select(.name=="abc1-apply") | .pane_id // ""' "$H/agents"; }   # the pane agent start was given
 apsid() { jq -r '.[] | select(.name=="abc1-apply") | .agent_session.value // ""' "$H/agents"; }
 live_apply() { find "$hd" -maxdepth 1 -name 'apply-*.md' | sort; }
 gone_apply() { jq -c 'map(select(.name!="abc1-apply"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"; }
@@ -288,8 +289,8 @@ Hh=$(live_apply)
 check 'an id that never changes after /clear: dies before stamping or prompting' '[ "$(cat "$H/rc")" = 1 ] && grep -q "still reports abc1-apply.s session id from before /clear" "$H/out" && grep -q "orca-lc role retire ABC-1 apply" "$H/out" && [ "$(prompts)" = 8 ] && [ -z "$(fmv sent "$Hh")" ]'
 rm -f "$H/stale"
 
-set_status abc1-apply blocked; BODY="apply job I" run role start ABC-1 apply --new
-check 'a live blocked session refuses with the startup report' '[ "$(cat "$H/rc")" = 1 ] && grep -q "abc1-apply is waiting at a prompt in tab .apply. (pane " "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && ! grep -q "herdr:" "$H/out"'
+set_status abc1-apply blocked; ap=$(appane); BODY="apply job I" run role start ABC-1 apply --new
+check 'a live blocked session refuses with the startup report' '[ "$(cat "$H/rc")" = 1 ] && [ -n "$ap" ] && grep -qF "abc1-apply is waiting at a prompt in tab '"'"'apply'"'"' (pane $ap):" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && ! grep -q "herdr:" "$H/out"'
 set_status abc1-apply idle
 run role start ABC-1 apply --new --replace abc1-mine
 check '--new and --replace do not combine' '[ "$(cat "$H/rc")" = 1 ] && grep -q "do not combine" "$H/out"'
@@ -306,6 +307,8 @@ cp "$H/cfg" "$cfgf"
 
 # herdr agent start succeeds, but the agent comes up blocked at a prompt: the same report, and no job is sent.
 gone_apply; touch "$H/starts-blocked"; p0=$(prompts); s0=$(starts); BODY="apply job J" run role start ABC-1 apply
-J=$(live_apply)
-check 'an agent that starts blocked gets the startup report and no prompt' '[ "$(cat "$H/rc")" = 1 ] && [ "$(starts)" = $((s0+1)) ] && grep -q "abc1-apply is waiting at a prompt in tab .apply. (pane p[0-9]*):" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && grep -q "^  | .*Enter to confirm" "$H/out" && grep -q "Answer it there, then rerun" "$H/out" && ! grep -q "herdr:" "$H/out" && [ "$(prompts)" = "$p0" ] && [ "$(live_apply | wc -l)" = 1 ] && [ -z "$(fmv sent "$J")" ] && [ -z "$(fmv sent-to "$J")" ]'
-rm "$H/starts-blocked"
+J=$(live_apply); ap=$(appane)
+check 'an agent that starts blocked exits 1 after one agent start, sending no prompt' '[ "$(cat "$H/rc")" = 1 ] && [ "$(starts)" = $((s0+1)) ] && [ "$(prompts)" = "$p0" ]'
+check 'an agent that starts blocked is reported with the pane it was started in, its lines, and no herdr error' '[ -n "$ap" ] && grep -qF "abc1-apply is waiting at a prompt in tab '"'"'apply'"'"' (pane $ap):" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && grep -q "^  | .*Enter to confirm" "$H/out" && grep -q "Answer it there, then rerun" "$H/out" && ! grep -q "herdr:" "$H/out"'
+check 'an agent that starts blocked leaves its one handoff unstamped' '[ "$(live_apply | wc -l)" = 1 ] && [ -z "$(fmv sent "$J")" ] && [ -z "$(fmv sent-to "$J")" ]'
+rm "$H/starts-blocked"; set_status abc1-apply idle
