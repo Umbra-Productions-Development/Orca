@@ -122,9 +122,14 @@ assert_not_contains "$out" "base " "upstream not set: base line printed for a re
 # 13. evidence, ssh origin: the fetch runs the user's ssh command with BatchMode=yes, so ssh never prompts on the tty
 r=$(stale_repo); git -C "$r" remote set-url origin sshhost:/remote.git; s=$(mktemp -d)
 printf '#!/bin/sh\necho "$*" >> %s/log\nexit 1\n' "$s" > "$s/ssh"; chmod +x "$s/ssh"
-out=$(GIT_SSH_COMMAND="$s/ssh -i k" evidence "$r")
+out=$(unset GIT_SSH; GIT_SSH_COMMAND="$s/ssh -i k" evidence "$r")
 assert_contains "$out" "Base: origin/main (fetch failed)" "ssh origin: Base line"
 assert_contains "$(cat "$s/log")" "-i k -o BatchMode=yes" "ssh origin: GIT_SSH_COMMAND not kept or BatchMode missing"
 : > "$s/log"; git -C "$r" config core.sshCommand "$s/ssh -p 2"
-evidence "$r" >/dev/null
+(unset GIT_SSH_COMMAND GIT_SSH; evidence "$r" >/dev/null)
 assert_contains "$(cat "$s/log")" "-p 2 -o BatchMode=yes" "ssh origin: core.sshCommand not kept or BatchMode missing"
+# a GIT_SSH program alone is left as is: it may not take ssh's -o
+: > "$s/log"; git -C "$r" config --unset core.sshCommand
+(unset GIT_SSH_COMMAND; GIT_SSH="$s/ssh" evidence "$r" >/dev/null)
+assert_not_contains "$(cat "$s/log")" "BatchMode" "ssh origin: BatchMode added to a GIT_SSH program"
+[ -s "$s/log" ] || fail "ssh origin: GIT_SSH program not run"
