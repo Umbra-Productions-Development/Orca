@@ -126,7 +126,7 @@ _tdq() {
         elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
       '`') if [ "${dqs: -1}" = '`' ]; then _tdqpop; else dqs+=$c; fi; dqn=1;;
       ';'|'&'|'|') [ "$z" -gt 0 ] && _tdqsep;;
-      "'") _tdqsq || { [ "$z" -gt 0 ] && S_AMB=1; };;
+      "'") if _tdqsq; then [ "$dqp" = 0 ] || S_AMB=1; elif [ "$z" -gt 0 ]; then S_AMB=1; fi;;
       '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" != [A-Za-z0-9_\$\{/.:=,+@%^~-] ]] && S_AMB=1;;
       c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
            && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;
@@ -139,12 +139,12 @@ _tdq() {
 # _tdqsq: at a ' (not $') inside "..", with a ( innermost (of $( ), $(( )) or a subshell) and no backtick
 # open, read to the next ' as bash does there, when that text holds none of " ` \ ( ) { } $ or a newline:
 # skipping such text changes nothing this reader tracks, even in $(( )), where bash does not quote. False
-# when it does not apply, for the caller's S_AMB.
+# when it does not apply; the caller sets S_AMB either way.
 _tdqsq() {
   [ "${dqs: -1}" = '(' ] && [[ "$dqs" != *'`'* ]] && [ "${s:i-1:1}" != '$' ] || return 1
   local t=${s:i+1}; t=${t%%"'"*}
   [ $((i+1+${#t})) -lt "$n" ] && [[ "$t" != *[\"\`\\\(\)\{\}\$$'\n']* ]] || return 1
-  tok+=$t"'"; i=$((i+1+${#t})); dqx=1; [ "$dqp" = 0 ] || S_AMB=1
+  tok+=$t"'"; i=$((i+1+${#t})); dqx=1
 }
 # dqx: a '..' was read by _tdqsq in the open substitutions; dqp: a ; & | or newline is in them. Both at
 # once, in either order, set S_AMB: the separator may start a command this reader does not parse, which
