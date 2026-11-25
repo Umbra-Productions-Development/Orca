@@ -92,8 +92,8 @@ How they run (tasks.md 5.0-5.9 hold the exact commands and pass lines):
 - Live checks run against the stable install as it stands, `Orca-stable` at `1604372`, with no pull and no `install.sh` rerun; `verification.md` records that sha, and 5.3 exercises the pre-#140 test lock in the session's own worktree only — user (via orchestrator, against propose's recommendation to update first).
 - The README keeps Claude Code 2.1.318 as the minimum; `verification.md` records 2.1.332 as the version the live checks ran on — user (via orchestrator, against propose's recommendation to switch to 2.1.332).
 
-- On a `fork` source, `session-start.sh` never runs `orca-lc name --set` (no identity write, no herdr rename) and still prints context; fixed in this change, not a separate issue — user (via orchestrator, after live check 5.8); never-write over "write only when no identity in any checkout" — propose (recommended; simplest rule that a copy in any checkout obeys).
-- The `/fork` case is re-checked live once the fix is installed; results go in `verification.md` — user (via orchestrator).
+- On a `fork` source, `session-start.sh` never runs `orca-lc name --set` (no identity write, no herdr rename) and still prints context; fixed in this change, not a separate issue — user (via orchestrator, after live check 5.8); never-write over "write only when no identity in any checkout" — user (via orchestrator; propose recommended it as the simplest rule a copy in any checkout obeys).
+- The `/fork` case is re-checked live before merge, with `Orca-stable` detached to the gated `orca-17/work` sha for the re-check (bringing #116 and #140 in temporarily) and returned to `install` after; results go in `verification.md` in this PR — user (via orchestrator, propose's recommendation).
 
 ## Risks
 
