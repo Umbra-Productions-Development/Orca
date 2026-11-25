@@ -46,28 +46,36 @@ assert_contains "$out" ORCA_GATE_PASS
 r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
 assert_contains "$out" ORCA_GATE_FAIL
 
+# signal_gate <sig> <pidfile> <repo> [prefix...]: runs `[prefix...] setsid ... orca-lc gate --inline` in <repo>, waits
+# for the gate to write its pid to <pidfile>, sends <sig> to orca-lc's process group, and fails unless that pid is
+# gone within 3s (or never written).
+signal_gate() {
+  local sig=$1 pf=$2 r=$3 lead="$TMPDIR/lead" bg; shift 3; rm -f "$lead" "$pf"
+  "$@" setsid bash -c 'echo $$ > "$1"; cd "$2" && exec orca-lc gate --inline' _ "$lead" "$r" >/dev/null 2>&1 </dev/null &
+  bg=$!
+  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$pf" ] && break; sleep 0.3; done
+  kill -"$sig" -- "-$(cat "$lead")"; wait $bg 2>/dev/null
+  [ -s "$pf" ] || return 1
+  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$(cat "$pf")" 2>/dev/null || break; sleep 0.3; done
+  ! kill -0 "$(cat "$pf")" 2>/dev/null || { kill "$(cat "$pf")"; return 1; }
+}
+
 # A signal to orca-lc's process group (Ctrl-C, a tool killing the call) reaches the gate too.
 if command -v setsid >/dev/null; then
-  r=$(cfgr "echo \$\$ > $TMPDIR/gpid; sleep 47"); setsid bash -c 'echo $$ > "$1"; cd "$2" && exec orca-lc gate --inline' _ "$TMPDIR/lead" "$r" >/dev/null 2>&1 </dev/null &
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMPDIR/gpid" ] && break; sleep 0.3; done
-  kill -TERM -- "-$(cat "$TMPDIR/lead")"; wait $! 2>/dev/null
-  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$(cat "$TMPDIR/gpid")" 2>/dev/null || break; sleep 0.3; done
-  kill -0 "$(cat "$TMPDIR/gpid")" 2>/dev/null && fail "gate survived a TERM to orca-lc's group"
+  r=$(cfgr "echo \$\$ > $TMPDIR/gpid; sleep 47")
+  signal_gate TERM "$TMPDIR/gpid" "$r" || fail "gate survived a TERM to orca-lc's group"
 fi
 
 # With no timeout or gtimeout on PATH, a Ctrl-C to orca-lc's group still stops the gate's children.
 # env --default-signal: a job started by this script ignores INT, which a terminal's orca-lc does not.
 if command -v setsid >/dev/null && env --default-signal=INT true 2>/dev/null; then
+  # A PATH of links to every command on ours except timeout and gtimeout; the first of each name wins, as on PATH.
   nt="$TMPDIR/notimeout"; mkdir "$nt"; IFS=: read -ra dirs <<<"$PATH"
   for d in "${dirs[@]}"; do for f in "$d"/*; do b=${f##*/}
     case $b in timeout|gtimeout) continue;; esac; [ -x "$f" ] && [ ! -e "$nt/$b" ] && ln -s "$f" "$nt/$b"
   done; done
-  r=$(cfgr "sleep 47 & echo \$! > $TMPDIR/cpid; wait"); rm -f "$TMPDIR/lead"
-  PATH="$nt" setsid env --default-signal=INT bash -c 'echo $$ > "$1"; cd "$2" && exec orca-lc gate --inline' _ "$TMPDIR/lead" "$r" >/dev/null 2>&1 </dev/null &
-  for _ in 1 2 3 4 5 6 7 8 9 10; do [ -s "$TMPDIR/cpid" ] && break; sleep 0.3; done
-  kill -INT -- "-$(cat "$TMPDIR/lead")"; wait $! 2>/dev/null
-  for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$(cat "$TMPDIR/cpid")" 2>/dev/null || break; sleep 0.3; done
-  kill -0 "$(cat "$TMPDIR/cpid")" 2>/dev/null && { fail "no-timeout gate child survived a Ctrl-C"; kill "$(cat "$TMPDIR/cpid")"; }
+  r=$(cfgr "sleep 47 & echo \$! > $TMPDIR/cpid; wait")
+  signal_gate INT "$TMPDIR/cpid" "$r" env --default-signal=INT PATH="$nt" || fail "no-timeout gate child survived a Ctrl-C"
 fi
 
 # Inline output goes to the fd 1 orca-lc was given, never a reopened /dev/stdout.
