@@ -327,11 +327,19 @@ main_targets() {
   local seg=() x
   for x in "${w[@]}"; do if [ "$x" = "$sep" ]; then [ ${#seg[@]} -gt 0 ] && main_seg; seg=(); else seg+=("$x"); fi; done
 }
-# main_union <command>: "<verb> <dir>" from main_targets for push and commit. main_targets builds words from
-# contiguous characters, dropping only ' " and \ (at every bash -c level too), so it is skipped for a verb
-# the command does not hold once those are removed.
+# main_union <verbs> <command>: "<verb> <dir>" from main_targets for each verb. main_targets builds words
+# from contiguous characters, dropping only ' " and \ (at every bash -c level too), so it is skipped for a
+# verb the command does not hold once those are removed.
 main_union() {
-  local v; for v in push commit; do [[ ${1//[\'\"\\]/} != *"$v"* ]] || main_targets "$v" "$1" | sed "s/^/$v /"; done
+  local v; for v in $1; do [[ ${2//[\'\"\\]/} != *"$v"* ]] || main_targets "$v" "$2" | sed "s/^/$v /"; done
+}
+# gate_push <targets>: block on the first "push <dir>" line whose Orca repo has no fresh gate marker.
+gate_push() {
+  local t
+  while IFS= read -r t; do
+    [ -n "$(orca_root "$t")" ] || continue
+    (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
+  done < <(sed -n 's/^push //p' <<<"$1")
 }
 # One segment of main_targets: reads and moves the caller's $dir, prints a target when it is git <verb>.
 main_seg() {
@@ -436,14 +444,13 @@ root=$(orca_root .)
 case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
-    # one parse for every consumer; push and commit take the union with origin/main's reading, so nothing
-    # is gated less than on main
+    # push and commit take the union with origin/main's reading, so nothing is gated less than on main.
+    # main's push reading runs and blocks first, so a push main blocks is blocked as soon as on main, the
+    # hook timeout aside; then one parse for every other consumer
+    tm=$(main_union push "$cmd"); gate_push "$tm"
     _treset; S_AMB=0; tokenize "$cmd"
-    tg=$({ new_targets "push commit" "$cmd"; main_union "$cmd"; } | awk '!x[$0]++')
-    while IFS= read -r t; do
-      [ -n "$(orca_root "$t")" ] || continue
-      (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
-    done < <(sed -n 's/^push //p' <<<"$tg")
+    tg=$({ new_targets "push commit" "$cmd"; main_union commit "$cmd"; } | awk '!x[$0]++')
+    gate_push "$(grep -vxF -f <(printf '%s\n' "$tm") <<<"$tg")"
     [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     t=$(sed -n 's/^commit //p' <<<"$tg" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then

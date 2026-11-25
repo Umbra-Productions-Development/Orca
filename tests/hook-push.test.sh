@@ -1,5 +1,10 @@
 # pretool.sh gates a push in the repo it pushes (cd, -C, --git-dir), not the session's cwd (#30)
 hook() { hook_json Bash "$1" "$2" | bash "$ORCA_SRC/hooks/pretool.sh" 2>/dev/null; echo $?; }
+# hook_cpu <cwd> <command>: the hook's exit code and its CPU time (user+sys) in ms, which load does not inflate
+hook_cpu() {
+  local TIMEFORMAT='%3U %3S'
+  { time hook "$@"; } 2>&1 | awk 'NR==1{rc=$0} NR==2{gsub(",","."); printf "%s %d\n", rc, ($1+$2)*1000}'
+}
 r=$(new_repo); d=$(dirname "$r")
 git -C "$r" worktree add -q -b fresh "$d/fresh"; git -C "$r" worktree add -q -b stale "$d/stale"; git -C "$r" worktree add -q -b spaced "$d/fresh wt"
 for w in "$r" "$d/fresh" "$d/stale" "$d/fresh wt"; do (cd "$w" && orca-lc gate >/dev/null); done
@@ -151,9 +156,13 @@ assert_eq "$(hook "$plain" "git -C $d/stale push")" 2 "non-Orca cwd pushing into
 assert_eq "$(hook "$r" "git -C $plain/p push")" 0 "push into a repo without config is left alone"
 assert_eq "$(hook "$r" "git -C $d/stale status")" 0 "not a push"
 assert_eq "$(hook "$r" 'echo git push')" 0 "git push as an argument is not a push"
-# 1000 unmatched $(( (3 KB) scan in linear time: the 15 s hook timeout would let the push run (#9 review round 8)
+# long commands are gated well inside the 15 s hook timeout, past which the push would run: 1000 unmatched
+# $(( (3 KB) scan in linear time, and a 3 KB cd chain blocks as soon as main's reading does
 c=$'git push\n: '; for k in $(seq 1000); do c+='$(('; done
-t0=$(date +%s); assert_eq "$(hook "$r" "$c" | tail -1)" 2 "a push before 1000 unmatched \$(( is gated"
-[ $(( $(date +%s) - t0 )) -le 12 ] || fail "1000 unmatched \$(( took over 12 s, near the 15 s hook timeout"
+read -r rc ms < <(hook_cpu "$r" "$c"); assert_eq "$rc" 2 "a push before 1000 unmatched \$(( is gated"
+[ "$ms" -le 12000 ] || fail "1000 unmatched \$(( took $ms ms of CPU, near the 15 s hook timeout"
+c='echo "$(echo "commit")";'; for k in $(seq 600); do c+='cd .;'; done; c+="git -C $d/stale push"
+read -r rc ms < <(hook_cpu "$r" "$c"); assert_eq "$rc" 2 "a push after a 3 KB cd chain is gated"
+[ "$ms" -le 12000 ] || fail "a 3 KB cd chain took $ms ms of CPU, near the 15 s hook timeout"
 assert_contains "$(hook_json Bash "$d/fresh" "git -C $d/stale push" | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)" "stale for $d/stale"
 assert_eq "$(hook "$d/fresh" 'git merge stale')" 2 "merge still blocked"
