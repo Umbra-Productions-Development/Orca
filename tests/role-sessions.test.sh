@@ -27,7 +27,7 @@ case "$1 $2" in
                  grep -qw "$st" <<<"$u";;
   "agent prompt") echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(if .name==$n then .agent=null | .agent_status="idle" else . end)'
                   [ "$4" = /clear ] && put agents --arg n "$3" 'map(if .name==$n then .agent_status="done" else . end)'; :;;
-  "agent start") put agents --arg n "$3" --arg p "$7" --arg c "$wt" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c}]'; echo "start $3" >>"$H/log";;
+  "agent start") [ -f "$H/start-fails" ] && { echo "start-failed $3" >>"$H/log"; exit 1; }; put agents --arg n "$3" --arg p "$7" --arg c "$wt" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c}]'; echo "start $3" >>"$H/log";;
   "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
                 put tabs --arg t "tp$n" --arg l "$l" '. + [{tab_id:$t, label:$l}]'; jq -n --arg p "p$n" '{result:{root_pane:{pane_id:$p}}}';;
   "tab list") jq '{result:{tabs:.}}' "$H/tabs";;
@@ -146,6 +146,12 @@ edit agents --arg t "$ptab" '. + [{name:"abc1-propose", agent:null, keep:true, a
 run role start ABC-1 propose
 check 'a stale entry left by an exit does not make the kept tab busy' '[ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r "[.[] | select(.name==\"abc1-propose\" and .keep==null)][0].pane_id" "$H/agents")" = "${ptab#t}" ]'
 edit agents 'map(select(.keep | not))'
+# A start that fails after the handoff write (folder trust, say) archives that handoff, so its rerun starts clean.
+applies() { find "$main/.orca" -name "apply-*.md" -not -path "*/archive/*" | wc -l; }
+touch "$H/start-fails"; run role start ABC-1 apply
+check 'a failed start leaves no live handoff behind' 'grep -q "did not reach its prompt" "$H/out" && [ "$(applies)" = 0 ]'
+rm -f "$H/start-fails"; run role start ABC-1 apply
+check 'its rerun starts the session' 'grep -q "^handoff .*/apply-" "$H/out" && jq -e "any(.name==\"abc1-apply\")" "$H/agents" >/dev/null'
 run role retire ABC-1 review
 add_agent abc1-review2 tp1 p1
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review

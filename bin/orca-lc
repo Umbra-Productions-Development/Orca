@@ -769,19 +769,21 @@ cmd_role() {
         [ -z "$old" ] && [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. $( [ -n "$idle" ] && echo "Idle sessions on $t to retire (orca-lc role retire $t <role>): $idle" || echo "No session on $t is idle; retire one once it reports")"
       fi
       local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
-      # Actions.
+      # Actions. One that fails archives the handoff just written, so no session is left a handoff nobody reads,
+      # and the rerun each message asks for writes a fresh one, whether or not the caller has a session id.
+      start_failed() { cmd_handoff consume "$f" >/dev/null 2>&1; [ $# = 0 ] || die "$@"; exit 1; }
       if [ -n "$ag" ]; then
-        herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"
-        herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || die "$name did not return to idle after /clear"
+        herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || start_failed "herdr refused /clear to $name"
+        herdr agent wait "$name" --until idle --until done --timeout 60000 >/dev/null 2>&1 || start_failed "$name did not return to idle after /clear"
       else
-        [ -z "$old" ] || exit_role_agent "$old"
+        [ -z "$old" ] || ( exit_role_agent "$old" ) || start_failed
         local pane; pane=$(role_tab_pane "$ws" "$r")
         [ -n "$pane" ] || pane=$(herdr tab create --workspace "$ws" --cwd "$dir" --label "$r" --env "ORCA_ROLE=$r" --env "ORCA_TICKET=$t" --no-focus | jq -r '.result.root_pane.pane_id // empty')
-        [ -n "$pane" ] || die "herdr tab create returned no pane"
+        [ -n "$pane" ] || start_failed "herdr tab create returned no pane"
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
-          die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
+          start_failed "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
-        [ "$(agent_status "$name")" != blocked ] || ready_or_die "$name" blocked ""
+        [ "$(agent_status "$name")" != blocked ] || ( ready_or_die "$name" blocked "" ) || start_failed
       fi
       ! is_core_role "$r" || cmd_role owner "$t" --set "$r" >/dev/null
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
