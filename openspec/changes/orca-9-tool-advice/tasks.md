@@ -10,6 +10,7 @@
 - [x] 2.1 README config table: `toolAdvice` row — "Advise when Bash reads, searches or writes files the dedicated tools cover, once per session per kind. Default `true`; `false` turns it off".
 - [x] 2.2 `orca.example.json`: add `"toolAdvice": true`.
 - [x] 2.3 `docs/daily-use.md`: one line next to the existing PreToolUse mention on the tool advice and its switch.
+- [x] 2.4 `bin/orca-lc` `init_defaults`: write `toolAdvice: true` after `sourceGlob`, so `orca-lc init` keeps the key order `tests/init.test.sh` checks against `orca.example.json` (PR #144 review).
 
 ## 3. Tests
 
