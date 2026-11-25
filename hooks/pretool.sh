@@ -447,13 +447,13 @@ case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
     # push and commit take the union with origin/main's reading, so nothing is gated less than on main.
-    # main's push reading runs and blocks first, so a push main blocks is blocked as soon as on main, the
-    # hook timeout aside; then one parse for every other consumer
+    # main's push reading and the merge check run and block first, as on main, so what main blocks is blocked
+    # as soon as on main; then one parse for every other consumer
     tm=$(main_union push "$cmd"); gate_push "$tm"
+    [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     _treset; S_AMB=0; tokenize "$cmd"
     tg=$({ new_targets "push commit" "$cmd"; main_union commit "$cmd"; } | awk '!x[$0]++')
     gate_push "$(grep -vxF -f <(printf '%s\n' "$tm") <<<"$tg")"
-    [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     t=$(sed -n 's/^commit //p' <<<"$tg" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
