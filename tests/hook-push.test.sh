@@ -164,5 +164,16 @@ read -r rc ms < <(hook_cpu "$r" "$c"); assert_eq "$rc" 2 "a push before 1000 unm
 c='echo "$(echo "commit")";'; for k in $(seq 600); do c+='cd .;'; done; c+="git -C $d/stale push"
 read -r rc ms < <(hook_cpu "$r" "$c"); assert_eq "$rc" 2 "a push after a 3 KB cd chain is gated"
 [ "$ms" -le 12000 ] || fail "a 3 KB cd chain took $ms ms of CPU, near the 15 s hook timeout"
+# In en_US.UTF-8, main's [A-Za-z] ranges take é, so main reads env é=x as a prefix; its reading runs in the
+# caller's locale here too and blocks first. A path with invalid UTF-8 (a worktree moved to wt\xff, reached
+# through --git-dir) that only the new reading finds (push>) is gated too.
+if U=$(locale -a 2>/dev/null | grep -ixm1 'en_US\.utf-\?8'); then
+  assert_eq "$(LC_ALL=$U hook "$r" "env é=x git -C $d/stale push")" 2 "env é=x git push is gated"
+  c='echo "$(echo "commit")";'; for k in $(seq 1200); do c+='cd .;'; done; c+="env é=x git -C $d/stale push"
+  read -r rc ms < <(LC_ALL=$U hook_cpu "$r" "$c"); assert_eq "$rc" 2 "env é=x git push after a 6 KB cd chain is gated"
+  [ "$ms" -le 12000 ] || fail "a 6 KB cd chain before env é=x took $ms ms of CPU, near the 15 s hook timeout"
+  git -C "$r" worktree add -q -b wtz "$d/wtz"; git -C "$r" worktree move "$d/wtz" "$d/wt"$'\xff'
+  assert_eq "$(LC_ALL=$U hook "$r" "git --git-dir=$r/.git/worktrees/wtz push>/dev/null")" 2 "a push to a path with invalid UTF-8 is gated"
+else echo "skip: no en_US.UTF-8 locale for the env é=x and invalid UTF-8 cases"; fi
 assert_contains "$(hook_json Bash "$d/fresh" "git -C $d/stale push" | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)" "stale for $d/stale"
 assert_eq "$(hook "$d/fresh" 'git merge stale')" 2 "merge still blocked"

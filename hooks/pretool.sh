@@ -304,15 +304,15 @@ git_seg() {
 }
 
 # main_targets <verb> <command> [dir]: origin/main's reading (38a39ea git_targets/git_seg), kept verbatim but
-# for the names and LC_ALL=C. Push and commit detection take the union of its targets and git_targets', so the
-# new reading can only add to what main gates. It reads heredoc bodies and # as commands, as main did.
+# for the names, and run in the caller's locale as on main (its [A-Za-z] ranges follow it). Push and commit
+# detection take the union of its targets and git_targets', so the new reading can only add to what main gates. It reads heredoc bodies and # as commands, as main did.
 # It prints the directory each `git [global opts] <verb>` in the command acts on,
 # one per line. Words split with shell quoting; ; & | ( ) and newlines end a segment. `cd <dir>` carries
 # into later segments (relative to the one before, from the payload cwd); -C stacks on it; --git-dir names
 # the repo, whose worktree is printed (--work-tree, else a linked worktree's, else the .git's parent).
 # `bash|sh -c "<cmd>"` is read as a command too.
 main_targets() {
-  local LC_ALL=C; local verb=$1 s=$2 dir=${3:-$cwd} w=() tok="" has=0 q="" c i n=${#2} sep=$'\x1f'
+  local verb=$1 s=$2 dir=${3:-$cwd} w=() tok="" has=0 q="" c i n=${#2} sep=$'\x1f'
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = '"' ]; then
@@ -448,12 +448,13 @@ case "$tool" in
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
     # push and commit take the union with origin/main's reading, so nothing is gated less than on main.
     # main's push reading and the merge check run and block first, as on main, so what main blocks is blocked
-    # as soon as on main; then one parse for every other consumer
-    tm=$(main_union push "$cmd"); gate_push "$tm"
+    # as soon as on main; then one parse for every other consumer, whose push targets are all checked (those
+    # main found again: a cheap check, and no filter to misread a path)
+    gate_push "$(main_union push "$cmd")"
     [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
     _treset; S_AMB=0; tokenize "$cmd"
     tg=$({ new_targets "push commit" "$cmd"; main_union commit "$cmd"; } | awk '!x[$0]++')
-    gate_push "$(grep -vxF -f <(printf '%s\n' "$tm") <<<"$tg")"
+    gate_push "$tg"
     t=$(sed -n 's/^commit //p' <<<"$tg" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
