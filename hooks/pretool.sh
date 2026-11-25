@@ -129,16 +129,25 @@ _tr() {
     '<<<'|'<<-'|'&>>') op=${s:i:3}; i=$((i+2));;
     *) case "${s:i:2}" in
       '<<'|'>>'|'>|'|'&>') op=${s:i:2}; i=$((i+1));;
-      # >&word with no fd digit, - or $ after it writes stdout and stderr to the file word, as &> does
-      '>&') if [[ "${s:i+2:1}" == [0-9\$-] ]]; then i=$((i+2)); while [[ "${s:i:1}" == [0-9-] ]]; do t+=${s:i:1}; i=$((i+1)); done; i=$((i-1))
-          r+=(">&$GS&$t"); rop=""; return; fi
-        op='&>'; i=$((i+1));;
-      '<&') i=$((i+2)); while [[ "${s:i:1}" == [0-9-] ]]; do t+=${s:i:1}; i=$((i+1)); done; i=$((i-1))
-        r+=(">&$GS&$t"); rop=""; return;;
+      # >&N, <&N, >&-, >&$fd (a space after the & allowed) duplicate an fd; >&word writes stdout and stderr to word, as &> does
+      '>&'|'<&') _tdup && return; op='&>'; i=$((i+1));;
       *) op=$c;;
     esac;;
   esac
   rop=$fd$op
+}
+# _tdup: at >& or <&, read an fd word after optional blanks: digits, -, or a $name. <& always duplicates;
+# >& duplicates only when that word stands alone, otherwise it is >&word (return 1).
+_tdup() {
+  local j=$((i+2)) t=""
+  while [[ "${s:j:1}" == [' '$'\t'] ]]; do j=$((j+1)); done
+  if [ "${s:j:1}" = '$' ]; then t='$'; j=$((j+1)); while [[ "${s:j:1}" == [A-Za-z0-9_{}] ]]; do t+=${s:j:1}; j=$((j+1)); done
+  else while [[ "${s:j:1}" == [0-9-] ]]; do t+=${s:j:1}; j=$((j+1)); done; fi
+  if [ "${s:i:1}" = '>' ]; then
+    case "$t" in ''|'$') return 1;; esac
+    case "${s:j:1}" in ''|' '|$'\t'|$'\n'|';'|'|'|'&'|'<'|'>'|')') ;; *) return 1;; esac
+  fi
+  r+=(">&$GS&$t"); rop=""; i=$((j-1))
 }
 _tb() {
   local x op d rest ln
