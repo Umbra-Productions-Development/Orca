@@ -6,6 +6,7 @@
 - [x] 1.4 `body-sha1:` frontmatter key; step 10's stamps and ledger file written before `cmd_notify` and removed if it fails; `session_id --changed-from` the pre-`/clear` id after `/clear`.
 - [x] 1.5 Blocked-startup report helper (design.md), used by the three die paths; the "folder trust" text removed; the `--replace` blocked-extra message unchanged.
 - [x] 1.6 Owner line: `owner: <old> -> <new>` only on change.
+- [x] 1.7 Review fixes (design.md Decisions): `body-sha1` as a `git hash-object` blob id that dies when it cannot be computed; a live handoff stamped `sent-to` the live session counts as received with or without its ledger file; `(not read yet)` checks content as well as the path; `roleStartTimeoutMs` read only when a session is opened.
 
 ## 2. Config
 

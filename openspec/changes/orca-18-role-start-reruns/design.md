@@ -15,17 +15,17 @@ Refusals come first, as in PR #84, so a refused start still never costs a sessio
 
 **`session_id <name>`.** This helper polls `herdr agent get` for up to 10 s until `agent_session.value` is non-empty. If it is still empty, it dies with `herdr has not reported a session id for <name> yet; rerun this command in a few seconds. If it keeps failing, check tab '<label>' or retire the session (orca-lc role retire <ticket> <role>) and rerun` (review finding 3, re-review suggestion C). With `--changed-from <id>`, it also keeps polling while the id equals `<id>`, and dies the same way, with `herdr still reports <name>'s session id from before /clear`, when it does not change within the window (re-review finding A). Every place that needs the id calls it, so nothing is stamped or compared with an empty id.
 
-1. Parse args (`--as`, `--replace`, new `--new`), leak guards, worktree, workspace, name, `ag` (the live `<ticket>-<role>` agent, if any). `H` is the sha1 of the body on stdin.
+1. Parse args (`--as`, `--replace`, new `--new`), leak guards, worktree, workspace, name, `ag` (the live `<ticket>-<role>` agent, if any). `H` is the body's `git hash-object` blob id: git is always there and `sha1sum` is not (macOS ships `shasum`). It is a sha1, or a sha256 in a sha256 repository. When it cannot be computed, `role start` dies, because an empty hash would match every ledger file.
 2. `ag` is `blocked` → refuse with the blocked-startup report (below). This runs before step 3, because a session stuck at a startup prompt may not have an id yet.
 3. `ag` set → `sid=$(session_id "$name")`. A ledger file for `sid` whose `body-sha1` is `H` → print `already sent: <handoff>` and exit 0. This holds whether the session has read its handoff or not, and whether it is idle or working (review finding 1).
 4. `L` is the live (unconsumed) handoff for the ticket and role.
-   - `L` is stamped `sent-to: <id>` and `<id>` is the live session's `sid` → the session has not read it yet. Step 5 handles it as a received job.
+   - `L` is stamped `sent-to: <id>` and `<id>` is the live session's `sid` → the session has not read it yet. With `body-sha1: H`, print `already sent: <L>` and exit 0, even when the ledger file for `sid` is missing. With a different body, step 5 handles it as a received job.
    - `L` is stamped `sent-to` an id that is not live (the session died or was retired before reading it) → `L` is orphaned. With the same body, keep it (`resume=L`) and resend it in step 9. With a different body, step 7 replaces it. No refusal: nobody is left to read it (review finding 2).
    - `L` is not stamped and has `body-sha1: H` → `resume=L`. With a different body, step 7 replaces it, as `cmd_handoff write` already does.
 5. Live session (`ag` set):
    - `working` → refuse (PR #84's message).
-   - A ledger file for `sid` exists (it got a different job; same-body was settled in step 3) → without `--new`, refuse with `<name> is live and already received <handoff from ledger>; rerun with --new to clear it and send this one`. When that handoff is still the live `L`, the message adds `(not read yet)`. This settles decision Q6.
-   - No ledger file for `sid` → a session that never got a job, such as one that was stuck at a startup prompt on the first run. Carry on. `--new` changes nothing here, and no `/clear` is sent (review suggestion 4).
+   - A ledger file for `sid` exists, or `L` is stamped `sent-to` `sid` (it got a different job; same-body was settled in steps 3 and 4) → without `--new`, refuse with `<name> is live and already received <handoff from ledger>; rerun with --new to clear it and send this one`. When that handoff is still the live `L`, the message adds `(not read yet)`. "Still the live `L`" is checked by content: the ledger names `L`'s path and `L`'s `body-sha1` matches the ledger's. An archived handoff frees its file name, and a handoff written in the same second can take it. When only the `sent-to` stamp shows the job, the message names `L` with `(not read yet)`. This settles decision Q6.
+   - Neither → a session that never got a job, such as one that was stuck at a startup prompt on the first run. Carry on. `--new` changes nothing here, and no `/clear` is sent (review suggestion 4).
 6. No live session: PR #84's extra/`--replace` and memory checks, unchanged.
 7. Write the handoff unless `resume` is set, with the new frontmatter key `body-sha1:`. `cmd_handoff write` archives a live handoff it replaces, as before.
 8. A live session that has a ledger file, with `--new` → `/clear`, wait (PR #84), then `sid=$(session_id "$name" --changed-from "$sid")`: `/clear` starts a new Claude session, and herdr may still report the old id for a moment. Taking the old id there would write the ledger under it, and the step-4 orphan rule would later resend the job (re-review finding A). If it dies here, the handoff is written but unsent, so a rerun with `--new` resumes it. No live session → open it (PR #84) with `--timeout $(roleStartTimeoutMs)`. If the start fails or the session is `blocked`, die with the blocked-startup report. Otherwise `sid=$(session_id "$name")`.
@@ -49,7 +49,7 @@ If `pane read` fails, the pane-text lines are left out and the rest still prints
 
 ## Config
 
-`roleStartTimeoutMs`: default 60000. A value above 300000 is capped at 300000. A value that is not a positive integer dies with the key name. It is added to `orca.example.json`, `init_defaults` (after `minFreeMemMb`), and the README config table. It covers `herdr agent start` only. The 60000 ms wait after `/clear` stays as it is.
+`roleStartTimeoutMs`: default 60000. A value above 300000 is capped at 300000. A value that is not a positive integer dies with the key name. It is added to `orca.example.json`, `init_defaults` (after `minFreeMemMb`), and the README config table. It covers `herdr agent start` only. The 60000 ms wait after `/clear` stays as it is. The key is read only on the path that opens a session (step 6). A bad value never blocks an `already sent:` rerun or a `--new` reuse, which never pass it to herdr.
 
 ## Tests (`tests/role-sessions.test.sh`, fake herdr)
 
@@ -95,6 +95,10 @@ PR #84's cases that reuse a live session (`review2` folds and reuses with `/clea
 - A ledger handoff that has been read is named with `(read and archived; written <stamp>)` — proposal re-review suggestion B.
 - The empty- or unchanged-id refusal names the tab and `role retire` as the way out — proposal re-review suggestion C.
 - The ledger dir uses `tdir`, as `handoffs/` and `inbox/` do — proposal re-review suggestion D.
+- `body-sha1` holds the body's `git hash-object` blob id, not `sha1sum` output, so it works on macOS. A failed hash dies instead of matching every ledger file — apply, from the first code review's portability check.
+- A live handoff stamped `sent-to` the live session's id counts as received even when its ledger file is missing: the same body is `already sent:`, and a different body refuses without `--new` — code review should-fix on step 5.
+- `(not read yet)` compares the ledger's `body-sha1` with the live handoff's, not just its path, because an archived handoff's file name can be taken again — apply, from the first code review.
+- `roleStartTimeoutMs` is read only when a session is to be opened — code re-review suggestion.
 
 ## Risks
 
