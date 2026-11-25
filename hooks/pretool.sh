@@ -239,8 +239,14 @@ _tb() {
 # _split <joined>: the caller's seg, split on US.
 _split() { local x=$1; seg=(); while [[ "$x" == *"$US"* ]]; do seg+=("${x%%"$US"*}"); x=${x#*"$US"}; done; seg+=("$x"); }
 _treset() { S_W=() S_P=() S_R=() S_H=() S_HEAD=(); }
-# raw_targets <verbs> <command> [dir]: git_targets over <command> read with TK_RAW=1, for a parse that set S_AMB.
+# raw_targets <verbs> <command> [dir]: git_targets over <command> read again with TK_RAW=1: ' and " plain
+# characters, # never a comment, no heredoc body skipped.
 raw_targets() { local S_W S_P S_R S_H S_HEAD S_AMB=0 TK_RAW=1; _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; }
+# new_targets <verbs> <command> [dir]: git_targets over the caller's tokenized <command>, plus raw_targets
+# when that parse set S_AMB (not again inside a raw reading).
+new_targets() {
+  git_targets "$1" "${3:-$cwd}"; [ "$S_AMB" = 0 ] || [ -n "${TK_RAW:-}" ] || raw_targets "$1" "$2" "${3:-$cwd}"
+}
 
 # git_targets <verbs> [dir]: over the caller's segment list, "<verb> <dir>" for each `git [global opts] <verb>`
 # with <verb> in the space-separated <verbs>, <dir> the directory it acts on. `cd <dir>` carries into later
@@ -258,8 +264,8 @@ git_seg() {
   case "${seg[j]:-}" in
     cd) a=${seg[j+1]:-"~"}; [ "$a" = - ] || dir=$(absdir "$dir" "$a"); return;;
     bash|sh) [ "${seg[j+1]:-}" = -c ] || return
-      local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset; tokenize "${seg[j+2]:-}"; git_targets "$verbs" "$dir"
-      [ "$S_AMB" = 0 ] || [ -n "${TK_RAW:-}" ] || raw_targets "$verbs" "${seg[j+2]:-}" "$dir"; return;;
+      local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset; tokenize "${seg[j+2]:-}"; new_targets "$verbs" "${seg[j+2]:-}" "$dir"
+      return;;
     git) ;; *) return;;
   esac
   d=$dir; j=$((j+1))
@@ -308,6 +314,12 @@ main_targets() {
   [ "$has$tok" != 0 ] && w+=("$tok"); w+=("$sep")
   local seg=() x
   for x in "${w[@]}"; do if [ "$x" = "$sep" ]; then [ ${#seg[@]} -gt 0 ] && main_seg; seg=(); else seg+=("$x"); fi; done
+}
+# main_union <command>: "<verb> <dir>" from main_targets for push and commit. main_targets builds words from
+# contiguous characters, dropping only ' " and \ (at every bash -c level too), so it is skipped for a verb
+# the command does not hold once those are removed.
+main_union() {
+  local v; for v in push commit; do [[ ${1//[\'\"\\]/} != *"$v"* ]] || main_targets "$v" "$1" | sed "s/^/$v /"; done
 }
 # One segment of main_targets: reads and moves the caller's $dir, prints a target when it is git <verb>.
 main_seg() {
@@ -412,12 +424,10 @@ root=$(orca_root .)
 case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
-    # one parse for every consumer; push and commit add the raw reading when it is ambiguous, and origin/main's
-    # reading always, so nothing is gated less than on main. main_targets builds words from contiguous
-    # characters, dropping only ' " and \ (at every bash -c level too), so it is skipped for a verb the
-    # command does not hold once those are removed
+    # one parse for every consumer; push and commit take the union with origin/main's reading, so nothing
+    # is gated less than on main
     _treset; S_AMB=0; tokenize "$cmd"
-    tg=$({ git_targets "push commit"; [ "$S_AMB" = 0 ] || raw_targets "push commit" "$cmd"; for v in push commit; do [[ ${cmd//[\'\"\\]/} != *"$v"* ]] || main_targets "$v" "$cmd" | sed "s/^/$v /"; done; } | awk '!x[$0]++')
+    tg=$({ new_targets "push commit" "$cmd"; main_union "$cmd"; } | awk '!x[$0]++')
     while IFS= read -r t; do
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
