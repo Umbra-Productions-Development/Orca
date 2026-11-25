@@ -19,7 +19,7 @@ Established facts:
 
 ## Shared tokenizer
 
-One tokenizer builds the segment list once per Bash call; the push consumer, the commit consumer and `tool_seg` all run over that list. `cd` carrying, `bash|sh -c` recursion and prefix skipping stay as today.
+One tokenizer builds the segment list once per Bash call; the push consumer, the commit consumer and `tool_seg` all run over that list, and push and commit also take origin/main's reading (see Fail closed). `cd` carrying, `bash|sh -c` recursion and prefix skipping stay as today.
 
 Each segment records:
 
@@ -32,11 +32,16 @@ Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>
 
 Heredoc bodies: after an unquoted `<<WORD` or `<<-WORD` (WORD is any word, as in bash: `-EOF`, `1` and `$x` taken literally; WORD may be quoted, quotes removed, and a `$'…'` or `$"…"` WORD loses its `$` as in bash; an even run of `$` before a quote is `$$` pairs, not ANSI-C quoting), the lines after the end of the current line are body: skipped until a line equal to WORD (`<<-`: leading tabs stripped first), and never tokenised. Several heredocs on one line are skipped in order. An unterminated body runs to the end of the command.
 
-An unquoted `#` starting a word comments out the rest of its line, so `<<word` or an apostrophe in a comment opens no heredoc and no quote, but only at the start of the command or right after a blank, newline, `;`, `&` or `|`, and outside `${ }`, `$( )`, backticks, `(( ))`, `$[ ]` and `[[ ]]` (bash keeps `$(x)#b`, `<&0#b`, `[[ a =~ (#) ]]` and `@(#|a)` one word); otherwise it stays a word. `<` and `>` inside `(( ))` or `$[ ]` are arithmetic, not redirects, so `<<` there is a shift.
+An unquoted `#` starting a word comments out the rest of its line, so `<<word` or an apostrophe in a comment opens no heredoc and no quote, but only at the start of the command or right after a blank, newline, `;`, `&` or `|` (bash keeps `$(x)#b` and `<&0#b` one word). The tokenizer tracks no `${ }`, `$( )`, backtick, arithmetic or `[[ ]]` depth outside `"…"`: a `#` after a blank inside one is read as a comment, and a `<<` in arithmetic as a heredoc. For tool advice this can only skip a line, which loses advice; push and commit detection does not depend on it (below).
 
-Fail closed: the parse is ambiguous when it ends with an open quote, `${ }`, `$( )`, backtick or arithmetic, when a heredoc has no line exactly equal to its WORD, when a `#` is met while a `${ }`, `$( )`, backtick, arithmetic or `[[ ]]` is open, or at a word start after any character but a blank, newline, `;`, `&` or `|`, when a `<<` is read while a `${ }`, `$( )` or backtick is open (even one that closes in its WORD), when a `<` or `>` is met inside `[[ ]]` or a word's `[ ]` subscript (`a[1<<2]`), when a `$'…'` holds an escape other than `\'` or `\\`, when a `]]` is met inside a `( )` group of `[[ ]]`, when a `$( )`, `${ }` or backtick opened within `"…"` holds a `"`, `'`, `\`, a `#` not after a word character (`(true)#`) or `case`, or a `)` or `}` that does not match the innermost open `(`, `{` or backtick there (only a heredoc inside it is followed, its body kept raw to its terminator line, so `"$(cat <<'EOF' … EOF)"` stays exact), or when a `}` closes `${ }` while a `$( )` or backtick is open. Then push and commit detection read the command unskipped, as before this change (no heredoc skip): the whole command once with `#` as a word, once with `#` at a word start as a comment and once with `#` as a word and `'` and `"` as plain characters (so a quote misread cannot swallow a push), and its lines one by one with `#` as a word, `cd` carrying from line to line (so a quote a body line leaves open cannot swallow the next line, and a `cd` on an earlier line still applies). Every target any of these finds is judged, together with the targets of the normal skipped parse (where a `cd` inside a heredoc body moves nothing). A command is tokenised once when unambiguous and five times when not; push and commit share each pass. Tool advice reads the skipped parse and may stay quiet in those cases.
+Push and commit detection is the union of two readings: every target either finds is judged.
 
-This changes `git_targets` behaviour on purpose: a heredoc body line that starts with `git push` or `git commit` is no longer read as a command, so it is not gated or advised. The shared tokenizer also changes push/commit parsing in these ways: `#` comments are skipped, `<` and `>` in arithmetic are not redirects, redirects split from words (`git push>log` is a push), and an ambiguous parse falls back as above. `tests/hook-push.test.sh` and `tests/hook-commit.test.sh` stay green and gain these cases.
+- origin/main's reading (`main_targets`, its `git_targets`/`git_seg` as at 38a39ea, kept verbatim): no heredoc skip, `#` never a comment. Whatever main gates is still gated, a heredoc body line starting with `git push` included.
+- The shared tokenizer's segments (`git_targets`), which also catch pushes main's reading misses: a redirect glued to the verb (`git push>/dev/null`, `git push<<<y`, `>out git push`), and quote drift main has inside `"…"` and `$'…'`.
+
+Fail closed: the tokenizer sets an ambiguity flag when it ends with a quote open, when a heredoc has no line exactly equal to its WORD, when a `$'…'` holds an escape other than `\'` or `\\`, or when a `$( )`, `${ }` or backtick opened within `"…"` holds a `"`, `'`, `\`, a `#` not after a word character (`(true)#`) or `case`, or a `)` or `}` that does not match the innermost open `(`, `{` or backtick there (only a heredoc inside it is followed, its body kept raw to its terminator line, so `"$(cat <<'EOF' … EOF)"` stays exact). Then push and commit detection add a third reading of the whole command with `'` and `"` as plain characters, `#` as a word and no heredoc body skipped, so a quote misread cannot swallow a push. A command is tokenised once by the new tokenizer and once by main's reading, plus once more when ambiguous; push and commit share each pass. Tool advice reads only the skipped parse.
+
+The shared tokenizer changes push/commit parsing only by adding targets: redirects split from words (`git push>log` is a push) and the ambiguous-parse pass. `tests/hook-push.test.sh` and `tests/hook-commit.test.sh` stay green and gain these cases.
 
 ## Segment analysis
 
@@ -100,12 +105,13 @@ Exact wording is the apply session's, provided it names the command, the tool an
 
 Push and commit (`tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, test-lock on):
 
-- `cat > notes <<EOF` with a body line `git push origin main`, then `EOF`, and a stale gate marker: not blocked.
+- `cat > notes <<EOF` with a body line `git push origin main`, then `EOF`, and a stale gate marker: blocked, as on main (also after `<<1` and `<<$'E'`).
 - `cat > notes <<EOF` + `EOF` on its own line, then `git push` on the next line after the terminator, stale marker: blocked.
-- A heredoc body line `git commit -m x` gives no commit-report advice.
-- Fail closed, each followed by a push that bash runs, stale marker: blocked. An unterminated heredoc; a `#` or `<<` inside `${ }`, `$( )`, backticks or `$[ ]` (`${x:- #y}`, `${x:-<<EOF}`, `` `echo <<EOF` ``); a `#` after `)` (`$(x)#b`, `<(x)#b`); `<< -EOF`, `<<1`, `<<$x` taken as their own WORD; `<<$'E'` and `<<$"E"` ending on `E`; `a[1<<2]=3` and `[[ a =~ (<<E) ]]`; `<&0#b`, `<&$x#b`, `0<&0#b`; `[[ a =~ (#) ]]`, `( #)`, `@(#|a)`, `!(#)`; a quote or `cd` left by a heredoc body line, read per line.
+- A heredoc body line `git commit -m x` gives the commit-report advice, as on main.
+- Fail closed, each followed by a push that bash runs, stale marker: blocked. An unterminated heredoc; a `#` or `<<` inside `${ }`, `$( )`, backticks or `$[ ]` (`${x:- #y}`, `${x:-<<EOF}`, `` `echo <<EOF` ``); a `#` after `)` (`$(x)#b`, `<(x)#b`); `<< -EOF`, `<<1`, `<<$x` taken as their own WORD; `<<$'E'` and `<<$"E"` ending on `E`; `a[1<<2]=3` and `[[ a =~ (<<E) ]]`; `<&0#b`, `<&$x#b`, `0<&0#b`; `[[ a =~ (#) ]]`, `( #)`, `@(#|a)`, `!(#)`; a quote left open by a heredoc body line.
 - Also blocked (rounds 5 and 6): a `"`, `\)`, `')'`, `'}'`, `case … a)`, `# )` or `` \` `` inside `$( )`, `${ }` or backticks within `"…"` (`"$(git log --format="%s #%h")"`), a `#` right after `)` there, a `)` or `}` there that does not match its opener, a backtick included (`"$(echo } "`, ``"${x:-`echo }` "``), `$$'…` and `\\$'…'`, a `]]` inside a `[[ ]]` paren group.
-- `$((1<<3))` and `((x<<=2))` are shifts, not heredocs, so the push on the next line is blocked. Not blocked: a body line after `<<$'E'` that bash skips, or one inside `"$(cat <<'EOF' … EOF)"` with quotes and parens in the body.
+- Also blocked (review round 6): a `<<` shift in `$(( ))` or `(( ))` within `"…"`, a heredoc in `"$( )"` ending on `E)` or in a backtick ending on `` E` ``, a delimiter word opening `$( )`, `${ }` or a backtick; and `git push>/dev/null`, `git push<<<y`, which main misses.
+- `$((1<<3))` and `((x<<=2))` are shifts, not heredocs, so the push on the next line is blocked. Not blocked: a line inside `"$(cat <<'EOF' … EOF)"` with quotes and parens in the body, and `[[ a < b ]] && echo 'ok; git push later'`.
 
 ## Decisions
 
@@ -119,18 +125,18 @@ Push and commit (`tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, test-lo
 - Message names the command, the tool and `toolAdvice: false` — user (recommended, accepted).
 - New `tests/hook-tool-advice.test.sh` in the `lib.sh` layout; README, `orca.example.json` and `docs/daily-use.md` in the same change; one change, one PR — user (confirmed in the read-back).
 - `tee` fires only when its pipeline's head is `cat`, `echo` or `printf`, or a heredoc; `make | tee build.log` is quiet (raised in the proposal review) — user.
-- Heredoc bodies are skipped in the shared tokenizer, for the tool advice and for the push/commit consumers alike; a body line starting with `git push` is no longer gated, except under the fail-closed fallback below (raised in the proposal review) — user.
+- push/commit detection is the union of origin/main's reading and the new tokenizer's; a heredoc body line starting with git push is gated as on main — user (PR #144 review round 6, after six rounds of bypasses).
 - Option values are skipped per command so they are never file operands (raised in the proposal review) — propose (review finding, adopted).
 - A segment fed by `|` with no file operand never searches the cwd (`rg`, `ag`, `grep -r`) (raised in the proposal review) — propose (review finding, adopted).
 - Redirect operators come only from unquoted characters; fd forms and duplications are defined (raised in the proposal review) — propose (review suggestion, adopted).
-- push/commit detection falls back to unskipped tokenization when the parse is ambiguous — orchestrator (PR #144 review round 2, review recommendation).
+- push/commit detection adds an unskipped pass with quotes read as plain characters when the parse is ambiguous — orchestrator (PR #144 review round 2, review recommendation).
 - Within a segment, write/edit wins over read/search (raised in the proposal review) — propose (review suggestion, adopted).
-- The command is tokenised once and every consumer runs over the one segment list; an ambiguous parse adds the fallback's three unskipped passes, shared by push and commit (raised in the proposal review; fallback cost from the PR #144 review round 3) — propose (review suggestion, adopted).
+- The command is tokenised once and every consumer runs over the one segment list; an ambiguous parse adds one unskipped pass, shared by push and commit (raised in the proposal review; fallback cost from the PR #144 review round 3) — propose (review suggestion, adopted).
 - `session_id` must match `^[A-Za-z0-9_-]+$` to be used in the marker path (raised in the proposal review) — propose (review suggestion, adopted).
 - Appends (`>>`, `tee -a`) and `sed -i` point to Edit, new-file writes to Write (raised in the proposal review) — propose (review suggestion, adopted).
 
 ## Risks
 
 - Shell parsing is heuristic: an unusual form (`xargs cat`, `$(cat f)` inside an argument, an option table that misses a rare flag) may be missed or misread. A miss only loses advice, and a misread gives one unneeded line once per session; no call is ever blocked by this advice.
-- The tokenizer rework changes the push gate's parsing; heredoc bodies are no longer gated on purpose, and the push/commit tests (with new heredoc cases) guard the rest.
+- The tokenizer rework changes the push gate's parsing only by adding targets: origin/main's reading still runs beside it, so nothing main gates is let through. A body line starting with `git push` is still gated, as on main.
 - Rebase conflicts with #140, #95 and #83 in `hooks/pretool.sh`; all are in neighbouring lines, none in the new block.

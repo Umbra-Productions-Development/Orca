@@ -28,13 +28,17 @@ In a repository carrying `.orca/config.json`, the PreToolUse hook SHALL advise, 
 - **WHEN** the command is `git commit -F - <<EOF` with a body line `less noise in tail output`
 - **THEN** the tool advice does not fire for that line
 
-### Requirement: Heredoc bodies are not commands
+### Requirement: Heredoc bodies are not commands for tool advice
 
-The hook SHALL skip heredoc bodies when reading a Bash command, for the tool advice and for the push and commit checks alike. When the parse is ambiguous (a quote, `${ }`, `$( )`, backtick or arithmetic left open, a heredoc without an exact terminator, or a `#`, `<`, `>` or `$'…'` escape it cannot place), the push and commit checks SHALL instead read the command with heredoc bodies unskipped, so a misparse never hides a push or commit (fail closed).
+The hook SHALL skip heredoc bodies when reading a Bash command for the tool advice. The push and commit checks SHALL judge every target found by either origin/main's reading of the command (heredoc bodies read as commands) or the new tokenizer's, so they never gate less than main. When the new parse is ambiguous (design.md "Fail closed"), they SHALL also read the command with quotes as plain characters and heredoc bodies unskipped (fail closed).
 
 #### Scenario: Push text inside a heredoc body
 - **WHEN** the command is `cat > notes <<EOF`, a body line `git push origin main`, then `EOF`, and the gate marker is stale
-- **THEN** the hook does not block
+- **THEN** the hook blocks the push, as on main
+
+#### Scenario: Push main's reading misses
+- **WHEN** the command is `git push>/dev/null` and the gate marker is stale
+- **THEN** the hook blocks the push
 
 #### Scenario: Push after the heredoc ends
 - **WHEN** a `git push` line follows the heredoc's terminator and the gate marker is stale
