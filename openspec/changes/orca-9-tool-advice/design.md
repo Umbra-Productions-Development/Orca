@@ -28,11 +28,13 @@ Each segment records:
 - its redirects as `(op, target)` pairs, removed from the words;
 - `heredoc`: true when it carries a `<<` or `<<-` redirect.
 
-Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` (also `>&-` and `>&$fd`) are fd duplications: recorded with target `&N`, never a file; `>&word` with any other word writes stdout and stderr to the file `word`, like `&>`. The `&` in either form does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
+Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` (also `>&-` and `>&$fd`, with or without a blank after the `&`, as in `>& 2`) are fd duplications: recorded with target `&N`, never a file; `>&word` with any other word writes stdout and stderr to the file `word`, like `&>`. The `&` in either form does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
 
 Heredoc bodies: after an unquoted `<<WORD` or `<<-WORD` (WORD may be quoted; quotes removed), the lines after the end of the current line are body: skipped until a line equal to WORD (`<<-`: leading tabs stripped first), and never tokenised. Several heredocs on one line are skipped in order. An unterminated body runs to the end of the command.
 
-An unquoted `#` starting a word comments out the rest of its line, so `<<word` or an apostrophe in a comment opens no heredoc and no quote. `<` and `>` inside `(( ))` or `$[ ]` are arithmetic, not redirects.
+An unquoted `#` starting a word comments out the rest of its line, so `<<word` or an apostrophe in a comment opens no heredoc and no quote, but only outside `${ }`, `$( )`, backticks, `(( ))` and `$[ ]`; inside them it stays a word. `<` and `>` inside `(( ))` or `$[ ]` are arithmetic, not redirects.
+
+Fail closed: the parse is ambiguous when it ends with an open quote, `${ }`, `$( )`, backtick or arithmetic, when a heredoc has no line exactly equal to its WORD, or when a `#` or `<<` sat inside an unclosed `${ }`, `$( )`, backtick or arithmetic. Then push and commit detection read the command unskipped, as before this change (no heredoc skip), once with `#` as a word and once with `#` at a word start as a comment, and take every target either parse finds. Tool advice reads the skipped parse and may stay quiet in those cases.
 
 This changes `git_targets` behaviour on purpose: a heredoc body line that starts with `git push` or `git commit` is no longer read as a command, so it is not gated or advised. Everything else in push/commit parsing is unchanged; `tests/hook-push.test.sh` and `tests/hook-commit.test.sh` stay green and gain heredoc cases.
 
@@ -54,7 +56,7 @@ Kinds:
 - **read** (→ Read): `c` in `cat head tail less more bat`, or `sed` with `-n` and no `-i`; fires when `ops` is non-empty, except `tail -f`/`-F`/`--follow` and `less +F`, which follow a file Read cannot (for `sed -n` without `-e`/`-f`, the first operand is the script and a file operand must follow).
 - **search** (→ Grep): `c` in `grep egrep fgrep rg ag`. The first operand is the pattern unless `-e`/`-f`/`--regexp`/`--file` gave it. Fires when a file operand remains; or, when the segment does not read stdin, with `-r`/`-R`/`--recursive` (grep) or for `rg`/`ag` (they search the cwd). A segment reading stdin with no file operand stays quiet.
 - **search** (→ Glob): `c` is `find` and no `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete` appears.
-- **write, new file** (→ Write): `c` in `cat echo printf` with a `>`, `>|` or `&>` redirect to a file target (not `/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, not `&N`).
+- **write, new file** (→ Write): `c` in `cat echo printf` with a `>`, `>|` or `&>` redirect to a file target (an fd digit `0` or `1` before the operator still counts, `2>f` and other fds never do; not `/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, not `&N`).
 - **write, append** (→ Edit): `c` in `cat echo printf` with a `>>` or `&>>` redirect to a file target.
 - **write** via `tee` (→ Write, or Edit with `-a`): `c` is `tee` with an operand, and only when its pipeline's head segment is `cat`, `echo` or `printf`, or carries a heredoc. `make 2>&1 | tee build.log` is quiet (user decision).
 - **edit** (→ Edit): `sed` with `-i` and a file operand.
@@ -118,6 +120,7 @@ Push and commit (`tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, test-lo
 - Option values are skipped per command so they are never file operands (raised in the proposal review) — propose (review finding, adopted).
 - A segment fed by `|` with no file operand never searches the cwd (`rg`, `ag`, `grep -r`) (raised in the proposal review) — propose (review finding, adopted).
 - Redirect operators come only from unquoted characters; fd forms and duplications are defined (raised in the proposal review) — propose (review suggestion, adopted).
+- push/commit detection falls back to unskipped tokenization when the parse is ambiguous — orchestrator (PR #144 review round 2, review recommendation).
 - Within a segment, write/edit wins over read/search (raised in the proposal review) — propose (review suggestion, adopted).
 - The command is tokenised once and every consumer runs over the one segment list (raised in the proposal review) — propose (review suggestion, adopted).
 - `session_id` must match `^[A-Za-z0-9_-]+$` to be used in the marker path (raised in the proposal review) — propose (review suggestion, adopted).

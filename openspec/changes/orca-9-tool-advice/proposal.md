@@ -14,7 +14,7 @@ Sessions often read, search or write files through Bash (`cat`, `grep`, `find`, 
 
 ## Impact
 
-- Code: `hooks/pretool.sh`. Docs: `README.md`, `orca.example.json`, `docs/daily-use.md`. Tests: `tests/hook-tool-advice.test.sh` (new), `tests/hook-push.test.sh`, `tests/hook-commit.test.sh`.
+- Code: `hooks/pretool.sh`, `bin/orca-lc` (`init_defaults` writes `toolAdvice`). Docs: `README.md`, `orca.example.json`, `docs/daily-use.md`. Tests: `tests/hook-tool-advice.test.sh` (new), `tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, `tests/lib.sh` (`hook_json` takes a `session_id`).
 - Every Orca repo gets the advice on upgrade unless it sets `toolAdvice: false`. It never exits 2, so no call is refused.
 - Out of scope: rewriting the command for the session; quieting by `permission_mode`; `awk`, `jq`, `wc`, `ls`.
 - Overlaps: PRs #140, #95 and #83 edit `hooks/pretool.sh` (the Edit/Write branch, a leak scan, a sleep block); rebase onto whichever merges first. #136's `tests/*.test.sh` layout is the one followed here.
