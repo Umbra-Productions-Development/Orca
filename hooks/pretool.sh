@@ -182,16 +182,17 @@ safe_targets() {
   tokenize "$2"
   if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; else fallback_targets "$@"; fi
 }
-# fallback_targets <verbs> <command> [dir]: the targets of unskipped parses (no heredoc body skipped), so a
-# misparse can hide no push or commit from the gate: the whole command with # as a word (lit) and with # at a
+# fallback_targets <verbs> <command> [dir]: so a misparse can hide no push or commit from the gate, every
+# target of the caller's own (skipped) segment list, where a cd in a heredoc body moves nothing, plus those of
+# the unskipped parses (no heredoc body skipped): the whole command with # as a word (lit) and with # at a
 # word start as a comment (cmt), and its lines one by one in lit, cd carrying from line to line, so a quote a
-# body line leaves open cannot swallow the next. TK_MODE is local here and reaches tokenize and any nested
-# safe_targets by dynamic scope; the pipeline's subshell keeps it from the caller.
-fallback_targets() {
+# body line leaves open cannot swallow the next. TK_MODE is local to _fallback_passes and reaches tokenize
+# and any nested safe_targets by dynamic scope; the pipeline's subshell keeps it from the caller.
+fallback_targets() { { git_targets "$1" "${3:-$cwd}"; _fallback_passes "$@"; } | awk '!x[$0]++'; }
+_fallback_passes() {
   local S_W S_P S_R S_H S_HEAD S_AMB TK_MODE ln
-  { for TK_MODE in lit cmt; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
-    TK_MODE=lit; _treset; while IFS= read -r ln; do tokenize "$ln"; done <<<"$2"; git_targets "$1" "${3:-$cwd}"
-  } | awk '!x[$0]++'
+  for TK_MODE in lit cmt; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
+  TK_MODE=lit; _treset; while IFS= read -r ln; do tokenize "$ln"; done <<<"$2"; git_targets "$1" "${3:-$cwd}"
 }
 # One segment of git_targets: reads and moves the caller's $dir, prints "<verb> <dir>" for git <verb>.
 git_seg() {
