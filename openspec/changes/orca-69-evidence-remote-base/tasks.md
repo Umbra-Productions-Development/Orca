@@ -1,6 +1,6 @@
 ## 1. Base selection
 
-- [x] 1.1 `bin/orca-lc` `pick_base` (replaces `base_ref`): fetch `origin <baseBranch>` with the explicit refspec, `GIT_TERMINAL_PROMPT=0` and ssh in batch mode (task 5.13), prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
+- [x] 1.1 `bin/orca-lc` `pick_base` (replaces `base_ref`): fetch `origin <baseBranch>` with the explicit refspec, `GIT_TERMINAL_PROMPT=0` and ssh in batch mode unless the variant takes no `-o` (tasks 5.13, 5.14), prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
 
 ## 2. evidence
 
