@@ -57,9 +57,10 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # words), S_H (1 when it carries a heredoc) and S_HEAD (index of its pipeline's head). Callers declare
 # them local. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
 # optional fd digit; >&N, N>&M and <&N are fd duplications with target &N. Heredoc bodies are skipped.
-# An unquoted # starting a word comments out the rest of its line; < and > inside (( )) or $[ ] are arithmetic.
+# An unquoted # starting a word, outside ${ }, backticks and arithmetic, comments out the rest of its line.
+# < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic; ${ } depth is bc, bt is 1 in backticks.
 tokenize() {
-  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0
+  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = '"' ]; then
@@ -68,13 +69,15 @@ tokenize() {
       "'"|'"') q=$c; has=1;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
-      '>'|'<') if [ "$ad" -gt 0 ]; then tok+=$c; else _tr; fi;;   # inside (( )) or $[ ] they are arithmetic
-      '#') if [ "$has$tok" = 0 ]; then   # a word starting with # is a comment to the end of the line
+      '>'|'<') if [ $((ad+bd)) -gt 0 ]; then tok+=$c; else _tr; fi;;
+      '#') if [ "$has$tok" = 0 ] && [ $((ad+bd+bc+bt)) = 0 ]; then
           while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done
         else tok+=$c; fi;;
-      '$') tok+=$c; [ "${s:i+1:1}" = '[' ] && { ad=$((ad+1)); bd=$((bd+1)); tok+='['; i=$((i+1)); };;
-      '[') tok+=$c; [ "$bd" -gt 0 ] && { ad=$((ad+1)); bd=$((bd+1)); };;
-      ']') tok+=$c; [ "$bd" -gt 0 ] && { ad=$((ad-1)); bd=$((bd-1)); };;
+      '$') tok+=$c; case "${s:i+1:1}" in '[') bd=$((bd+1)); tok+='['; i=$((i+1));; '{') bc=$((bc+1)); tok+='{'; i=$((i+1));; esac;;
+      '[') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd+1));;
+      ']') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd-1));;
+      '}') tok+=$c; [ "$bc" -gt 0 ] && bc=$((bc-1));;
+      '`') tok+=$c; bt=$((1-bt));;
       '&') if [ "${s:i+1:1}" = '>' ]; then _tr; else _tw; _ts; np=0; fi;;
       '|') _tw; _ts; if [ "${s:i+1:1}" = '|' ]; then i=$((i+1)); np=0; else np=1; [ "${s:i+1:1}" = '&' ] && i=$((i+1)); fi;;
       '(') [ "${s:i+1:1}" = '(' ] && { ad=$((ad+1)); i=$((i+1)); }; _tw; _ts; np=0;;
