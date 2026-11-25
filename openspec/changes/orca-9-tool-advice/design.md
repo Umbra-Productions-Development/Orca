@@ -28,7 +28,7 @@ Each segment records:
 - its redirects as `(op, target)` pairs, removed from the words;
 - `heredoc`: true when it carries a `<<` or `<<-` redirect.
 
-Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` are fd duplications: recorded with target `&N`, never a file, and the `&` in them does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
+Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` (also `>&-` and `>&$fd`) are fd duplications: recorded with target `&N`, never a file; `>&word` with any other word writes stdout and stderr to the file `word`, like `&>`. The `&` in either form does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
 
 Heredoc bodies: after an unquoted `<<WORD` or `<<-WORD` (WORD may be quoted; quotes removed), the lines after the end of the current line are body: skipped until a line equal to WORD (`<<-`: leading tabs stripped first), and never tokenised. Several heredocs on one line are skipped in order. An unterminated body runs to the end of the command.
 
@@ -108,7 +108,7 @@ Push and commit (`tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, test-lo
 - Advice fires once per session per kind (read/search/write), marker under the git dir; every call without a `session_id` — user (recommended, accepted; no-session fallback confirmed in the read-back).
 - Code-graph advice takes precedence; tool advice runs after it, one message per call — user (recommended, accepted).
 - Read/search detection is per segment over the segment list `tokenize` builds (the list `git_targets` also reads) and fires only with a file operand (grep/rg/ag: after the pattern; recursive grep with no dir counts) — user (recommended, accepted).
-- Writes are `cat`/`echo`/`printf` redirected to a file (heredocs included), `tee <file>`, `sed -i`; other commands' output redirects, `/dev/null` and fd redirects do not count — user (recommended, accepted).
+- Writes are `cat`/`echo`/`printf` redirected to a file (heredocs included), `tee <file>`, `sed -i`; other commands' output redirects, `/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty` and fd redirects do not count — user (recommended, accepted; the three device paths added from the PR #144 review, accepted).
 - Command set: reads `cat head tail sed -n less more bat` → Read; searches `grep egrep fgrep rg ag` → Grep, `find` without `-exec`/`-delete` → Glob; `awk jq wc ls` excluded — user (recommended, accepted).
 - Any file path counts; nothing is special-cased by location — user (recommended, accepted).
 - Message names the command, the tool and `toolAdvice: false` — user (recommended, accepted).
