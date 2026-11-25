@@ -7,7 +7,7 @@ echo edit >> "$r/README"; echo edit >> "$d/stale/README"   # main checkout and s
 plain=$(mktemp -d); git init -q "$plain/p"                 # a repo without .orca/config.json
 
 assert_eq "$(hook "$r" 'git push')" 2 "plain push from a stale cwd"
-assert_eq "$(hook "$r" $'cat > notes <<EOF\ngit push origin main\nEOF' | tail -1)" 0 "a heredoc body line is not a push"
+assert_eq "$(hook "$r" $'cat > notes <<EOF\ngit push origin main\nEOF' | tail -1)" 2 "a heredoc body line is gated, as on main"
 assert_eq "$(hook "$r" $'cat > notes <<EOF\nEOF\ngit push' | tail -1)" 2 "a push after the heredoc terminator is gated"
 assert_eq "$(hook "$r" $'n=$((1<<3))\ngit push origin main' | tail -1)" 2 "arithmetic << is no heredoc: the push after it is gated"
 assert_eq "$(hook "$r" $'((x<<=2))\ngit push' | tail -1)" 2 "(( << )) is no heredoc either"
@@ -22,7 +22,7 @@ assert_eq "$(hook "$r" 'a=${b:-x #}; git push' | tail -1)" 2 "# in an assignment
 assert_eq "$(hook "$r" 'echo `echo #`; git push' | tail -1)" 2 "# inside backticks is no comment"
 assert_eq "$(hook "$r" $'echo $[ 1 # ]\n>out git push' | tail -1)" 2 "# inside \$[ ] is no comment"
 assert_eq "$(hook "$r" $'echo $[(1+(2))]; ((x<<y))\ngit push' | tail -1)" 2 ")) inside \$[ ] leaves the (( )) count alone"
-# an ambiguous parse falls back to reading every line: no heredoc or comment hides a push (#9 review round 2)
+# no heredoc or comment hides a push (#9 review round 2)
 assert_eq "$(hook "$r" $'echo ${x/<<EOF/}\ngit push' | tail -1)" 2 "<< inside \${ } hides nothing"
 assert_eq "$(hook "$r" $'echo `echo <<EOF`\ngit push' | tail -1)" 2 "<< inside backticks hides nothing"
 assert_eq "$(hook "$r" $'(( (1+(2)) <<x ))\ngit push' | tail -1)" 2 "inner )) does not close (( ))"
@@ -47,8 +47,8 @@ assert_eq "$(hook "$r" '[[ a =~ (a)#b ]]; git push' | tail -1)" 2 "# after =~ ( 
 assert_eq "$(hook "$r" $'cat << -EOF\nx <<Y\n-EOF\ngit push\nY' | tail -1)" 2 "-EOF is a heredoc delimiter"
 assert_eq "$(hook "$r" $'cat <<1\nx <<Y\n1\ngit push\nY' | tail -1)" 2 "1 is a heredoc delimiter"
 assert_eq "$(hook "$r" $'cat <<$x\nx <<Y\n$x\ngit push\nY' | tail -1)" 2 "\$x is a heredoc delimiter"
-assert_eq "$(hook "$r" $'cat <<1\ngit push\n1' | tail -1)" 0 "a body line after <<1 is not a push"
-# the fallback keeps cd from line to line: no false block (#9 review round 3)
+assert_eq "$(hook "$r" $'cat <<1\ngit push\n1' | tail -1)" 2 "a body line after <<1 is gated, as on main"
+# cd carries through an ambiguous parse: no false block (#9 review round 3)
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ngit push' | tail -1)" 0 "cd carries through an ambiguous parse"
 assert_eq "$(hook "$r" $'cd ../fresh && x=$(cat <<EOF\nhi\nEOF\n)\ngit push' | tail -1)" 0 "cd carries past a heredoc in \$( )"
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ncd ../stale\ngit push' | tail -1)" 2 "a later cd to a stale tree still gates"
@@ -59,7 +59,7 @@ assert_eq "$(hook "$r" $'a[1<<2]=3\ngit push\n2]=3' | tail -1)" 2 "<< in an arra
 assert_eq "$(hook "$r" $'[[ a =~ (<<E) ]]\ngit push\nE' | tail -1)" 2 "<< in a [[ =~ ]] group is no heredoc"
 assert_eq "$(hook "$r" $'cat <<$\'E\'\nhi\nE\ngit push\n$E' | tail -1)" 2 "<<\$'E' ends on E"
 assert_eq "$(hook "$r" $'cat <<$"E"\nhi\nE\ngit push\n$E' | tail -1)" 2 "<<\$\"E\" ends on E"
-assert_eq "$(hook "$r" $'cat <<$\'E\'\ngit push\nE' | tail -1)" 0 "a body line after <<\$'E' is not a push"
+assert_eq "$(hook "$r" $'cat <<$\'E\'\ngit push\nE' | tail -1)" 2 "a body line after <<\$'E' is gated, as on main"
 assert_eq "$(hook "$r" $'echo ${x:-<<EOF}\ngit push\nEOF}' | tail -1)" 2 "<< whose word closes \${ } hides nothing"
 assert_eq "$(hook "$r" $'echo `echo <<EOF`\ngit push\nEOF`' | tail -1)" 2 "<< whose word closes a backtick hides nothing"
 assert_eq "$(hook "$r" 'cat <&0#b; git push' | tail -1)" 2 "# after <&0 is no comment"
@@ -110,6 +110,21 @@ assert_eq "$(hook "$r" 'echo "$(echo `date`) b" # git push' | tail -1)" 0 "a bac
 assert_eq "$(hook "$r" $'echo "$( (true)# ) " <<\'E)"\'\ngit push\nE)"' | tail -1)" 2 "a comment after a paren in a command substitution in dquotes hides nothing"
 assert_eq "$(hook "$r" 'echo "$(echo ${#x} a#b) " # git push' | tail -1)" 0 "a # inside a word in a dquoted command substitution leaves a later comment a comment"
 assert_eq "$(hook "$r" $'git commit -m "$(cat <<\'EOF\'\nit\'s "x" (1) fix)\ngit push later\nEOF\n)"' | tail -1)" 0 "a heredoc body in a dquoted command substitution stays skipped"
+# << in arithmetic inside "..", a heredoc ending on E) or E` in "..", a delimiter word opening a substitution (#9 review round 6)
+assert_eq "$(hook "$r" $'echo "$((1<<x))\n"\ngit push\nx\n"' | tail -1)" 2 "<< in \$(( )) in dquotes hides nothing"
+assert_eq "$(hook "$r" $'echo "$( ((x<<y))\n)"\ngit push\ny\n)"' | tail -1)" 2 "<< in (( )) in a command substitution in dquotes hides nothing"
+assert_eq "$(hook "$r" $'echo "$(echo $((1<<y)))\n"\ngit push\ny\n"' | tail -1)" 2 "<< in \$(( )) in a command substitution in dquotes hides nothing"
+assert_eq "$(hook "$r" $'echo "$((1<<2))\n"; git push\n2\n#"' | tail -1)" 2 "a numeric shift operand in dquotes is no heredoc word"
+assert_eq "$(hook "$r" $'x="${y:-$((1<<E))}\n"; git push\nE\n#"' | tail -1)" 2 "<< in \$(( )) in a parameter expansion in dquotes hides nothing"
+assert_eq "$(hook "$r" $'echo "$(cat <<E\nhi\nE)"; git push; cat <<\'X\'\nE\n)"\nX' | tail -1)" 2 "a heredoc in a command substitution in dquotes ends on E)"
+assert_eq "$(hook "$r" $'echo "`cat <<E\nhi\nE`"; git push; cat <<\'X\'\nE\n`"\nX' | tail -1)" 2 "a heredoc in a backtick in dquotes ends on E\`"
+assert_eq "$(hook "$r" $'cat <<$(echo E)\nbody\n$(echo E)\ngit push\n$' | tail -1)" 2 "a delimiter word opening \$( ) hides nothing"
+assert_eq "$(hook "$r" $'cat <<${x:- y}\nbody\n${x:- y}\ngit push\n${x:-' | tail -1)" 2 "a delimiter word opening \${ } hides nothing"
+assert_eq "$(hook "$r" $'cat <<`echo E`\nb\n`echo E`\ngit push\n`echo' | tail -1)" 2 "a delimiter word opening a backtick hides nothing"
+assert_eq "$(hook "$r" "[[ a < b ]] && echo 'ok; git push later'" | tail -1)" 0 "< in [[ ]] leaves a quoted push text alone"
+# a push origin/main's reading misses: a redirect glued to the verb
+assert_eq "$(hook "$r" 'git push>/dev/null' | tail -1)" 2 "a push with a glued > redirect is gated"
+assert_eq "$(hook "$r" 'git push<<<y' | tail -1)" 2 "a push with a glued here-string is gated"
 assert_eq "$(hook "$d/fresh" 'git push origin HEAD')" 0 "plain push from a fresh cwd"
 assert_eq "$(hook "$r" "cd $d/fresh && git push")" 0 "cd <fresh> && git push from a stale cwd"
 assert_eq "$(hook "$r" 'cd ../fresh && git push')" 0 "relative cd resolves against the payload cwd"
