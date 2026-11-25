@@ -823,7 +823,7 @@ cmd_role() {
       ! is_core_role "$r" || [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session"
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
-      local slug all ag other="" old=""; slug=$(ticket_slug "$t"); name="$slug-$r"; to=$(role_start_timeout) || exit 1
+      local slug all ag other="" old=""; slug=$(ticket_slug "$t"); name="$slug-$r"
       # git is always there; sha1sum is not (macOS ships shasum). An empty hash would match every ledger, so it dies.
       H=$(printf '%s\n' "$body" | git hash-object --stdin 2>/dev/null); [[ $H =~ ^[0-9a-f]{40,64}$ ]] || die "could not hash the handoff body (git hash-object failed)"
       # One live session per role. A rerun is idempotent: the handoff and the first prompt go out once, and the
@@ -838,26 +838,24 @@ cmd_role() {
         # Blocked first: a session stuck at a startup prompt may not have a session id yet.
         [ "$(jq -r .status <<<"$ag")" = blocked ] && startup_blocked "$name" "$r" "$(jq -r .pane <<<"$ag")"
         sid=$(session_id "$name" "$t" "$r") || exit 1; led="$rdir/$sid"
-        [ -f "$led" ] && [ "$(ledger_get body-sha1 "$led")" = "$H" ] && { echo "already sent: $(ledger_handoff "$led")"; return 0; }
       fi
-      # The live handoff for this role. Same body, unsent or sent to a session that is gone: resend it as is.
-      # A different body is replaced by the write below; nobody is left to read an orphaned one.
+      # The live (unread) handoff for this role.
       for o in "$(tdir "$(shared)/handoffs" "$t")"/"$r"-[0-9]*.md; do
         [ -f "$o" ] && [ -z "$(fm consumed-by "$o")" ] && { L="$o"; break; }; done
-      # Sent to this very session with this body, though its ledger file is missing: already sent all the same.
-      [ -n "$L" ] && [ -n "$sid" ] && [ "$(fm sent-to "$L")" = "$sid" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && { echo "already sent: $L"; return 0; }
-      if [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ]; then
-        { [ -z "$(fm sent-to "$L")" ] || [ "$(fm sent-to "$L")" != "$sid" ]; } && resume="$L"
-      fi
+      # This session received a job when it has a ledger file, or when the live handoff is stamped sent-to it
+      # (its ledger file may be missing). Worked out once here; the same body is already sent, read or not.
+      local sentL=""; [ -n "$L" ] && [ -n "$sid" ] && [ "$(fm sent-to "$L")" = "$sid" ] && sentL=1
+      [ -f "$led" ] && [ "$(ledger_get body-sha1 "$led")" = "$H" ] && { echo "already sent: $(ledger_handoff "$led")"; return 0; }
+      [ -n "$sentL" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && { echo "already sent: $L"; return 0; }
+      # Same body, unsent or sent to a session that is gone: resend it as is.
+      # A different body is replaced by the write below; nobody is left to read an orphaned one.
+      [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && resume="$L"
       if [ -n "$ag" ]; then
         [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
-        # Received: a ledger file for sid, or the live handoff stamped sent-to sid (its ledger file may be missing).
-        local recv=""; { [ -f "$led" ] || { [ -n "$L" ] && [ "$(fm sent-to "$L")" = "$sid" ]; }; } && recv=1
-        if [ -n "$recv" ]; then
-          local got nr=""
-          if [ -f "$led" ]; then got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && ledger_is "$led" "$L" && nr=" (not read yet)"
-          else got="$L"; nr=" (not read yet)"; fi
+        if [ -f "$led" ] || [ -n "$sentL" ]; then
+          local got="$L" nr=" (not read yet)"
+          if [ -f "$led" ]; then got=$(ledger_handoff "$led"); nr=""; [ "$(ledger_get handoff "$led")" = "$L" ] && ledger_is "$led" "$L" && nr=" (not read yet)"; fi
           [ -n "$new" ] || die "$name is live and already received $got$nr; rerun with --new to clear it and send this one"
           clear=1
         fi
@@ -874,6 +872,8 @@ cmd_role() {
           fi
           [ -z "$replace" ] || [ -n "$old" ] || die "$replace is not a live extra session on $t; rerun without --replace"
         fi
+        # Read only when a session is to be opened: a bad value never blocks an already-sent rerun or a --new reuse.
+        to=$(role_start_timeout) || exit 1
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # The guard stands aside when free memory is unknown (no /proc/meminfo, as on macOS) and on --replace,
         # which exits one session for each one it opens.

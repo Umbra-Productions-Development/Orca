@@ -19,7 +19,7 @@ A ticket gets one terminal tab per session, managed through herdr.
 
 Ownership moves forward only: propose, then apply, then review until merge. Only the owner edits the tree.
 
-`orca-lc role start <ticket> <role> [--new] < body` opens a role's session, writes its handoff and sends the first prompt, each once: rerunning it with the same body finishes what is missing or prints `already sent: <handoff>`. It refuses when the role's live session already received a handoff; `--new` clears an idle one and gives it the new handoff. A session stuck at a startup prompt is reported with herdr's error, the tab, the pane and its last lines.
+`orca-lc role start <ticket> <role> [--as <name>] [--replace <name>] [--new] < body` opens a role's session, writes its handoff and sends the first prompt, each once: rerunning it with the same body finishes what is missing or prints `already sent: <handoff>`. It refuses when the role's live session already received a handoff; `--new` clears an idle one and gives it the new handoff. `--as <name>` writes the handoff as that session, taking over another one's unread handoff; `--replace <name>` exits a live extra session before starting a new one. A session stuck at a startup prompt is reported with herdr's error, the tab, the pane and its last lines.
 
 `orca-lc role retire <ticket> <role> [--wait]` exits a role's session and keeps its tab, so the next `role start` for that role runs in the same tab and `claude --resume` there lists the earlier sessions. It refuses a working session, or one herdr shows as `unknown`, unless `--wait` is given, which waits up to an hour for it to go idle first. It refuses a session blocked at a prompt, since `/exit` and Enter typed there could answer the prompt.
 
