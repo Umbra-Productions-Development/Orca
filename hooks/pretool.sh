@@ -57,16 +57,18 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # words), S_H (1 when it carries a heredoc) and S_HEAD (index of its pipeline's head). Callers declare
 # them local. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
 # optional fd digit; >&N, N>&M and <&N are fd duplications with target &N. Heredoc bodies are skipped.
-# An unquoted # starting a word, outside ${ }, $( ), backticks and arithmetic, comments out the rest of its line.
+# An unquoted # starting a word, outside ${ }, $( ), backticks and arithmetic and not right after a ) (bash
+# keeps $(x)#b one word), comments out the rest of its line.
 # < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic, plain ( ) in them counted in pd;
 # ${ } depth is bc, $( ) depth sd, bt is 1 in backticks.
 # S_AMB (the caller's) is set to 1 when the parse is ambiguous: a quote, ${ }, $( ), backtick or arithmetic
-# left open, a heredoc with no exact terminator, a # or heredoc inside an open ${ }, $( ), backtick or
-# arithmetic, or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
+# left open, a heredoc with no exact terminator, a # or heredoc met while a ${ }, $( ), backtick or
+# arithmetic is open, a # right after a ), or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
 # unskipped parses (safe_targets). TK_MODE lit or cmt gives those: no heredoc body skipped, < and > always
 # redirects, and # never (lit) or always (cmt) a comment when it starts a word.
 tokenize() {
-  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 m=${TK_MODE:-}
+  # LC_ALL=C: ${s:i:1} is O(1) per byte instead of O(i) per character; only ASCII bytes are syntax
+  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = '"' ]; then
@@ -77,7 +79,7 @@ tokenize() {
       ' '|$'\t') _tw;;
       '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c; else _tr; fi;;
       '#') if [ "$has$tok" != 0 ] || [ "$m" = lit ]; then tok+=$c
-        elif [ -z "$m" ] && [ $((ad+bd+bc+bt+sd)) -gt 0 ]; then tok+=$c; S_AMB=1
+        elif [ -z "$m" ] && { [ $((ad+bd+bc+bt+sd)) -gt 0 ] || { [ "$i" -gt 0 ] && [ "${s:i-1:1}" = ')' ]; }; }; then tok+=$c; S_AMB=1
         else while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done; fi;;
       '$') tok+=$c; case "${s:i+1:1}" in '[') bd=$((bd+1)); tok+='['; i=$((i+1));; '{') bc=$((bc+1)); tok+='{'; i=$((i+1));; esac;;
       '[') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd+1));;
@@ -108,9 +110,8 @@ tokenize() {
 _tw() {
   if [ "$has$tok" != 0 ]; then
     if [ -n "$rop" ]; then r+=("$rop$GS$tok")
-      # a heredoc delimiter is a word or quoted; `1<<3` is a shift, not a heredoc
-      case "$rop" in '<<'|'<<-') { [ "$has" = 1 ] || [[ "$tok" =~ ^[A-Za-z_] ]]; } && { hds+=("$rop$GS$tok"); hd=1
-        [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1; };; esac; rop=""
+      # any word after << is a heredoc delimiter, as in bash (-EOF, 1, $x); shifts in (( )) and $[ ] never get here
+      case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1; [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1;; esac; rop=""
     else w+=("$tok"); fi
   fi; tok=""; has=0
 }
@@ -136,12 +137,14 @@ _tr() {
   esac
   rop=$fd$op
 }
-# _tdup: at >& or <&, read an fd word after optional blanks: digits, -, or a $name. <& always duplicates;
+# _tdup: at >& or <&, read an fd word after optional blanks: digits, -, or a $name (bare or in ""). <& always duplicates;
 # >& duplicates only when that word stands alone, otherwise it is >&word (return 1).
 _tdup() {
-  local j=$((i+2)) t=""
+  local j=$((i+2)) t="" dq=0
   while [[ "${s:j:1}" == [' '$'\t'] ]]; do j=$((j+1)); done
+  [ "${s:j:2}" = '"$' ] && { dq=1; j=$((j+1)); }
   if [ "${s:j:1}" = '$' ]; then t='$'; j=$((j+1)); while [[ "${s:j:1}" == [A-Za-z0-9_{}] ]]; do t+=${s:j:1}; j=$((j+1)); done
+    if [ "$dq" = 1 ]; then [ "${s:j:1}" = '"' ] || return 1; j=$((j+1)); fi
   else while [[ "${s:j:1}" == [0-9-] ]]; do t+=${s:j:1}; j=$((j+1)); done; fi
   if [ "${s:i:1}" = '>' ]; then
     case "$t" in ''|'$') return 1;; esac
@@ -162,30 +165,37 @@ _tb() {
 # _split <joined>: the caller's seg, split on US.
 _split() { local x=$1; seg=(); while [[ "$x" == *"$US"* ]]; do seg+=("${x%%"$US"*}"); x=${x#*"$US"}; done; seg+=("$x"); }
 
-# git_targets <verb> [dir]: over the caller's segment list, the directory each `git [global opts] <verb>`
-# acts on, one per line. `cd <dir>` carries into later segments (relative to the one before, from the
-# payload cwd); -C stacks on it; --git-dir names the repo, whose worktree is printed (--work-tree, else a
-# linked worktree's, else the .git's parent). `bash|sh -c "<cmd>"` is read as a command too.
+# git_targets <verbs> [dir]: over the caller's segment list, "<verb> <dir>" for each `git [global opts] <verb>`
+# with <verb> in the space-separated <verbs>, <dir> the directory it acts on. `cd <dir>` carries into later
+# segments (relative to the one before, from the payload cwd); -C stacks on it; --git-dir names the repo,
+# whose worktree is printed (--work-tree, else a linked worktree's, else the .git's parent). `bash|sh -c
+# "<cmd>"` is read as a command too.
 git_targets() {
   local verb=$1 dir=${2:-$cwd} k seg=()
   for ((k=0; k<${#S_W[@]}; k++)); do _split "${S_W[k]}"; git_seg; done
 }
-# safe_targets <verb> <command> [dir]: git_targets over <command>'s own segment list. When the parse is
-# ambiguous (S_AMB), the targets of both unskipped parses instead, of the whole command and of each line
-# alone (a quote left open by a body line cannot swallow the next), so a misparse can hide no push or
-# commit from the gate. A well-formed heredoc body stays skipped. Inside a fallback, TK_MODE carries down.
+_treset() { S_W=() S_P=() S_R=() S_H=() S_HEAD=(); }
+# safe_targets <verbs> <command> [dir]: git_targets over <command>'s own segment list, or fallback_targets
+# when that parse is ambiguous (S_AMB). Inside a fallback (TK_MODE set) it never falls back again.
 safe_targets() {
-  local S_W=() S_P=() S_R=() S_H=() S_HEAD=() S_AMB=0 ln
+  local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset
   tokenize "$2"
-  if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; return; fi
-  for TK_MODE in lit cmt; do
-    S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$2"; git_targets "$1" "${3:-$cwd}"
-    while IFS= read -r ln; do S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$ln"; git_targets "$1" "${3:-$cwd}"; done <<<"$2"
-  done | awk '!x[$0]++'
+  if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; else fallback_targets "$@"; fi
 }
-# One segment of git_targets: reads and moves the caller's $dir, prints a target when it is git <verb>.
+# fallback_targets <verbs> <command> [dir]: the targets of unskipped parses (no heredoc body skipped), so a
+# misparse can hide no push or commit from the gate: the whole command with # as a word (lit) and with # at a
+# word start as a comment (cmt), and its lines one by one in lit, cd carrying from line to line, so a quote a
+# body line leaves open cannot swallow the next. TK_MODE is local here and reaches tokenize and any nested
+# safe_targets by dynamic scope; the pipeline's subshell keeps it from the caller.
+fallback_targets() {
+  local S_W S_P S_R S_H S_HEAD S_AMB TK_MODE ln
+  { for TK_MODE in lit cmt; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
+    TK_MODE=lit; _treset; while IFS= read -r ln; do tokenize "$ln"; done <<<"$2"; git_targets "$1" "${3:-$cwd}"
+  } | awk '!x[$0]++'
+}
+# One segment of git_targets: reads and moves the caller's $dir, prints "<verb> <dir>" for git <verb>.
 git_seg() {
-  local j=0 a d gd="" wt=""
+  local j=0 a d gd="" wt="" v
   while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done
   case "${seg[j]:-}" in
     cd) a=${seg[j+1]:-"~"}; [ "$a" = - ] || dir=$(absdir "$dir" "$a"); return;;
@@ -205,12 +215,12 @@ git_seg() {
       *) break;;
     esac
   done
-  [ "${seg[j]:-}" = "$verb" ] || return 0
+  v=${seg[j]:-}; [ -n "$v" ] && [[ " $verb " == *" $v "* ]] || return 0
   gd=${gd%/}
-  if [ -n "$wt" ]; then echo "$wt"
-  elif [ -n "$gd" ] && [ -f "$gd/gitdir" ]; then dirname "$(cat "$gd/gitdir")"
-  elif [ -n "$gd" ]; then echo "${gd%/.git}"
-  else echo "$d"; fi
+  if [ -n "$wt" ]; then echo "$v $wt"
+  elif [ -n "$gd" ] && [ -f "$gd/gitdir" ]; then echo "$v $(dirname "$(cat "$gd/gitdir")")"
+  elif [ -n "$gd" ]; then echo "$v ${gd%/.git}"
+  else echo "$v $d"; fi
 }
 
 # Value-taking options per command, so a value is never read as a file operand.
@@ -230,7 +240,7 @@ tool_seg() {
   while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done
   c=${seg[j]:-}
   case "$c" in
-    bash|sh) if [ "${seg[j+1]:-}" = -c ]; then local S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "${seg[j+2]:-}"; tool_scan; fi; return;;
+    bash|sh) if [ "${seg[j+1]:-}" = -c ]; then local S_W S_P S_R S_H S_HEAD; _treset; tokenize "${seg[j+2]:-}"; tool_scan; fi; return;;
     find) for x in "${seg[@]}"; do case "$x" in -exec|-execdir|-ok|-okdir|-delete) return;; esac; done; echo "search find"; return;;
     head|tail) vo=$VO_head;; grep|egrep|fgrep) vo=$VO_grep;; rg) vo=$VO_rg;; ag) vo=$VO_ag;; sed) vo=$VO_sed;;
     cat|less|more|bat|tee|echo|printf) ;;
@@ -286,13 +296,15 @@ root=$(orca_root .)
 case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
-    S_W=() S_P=() S_R=() S_H=() S_HEAD=(); S_AMB=0; tokenize "$cmd"   # the segment list tool advice reads; push and commit go through safe_targets
+    # one parse for every consumer; an ambiguous one sends push and commit through fallback_targets
+    _treset; S_AMB=0; tokenize "$cmd"
+    if [ "$S_AMB" = 0 ]; then tg=$(git_targets "push commit"); else tg=$(fallback_targets "push commit" "$cmd"); fi
     while IFS= read -r t; do
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
-    done < <(safe_targets push "$cmd")
+    done < <(sed -n 's/^push //p' <<<"$tg")
     [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
-    t=$(safe_targets commit "$cmd" | head -1)
+    t=$(sed -n 's/^commit //p' <<<"$tg" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
       r=$(orca-lc name 2>/dev/null | jq -r '.role // ""'); tk=$(cd "$t" && orca-lc ticket 2>/dev/null)
