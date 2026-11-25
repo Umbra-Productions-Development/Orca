@@ -182,19 +182,19 @@ _split() { local x=$1; seg=(); while [[ "$x" == *"$US"* ]]; do seg+=("${x%%"$US"
 # whose worktree is printed (--work-tree, else a linked worktree's, else the .git's parent). `bash|sh -c
 # "<cmd>"` is read as a command too.
 git_targets() {
-  local verb=$1 dir=${2:-$cwd} k seg=()
+  local verbs=$1 dir=${2:-$cwd} k seg=()
   for ((k=0; k<${#S_W[@]}; k++)); do _split "${S_W[k]}"; git_seg; done
 }
 _treset() { S_W=() S_P=() S_R=() S_H=() S_HEAD=(); }
-# safe_targets <verbs> <command> [dir]: git_targets over <command>'s own segment list, or fallback_targets
-# when that parse is ambiguous (S_AMB). Inside a fallback (TK_MODE set) it never falls back again.
-safe_targets() {
-  local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset
-  tokenize "$2"
-  if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; else fallback_targets "$@"; fi
-}
+# pick_targets <verbs> <command> [dir]: git_targets over the caller's segment list, or fallback_targets when
+# that parse is ambiguous (S_AMB). The list and S_AMB must hold tokenize's parse of <command>. Inside a
+# fallback (TK_MODE set) it never falls back again.
+pick_targets() { if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; else fallback_targets "$@"; fi; }
+# safe_targets <verbs> <command> [dir]: pick_targets over <command>'s own parse (bash -c).
+safe_targets() { local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset; tokenize "$2"; pick_targets "$@"; }
 # fallback_targets <verbs> <command> [dir]: so a misparse can hide no push or commit from the gate, every
-# target of the caller's own (skipped) segment list, where a cd in a heredoc body moves nothing, plus those of
+# target of the caller's own (skipped) segment list, which must hold tokenize's parse of <command> and where
+# a cd in a heredoc body moves nothing, plus those of
 # the unskipped parses (no heredoc body skipped): the whole command with # as a word (lit) and with # at a
 # word start as a comment (cmt), and its lines one by one in lit, cd carrying from line to line, so a quote a
 # body line leaves open cannot swallow the next. TK_MODE is local to _fallback_passes and reaches tokenize
@@ -203,6 +203,7 @@ fallback_targets() { { git_targets "$1" "${3:-$cwd}"; _fallback_passes "$@"; } |
 _fallback_passes() {
   local S_W S_P S_R S_H S_HEAD S_AMB TK_MODE ln
   for TK_MODE in lit cmt; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
+  # the lines append to one list, so cd carries from line to line (S_HEAD indexes span lines; unused here)
   TK_MODE=lit; _treset; while IFS= read -r ln; do tokenize "$ln"; done <<<"$2"; git_targets "$1" "${3:-$cwd}"
 }
 # One segment of git_targets: reads and moves the caller's $dir, prints "<verb> <dir>" for git <verb>.
@@ -211,7 +212,7 @@ git_seg() {
   while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done
   case "${seg[j]:-}" in
     cd) a=${seg[j+1]:-"~"}; [ "$a" = - ] || dir=$(absdir "$dir" "$a"); return;;
-    bash|sh) [ "${seg[j+1]:-}" = -c ] && safe_targets "$verb" "${seg[j+2]:-}" "$dir"; return;;
+    bash|sh) [ "${seg[j+1]:-}" = -c ] && safe_targets "$verbs" "${seg[j+2]:-}" "$dir"; return;;
     git) ;; *) return;;
   esac
   d=$dir; j=$((j+1))
@@ -227,7 +228,7 @@ git_seg() {
       *) break;;
     esac
   done
-  v=${seg[j]:-}; [ -n "$v" ] && [[ " $verb " == *" $v "* ]] || return 0
+  v=${seg[j]:-}; [ -n "$v" ] && [[ " $verbs " == *" $v "* ]] || return 0
   gd=${gd%/}
   if [ -n "$wt" ]; then echo "$v $wt"
   elif [ -n "$gd" ] && [ -f "$gd/gitdir" ]; then echo "$v $(dirname "$(cat "$gd/gitdir")")"
@@ -310,7 +311,7 @@ case "$tool" in
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
     # one parse for every consumer; an ambiguous one sends push and commit through fallback_targets
     _treset; S_AMB=0; tokenize "$cmd"
-    if [ "$S_AMB" = 0 ]; then tg=$(git_targets "push commit"); else tg=$(fallback_targets "push commit" "$cmd"); fi
+    tg=$(pick_targets "push commit" "$cmd")
     while IFS= read -r t; do
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
