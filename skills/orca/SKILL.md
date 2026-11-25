@@ -24,7 +24,7 @@ A background command, a subagent, or a peer's `orca-lc notify` wakes the session
 - Your own background command or subagent: end the turn. Its completion wakes you, inside a subagent too.
 - A peer: end the turn; its `orca-lc notify` wakes you. To block until it changes state: `herdr agent wait <peer> --until idle --timeout <ms>`.
 - CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
-- `orca-lc gate`: run it in the foreground with `timeout: 600000`, the Bash tool's ceiling unless `BASH_MAX_TIMEOUT_MS` raises it. It blocks until the gate ends, which commonly takes longer than the default 120 s.
+- `orca-lc gate`: run it in the foreground with `timeout: 600000`, the Bash tool's ceiling unless `BASH_MAX_TIMEOUT_MS` raises it. It blocks until the gate ends, which commonly takes longer than the default 120 s. A gate pane waits up to 20 minutes, so a gate past the timeout ends the Bash call first; the gate keeps running in its pane, and once the pane shows `ORCA_GATE_PASS`, `orca-lc gate-fresh` exits 0.
 
 A hook blocks `sleep` in the first three cases. Every other `sleep` passes.
 
