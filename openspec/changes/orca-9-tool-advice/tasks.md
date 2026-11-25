@@ -4,7 +4,7 @@
 - [x] 1.2 Add `tool_seg` per design.md "Segment analysis": per-command option values, read/search (Grep/Glob)/write/append/edit kinds, `piped` rule, `tee` pipeline-head rule, write over read within a segment.
 - [x] 1.3 After the code-graph advice, when `toolAdvice` is not `false`, run the segments; on the first hit apply the once-per-session marker with the validated `session_id` (design.md "Once per session") and `advise` with the kind's message.
 - [x] 1.4 Update the header comment of the Bash branch to name the tool advice.
-- [x] 1.5 Fail closed per design.md "Fail closed": an ambiguous parse sends push and commit detection through the unskipped fallback parses, one pass shared by both verbs (PR #144 review rounds 2 and 3).
+- [x] 1.5 Fail closed per design.md "Fail closed": an ambiguous parse sends push and commit detection through the unskipped fallback parses, one pass shared by both verbs (PR #144 review rounds 2 to 4).
 
 ## 2. Docs
 
