@@ -61,21 +61,21 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # backticks, arithmetic and [[ ]], comments out the rest of its line. $'..' and $".." drop the $, as bash
 # does ($'..' follows \' and \\). < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic,
 # plain ( ) in them counted in pd; ${ } depth is bc, $( ) depth sd, bt is 1 in backticks, dk 1 from any unquoted [[ word to ]],
-# kp the ( ) depth inside it, sb the open [ depth inside the current word (a[i] subscripts); dq, dqb, dqn
+# kp the ( ) depth inside it, sb the open [ depth inside the current word (a[i] subscripts); dqs, dqb, dqn
 # track $( ), ${ } and backticks inside ".." (_tdq).
 # S_AMB (the caller's) is set to 1 when the parse is ambiguous, for anything this does not model exactly:
 # a quote, ${ }, $( ), backtick or arithmetic left open; a heredoc with no exact terminator; a << read while
 # a ${ }, $( ) or backtick is open; any other # that starts a word (after ), (, a redirect, an fd word,
 # or inside ${ }, $( ), backticks, arithmetic, [[ ]]); < or > inside [[ ]] or an open [ of a word; another
 # escape in $'..'; a ]] inside a ( ) group of [[ ]]; inside a $( ), ${ } or backtick of "..", a ", ', \,
-# word-start #, case, or a ) or } closing more than it opened (_tdq); or a } closing ${ } while a $( ) or
+# word-start #, case, or a ) or } that does not match the innermost open ( or { (_tdq); or a } closing ${ } while a $( ) or
 # backtick is open. Push and commit detection then use unskipped parses (pick_targets). TK_MODE lit, cmt or
 # raw gives those: no heredoc body skipped, < and > always redirects, and # never (lit, raw) or always (cmt)
 # a comment when it starts a word; raw also reads ' and " as plain characters, so a quote misread cannot
 # swallow a push.
 tokenize() {
   # LC_ALL=C: ${s:i:1} is O(1) per byte instead of O(i) per character; only ASCII bytes are syntax
-  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 kp=0 sb=0 dq=0 dqb=0 dqn=0 dqh=() m=${TK_MODE:-}
+  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 kp=0 sb=0 dqs='' dqb=0 dqn=0 dqh=() m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
@@ -86,7 +86,7 @@ tokenize() {
       else tok+=$c; fi
     elif [ "$q" = '"' ]; then case "$c" in '"'|'\'|'$'|'('|'{'|')'|'}'|'`'|"'"|'#'|'<'|$'\n'|c) _tdq;; *) tok+=$c;; esac
     else case "$c" in
-      "'"|'"') if [ "$m" = raw ]; then tok+=$c; continue; fi; q=$c; has=1; dq=0; dqb=0; dqn=0; dqh=()
+      "'"|'"') if [ "$m" = raw ]; then tok+=$c; continue; fi; q=$c; has=1; dqs=''; dqb=0; dqn=0; dqh=()
         if [ "${tok: -1}" = '$' ] && _tansi; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
@@ -136,21 +136,23 @@ _tw() {
       w+=("$tok"); fi
   fi; tok=""; has=0; sb=0
 }
-# _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (depth dq, dqb 1 in a
-# backtick, dqn once any opened) is a shell of its own that this does not parse, except for heredocs. In one,
-# a ", ', \, a word-start #, the word case, or a ) or } closing more than was opened sets S_AMB: each could
+# _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (dqs the stack of open
+# ( and {, dqb 1 in a backtick, dqn once any opened) is a shell of its own that this does not parse, except
+# for heredocs. In one, a ", ', \, a word-start #, the word case, or a ) or } that does not match the
+# innermost open ( or { (or closes more than was opened) sets S_AMB: each could
 # end it, or the outer string, where bash would not. A << there is a heredoc (_tdqh); its body, from the
 # next line to the line equal to its WORD, is kept raw in the word (_tdqb), as bash reads it.
 _tdq() {
-  local z=$((dq+dqb))
+  local z=$((${#dqs}+dqb))
   if [ "$c" = '"' ]; then [ "$z" -gt 0 ] && S_AMB=1; q=""
   elif [ "$c" = '\' ]; then [ "$z" -gt 0 ] && S_AMB=1
     if [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
   else tok+=$c
     case "$c" in
-      '$') [[ "${s:i+1:1}" == [\({] ]] && { dq=$((dq+1)); dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
-      '('|'{') [ "$dq" -gt 0 ] && dq=$((dq+1));;
-      ')'|'}') if [ "$dq" -gt 0 ]; then dq=$((dq-1)); elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
+      '$') [[ "${s:i+1:1}" == [\({] ]] && { dqs+=${s:i+1:1}; dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
+      '('|'{') [ -n "$dqs" ] && dqs+=$c;;
+      ')'|'}') if [ -n "$dqs" ]; then case "${dqs: -1}$c" in '()'|'{}') ;; *) S_AMB=1;; esac; dqs=${dqs%?}
+        elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
       '`') dqb=$((1-dqb)); dqn=1;;
       "'") [ "$z" -gt 0 ] && S_AMB=1;;
       '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] && S_AMB=1;;
