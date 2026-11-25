@@ -13,6 +13,8 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 `orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
 
+Run `orca-lc gate` in the foreground, never in the background, and never sleep or poll on it. Give the Bash call a timeout above 20 minutes, the longest `orca-lc gate` waits on its pane. When the Bash tool caps the timeout at 20 minutes or less (`BASH_MAX_TIMEOUT_MS`, 10 minutes by default), do not run the gate: stop with `BLOCKED: raise BASH_MAX_TIMEOUT_MS above 20 minutes`.
+
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
 Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
