@@ -2,8 +2,7 @@
 r=$(new_repo); mkdir "$r/sub"
 # run <command> [session_id] [cwd] -> "<exit> <additionalContext>"; a fresh session_id unless one is given
 run() { local o s=${2-fresh$RANDOM$RANDOM$RANDOM}
-  o=$(jq -n --arg c "${3:-$r}" --arg x "$1" --arg s "$s" '{tool_name:"Bash", cwd:$c, tool_input:{command:$x}} + (if $s == "" then {} else {session_id:$s} end)' \
-    | bash "$ORCA_SRC/hooks/pretool.sh" 2>/dev/null); echo "$? $(jq -r '.hookSpecificOutput.additionalContext // ""' <<<"$o" 2>/dev/null)"; }
+  o=$(hook_json Bash "${3:-$r}" "$1" "$s" | bash "$ORCA_SRC/hooks/pretool.sh" 2>/dev/null); echo "$? $(jq -r '.hookSpecificOutput.additionalContext // ""' <<<"$o" 2>/dev/null)"; }
 fires() { local o; o=$(run "$1"); assert_contains "$o" "$2" "'$1' should name $2, got: $o"; assert_eq "${o%% *}" 0 "'$1' exit"; }
 quiet() { local o; o=$(run "$1"); assert_eq "$o" "0 " "'$1' should be quiet, got: $o"; }
 
