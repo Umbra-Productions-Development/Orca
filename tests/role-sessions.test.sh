@@ -47,7 +47,10 @@ check() { # check <description> <condition>
   eval "$2" || fail "$1: $(cat "$H/out")"
 }
 agents() { jq -r '[.[].name] | sort | join(" ")' "$H/agents"; }
-set_status() { jq -c --arg n "$1" --arg s "$2" 'map(if .name==$n then .agent_status=$s else . end)' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"; }
+edit() { local f="$1"; shift; jq -c "$@" "$H/$f" >"$H/a" && mv "$H/a" "$H/$f"; }   # edit <agents|tabs> <jq args>
+set_status() { edit agents --arg n "$1" --arg s "$2" 'map(if .name==$n then .agent_status=$s else . end)'; }
+add_agent() { edit agents --arg n "$1" --arg t "$2" --arg p "${3:-}" '. + [{name:$n, agent_status:"idle", tab_id:$t} + (if $p == "" then {} else {pane_id:$p} end)]'; }   # <name> <tab> [pane]
+add_tab() { edit tabs --arg t "$1" --arg l "$2" '. + [{tab_id:$t, label:$l}]'; }   # <tab> <label>
 
 run role start ABC-1 review
 check 'first start opens a session' '[ "$(agents)" = abc1-review ] && grep -q "start abc1-review" "$H/log"'
@@ -106,15 +109,13 @@ check 'retire --wait stops when the session turns blocked' 'grep -q "abc1-propos
 rm -f "$H/goes-blocked"; set_status abc1-propose idle
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
-jq -c '. + [{name:"abc1-mine", agent_status:"idle", tab_id:"tuser"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
-jq -c '. + [{tab_id:"tuser", label:"scratch"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
+add_agent abc1-mine tuser; add_tab tuser scratch
 run role retire ABC-1 mine
 check 'retire never exits a session in a tab role start did not open' 'jq -e "any(.name==\"abc1-mine\")" "$H/agents" >/dev/null && grep -q "not opened by role start" "$H/out"'
-jq -c '. + [{name:"abc1-stuck", agent_status:"idle", tab_id:"tstuck"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
-jq -c '. + [{tab_id:"tstuck", label:"stuck"}]' "$H/tabs" >"$H/a" && mv "$H/a" "$H/tabs"
+add_agent abc1-stuck tstuck; add_tab tstuck stuck
 run role retire ABC-1 stuck
 check 'retire fails when the session does not exit' '! grep -q "^retired" "$H/out" && grep -q "abc1-stuck did not exit" "$H/out"'
-jq -c 'map(select(.name!="abc1-stuck"))' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+edit agents 'map(select(.name!="abc1-stuck"))'
 run role start ABC-1 code-review
 check 'code-review folds into review' 'grep -q "^handoff .*/review-" "$H/out"'
 clears=$(grep -c /clear "$H/log"); run role start ABC-1 review --replace abc1-mine
@@ -130,7 +131,7 @@ check '--replace refuses a tab role start did not open before writing the handof
 set_status abc1-propose done; run role start ABC-1 propose
 check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
 run role retire ABC-1 review
-jq -c '. + [{name:"abc1-review2", agent_status:"idle", pane_id:"p1", tab_id:"tp1"}]' "$H/agents" >"$H/a" && mv "$H/a" "$H/agents"
+add_agent abc1-review2 tp1 p1
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start never types into a kept tab another agent still runs in' '[ "$(jq length "$H/tabs")" = $((tabs+1)) ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" != p1 ]'
 run role start ABC-1 tour
