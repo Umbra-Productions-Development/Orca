@@ -9,6 +9,9 @@
 - `ok` becomes `ok() { [ "$1" = 0 ] || fail "$2"; }` (the `tests/leak-check.test.sh` pattern); the `fail=0` variable and the final `exit $fail` go. Call sites stay as they are, which keeps the diff to the header and the helpers.
 - The "skip link cases" line becomes `echo "  SKIP: ln -s copies here (no native symlinks); link cases skipped"`, matching `tests/worktree.test.sh`.
 - The header comment's `Run: tests/install-keep.sh` becomes `Run: tests/run.sh tests/install-keep.test.sh`.
+- `set -uo pipefail` goes: no other `tests/*.test.sh` sets shell options, and the file is sourced into `run.sh`'s shell after `lib.sh`.
+- The shebang goes and the mode becomes 100644, like every other `tests/*.test.sh`: the file is sourced, never executed.
+- A guard at the top stops the file unless `lib.sh` has sandboxed it: it exits 1 unless `ORCA_TEST_TMP` is set and `HOME` is `$ORCA_TEST_TMP/home`. Run directly, `src` would be empty and `HOME`/`$sk` the real `~/.claude`, so the `rm`/`ln` steps would delete and relink the real skills and agents; a stray `ORCA_TEST_TMP` export alone does not pass it.
 
 What stays: `install.sh` runs only from `$ORCA_SRC` or from the scratch clone in `$TMPDIR/repo`, always with a temp `HOME`, so it never relinks the real install. The stale fixture `git show 6468a79:skills/orca/SKILL.md` and `install.sh`'s own `shipped()` (`git log --all`) need the checkout's full history. That holds for the gate, which runs in a local checkout; a shallow clone would fail the "stale copy refreshed" check.
 
@@ -22,6 +25,8 @@ Native Linux only. Before conversion, the script passed 20/20 there in about 1.7
 - `unset CLAUDE_CONFIG_DIR` stays in the test file, not `lib.sh` — user (recommended, accepted).
 - Output is only `FAIL:` lines like the rest of the suite, plus one `SKIP:` line where `ln -s` copies — user (recommended, accepted).
 - No spec delta — user (recommended, accepted).
+- `set -uo pipefail` dropped in the conversion — proposal review, suggestion 1.
+- The file refuses to run outside `tests/run.sh` (no shebang, mode 644, guard at the top) — code review, should-fix 1; the guard checks `HOME` is `lib.sh`'s sandbox, not only that `ORCA_TEST_TMP` is set — code review, security-review suggestion (orchestrator took it).
 - #61 and #85 are separate changes in separate PRs, using the same approach; they share no file, `tests/run.sh` included — user.
 
 ## Overlap with #85
