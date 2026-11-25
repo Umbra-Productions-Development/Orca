@@ -14,6 +14,8 @@ assert_contains "$out" ORCA_GATE_FAIL
 # A gate killed outright still returns at once, non-zero.
 r=$(cfgr 'kill -9 $$'); s=$SECONDS; out=$(gate "$r"); rc=$?
 [ "$rc" != 0 ] || fail "killed gate returned 0"; assert_contains "$out" ORCA_GATE_FAIL
+# No bash job-status line ("Killed ... timeout ...") lands in the output, reading as if the timeout did it.
+assert_not_contains "$out" Killed
 [ $((SECONDS - s)) -lt 5 ] || fail "killed gate took $((SECONDS - s))s"
 
 # A hung gate is cut at gateTimeoutMin (fractional minutes allowed).
