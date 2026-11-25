@@ -665,16 +665,23 @@ owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 # Prefix or -suffix only, so preview and reapply stay extra sessions.
 canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) echo propose;; apply*|*-apply) echo apply;; *) echo "$1";; esac; }
 ticket_slug() { tkey "${1//-/}"; }
-ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
+# herdr keeps an entry with agent null for about half a second after its process ends; that entry is not a live session.
+ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | select((has("agent") and .agent == null) | not)
+  | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
+agent_gone() { ! jq -e --arg n "$1" 'any(.[]; .name==$n)' <<<"$(ticket_agents "${1%%-*}")" >/dev/null; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
-exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab (label = the name's role part)
-  local name tab; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
-  [ "$(herdr tab get "$tab" 2>/dev/null | jq -r '.result.tab.label // empty')" = "${name#*-}" ] || die "tab $tab of $name was not opened by role start; exit it yourself"
+# <agent json>: true when role start opened the agent's tab (its label is the name's role part)
+role_tab_owned() { [ "$(herdr tab get "$(jq -r .tab <<<"$1")" 2>/dev/null | jq -r '.result.tab.label // empty')" = "$(jq -r '.name | sub("^[^-]*-"; "")' <<<"$1")" ]; }
+exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab
+  local name tab i; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
+  role_tab_owned "$1" || die "tab $tab of $name was not opened by role start; exit it yourself"
   # /exit and Enter typed into a permission or trust prompt can pick its highlighted option, so a blocked session is left to the user.
   [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '${name#*-}', then rerun"
   herdr agent prompt "$name" "/exit" >/dev/null 2>&1
+  # herdr's wait ends with agent_not_running once claude has gone, and the list can still carry the name for a moment, so poll.
   herdr agent wait "$name" --until unknown --timeout 10000 >/dev/null 2>&1
-  ! herdr agent list 2>/dev/null | jq -e --arg n "$name" 'any(.result.agents[]; (.agent_name // .name)==$n)' >/dev/null || die "$name did not exit after /exit; close it in tab '${name#*-}'"
+  for i in 1 2 3 4 5 6 7 8 9 10; do agent_gone "$name" && return 0; sleep 0.5; done
+  die "$name did not exit after /exit; close it in tab '${name#*-}'"
 }
 # <workspace> <label>: first pane of a tab role start opened with that label (kept after retire), empty when none.
 # A pane another agent still runs in (a deduped <ticket>-<role>2, one started by hand) is skipped, so no start is typed into it.
@@ -724,7 +731,8 @@ cmd_role() {
         local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
           other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
           [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
-          [ -n "$other" ] && [ "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status' <<<"$all")" = blocked ] && die "$replace is blocked at a prompt; answer it in tab '${replace#*-}', then rerun";;
+          [ -n "$other" ] && [ "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status' <<<"$all")" = blocked ] && die "$replace is blocked at a prompt; answer it in tab '${replace#*-}', then rerun"
+          [ -z "$other" ] || role_tab_owned "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")" || die "the tab of $replace was not opened by role start; exit it yourself";;
         esac
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
