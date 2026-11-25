@@ -282,23 +282,38 @@ cmd_leak_check() {
 
 # fetch_origin_branch [-C dir] <branch> -> fetches origin's <branch> into origin/<branch>, quietly, never
 # prompting. The explicit refspec updates origin/<branch> even when origin's fetch refspec leaves it out.
-# GIT_TERMINAL_PROMPT=0 stops https prompts; ssh asks on /dev/tty, so the ssh command the user would get
-# (GIT_SSH_COMMAND, else core.sshCommand, else ssh) runs with BatchMode=yes. A GIT_SSH program alone is
-# left as is: it may not take ssh's -o.
+# GIT_TERMINAL_PROMPT=0 stops https prompts. ssh asks on /dev/tty, so the ssh command git would run
+# (GIT_SSH_COMMAND, else core.sshCommand, else ssh) gets -o BatchMode=yes when it takes ssh's options:
+# not for a plink, putty or simple variant, nor for a GIT_SSH program alone.
 fetch_origin_branch() {
-  local b="${!#}" ssh; local -a g=("${@:1:$#-1}") e=(GIT_TERMINAL_PROMPT=0)
-  ssh=${GIT_SSH_COMMAND:-$(git "${g[@]}" config --get core.sshCommand)}
-  [ -z "$ssh" ] && [ -n "${GIT_SSH:-}" ] || e+=("GIT_SSH_COMMAND=${ssh:-ssh} -o BatchMode=yes")
-  env "${e[@]}" git "${g[@]}" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1
+  local -a g=(git) e=(GIT_TERMINAL_PROMPT=0); local ssh v
+  if [ "$1" = -C ]; then g+=(-C "$2"); shift 2; fi
+  ssh=${GIT_SSH_COMMAND:-$("${g[@]}" config --get core.sshCommand)}
+  if [ -n "$ssh" ] || [ -z "${GIT_SSH:-}" ]; then
+    ssh=${ssh:-ssh}; v=${GIT_SSH_VARIANT:-$("${g[@]}" config --get ssh.variant)}
+    case $(ssh_variant "$ssh" "$v") in
+      plink|plink.exe|putty|tortoiseplink|tortoiseplink.exe|simple) ;;
+      *) e+=("GIT_SSH_COMMAND=$ssh -o BatchMode=yes") ;;
+    esac
+  fi
+  env "${e[@]}" "${g[@]}" fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1" >/dev/null 2>&1
+}
+# ssh_variant <ssh command> [ssh.variant] -> the variant git uses: the setting unless auto, else the
+# program's lowercased name (a quoted first word may hold spaces).
+ssh_variant() {
+  local p=$1
+  [ -n "${2:-}" ] && [ "$2" != auto ] && { echo "$2"; return; }
+  case $p in \"*) p=${p#\"}; p=${p%%\"*} ;; \'*) p=${p#\'}; p=${p%%\'*} ;; *) p=${p%% *} ;; esac
+  p=${p##*/}; p=${p##*\\}; echo "$p" | tr '[:upper:]' '[:lower:]'
 }
 # pick_base -> sets the caller's base, base_label and base_branch (baseBranch): origin/<baseBranch> after
-# fetching it, else the local branch, else HEAD~1.
+# fetching it, else the local branch, else HEAD~1, labelled "no base" and returning 1.
 pick_base() {
   local fetch="fetch failed"; base_branch=$(cfg '.baseBranch' main)
   fetch_origin_branch "$base_branch" && fetch=fetched
   if git rev-parse -q --verify "refs/remotes/origin/$base_branch" >/dev/null; then base="origin/$base_branch" base_label=$fetch
   elif git rev-parse -q --verify "$base_branch^{commit}" >/dev/null; then base=$base_branch base_label="local; fetch failed"
-  else base=HEAD~1 base_label="no base"; fi
+  else base=HEAD~1 base_label="no base"; return 1; fi
 }
 has() { command -v "$1" >/dev/null; }
 ensure_graphs() { # codegraph and codebase-memory indexes for this checkout, when those tools are installed
@@ -520,8 +535,8 @@ cmd_worktree() {
             echo "WARNING: upstream not set; git push -u origin $branch"
         else
           # Cut from the fetched remote base: the main checkout's own branch may be stale or somebody else's.
-          local base base_label base_branch; pick_base
-          [ "$base_label" != "no base" ] || die "no base: neither origin/$base_branch nor $base_branch exists; nothing created"
+          local base base_label base_branch
+          pick_base || die "no base: neither origin/$base_branch nor $base_branch exists; nothing created"
           if inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
           else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
           echo "base $base ($base_label)"
