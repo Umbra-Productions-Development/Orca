@@ -51,18 +51,25 @@ absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/$
 
 # The sleep rule. Each helper takes the command flattened to one line.
 SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9]'
-# unquote <text>: the text without quoted strings, so a commit message naming a sleep or a check is not one.
-# Double quotes go first: an apostrophe inside them ("the server's log") would otherwise pair with the next single quote.
-unquote() { sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g" <<<"$1"; }
+# mask <text>: the text with each quoted string, quotes included, replaced by as many x's, so a commit message
+# naming a sleep or a check is not one, and an offset in the mask is the same offset in the text. Inside one kind
+# of quote the other kind is plain text ("the server's log").
+mask() { local s=$1 o="" pre q body pad
+  while pre=${s%%[\"\']*}; [ "$pre" != "$s" ]; do
+    q=${s:${#pre}:1}; s=${s:${#pre}+1}
+    if [[ $s == *"$q"* ]]; then body=$q${s%%"$q"*}$q; s=${s#*"$q"}; else body=$q$s; s=""; fi
+    printf -v pad '%*s' "${#body}" ''; o+=$pre${pad// /x}
+  done
+  printf '%s\n' "$o$s"; }
 # after_done <text>: what follows the last 'done', or the whole text when there is none.
 after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
-# from_sleep <text>: from the first sleep to the end; or, when that sleep sits in a loop still open before it,
-# from the loop keyword, since the loop's check runs again after the sleep. The nearest loop keyword wins, so a
-# sleep in an outer loop after a closed inner one reads from the sleep.
-from_sleep() { local pre l; [[ $1 =~ $SLEEP ]] || return 0; pre=${1%%"${BASH_REMATCH[0]}"*}
+# from_sleep <text> <mask>: the text from its first unquoted sleep to the end; or, when that sleep sits in a loop
+# still open before it, from the loop keyword, since the loop's check runs again after the sleep. The nearest loop
+# keyword wins, so a sleep in an outer loop after a closed inner one reads from the sleep.
+from_sleep() { local pre l; [[ $2 =~ $SLEEP ]] || return 0; pre=${2%%"${BASH_REMATCH[0]}"*}
   l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
   [ "$(after_done "$l")" = "$l" ] || l=""
-  printf '%s%s\n' "$l" "${1#"$pre"}"; }
+  printf '%s\n' "${1:$(( ${#pre} - ${#l} ))}"; }
 # readiness_exempt <file> <flat>: a loop whose until/while condition greps the file (a server's readiness line)
 # waits on output, not on completion, since a server never completes. Not when a sleep after the last 'done'
 # reads the file again. Both read the command as written, so a quoted path counts.
@@ -72,11 +79,11 @@ readiness_exempt() { grep -oE '(^|[;&|(][[:space:]]*)(until|while)[[:space:]]+[^
 bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
 # sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
-# (a path may be quoted); peer and CI checks read it unquoted.
-sleep_rule() { local flat nq raw after f wake="End the turn instead: its completion wakes this session, inside a subagent too"
-  flat=$(tr '\n' ' ' <<<"$1"); nq=$(unquote "$flat")
-  grep -qE "$SLEEP" <<<"$nq" || return 0
-  raw=$(from_sleep "$flat"); after=$(from_sleep "$nq")
+# (a path may be quoted); peer and CI checks read it masked.
+sleep_rule() { local flat masked raw after f wake="End the turn instead: its completion wakes this session, inside a subagent too"
+  flat=$(tr '\n' ' ' <<<"$1"); masked=$(mask "$flat")
+  grep -qE "$SLEEP" <<<"$masked" || return 0
+  raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
   grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
   while IFS= read -r f; do
     [ -n "$f" ] && ! readiness_exempt "$f" "$flat" && bg_writes "$f" "$2" \
