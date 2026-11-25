@@ -171,13 +171,17 @@ git_targets() {
   for ((k=0; k<${#S_W[@]}; k++)); do _split "${S_W[k]}"; git_seg; done
 }
 # safe_targets <verb> <command> [dir]: git_targets over <command>'s own segment list. When the parse is
-# ambiguous (S_AMB), the targets of both unskipped parses instead, so a misparse can hide no push or
+# ambiguous (S_AMB), the targets of both unskipped parses instead, of the whole command and of each line
+# alone (a quote left open by a body line cannot swallow the next), so a misparse can hide no push or
 # commit from the gate. A well-formed heredoc body stays skipped. Inside a fallback, TK_MODE carries down.
 safe_targets() {
-  local S_W=() S_P=() S_R=() S_H=() S_HEAD=() S_AMB=0
+  local S_W=() S_P=() S_R=() S_H=() S_HEAD=() S_AMB=0 ln
   tokenize "$2"
   if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; return; fi
-  for TK_MODE in lit cmt; do S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done | awk '!x[$0]++'
+  for TK_MODE in lit cmt; do
+    S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$2"; git_targets "$1" "${3:-$cwd}"
+    while IFS= read -r ln; do S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$ln"; git_targets "$1" "${3:-$cwd}"; done <<<"$2"
+  done | awk '!x[$0]++'
 }
 # One segment of git_targets: reads and moves the caller's $dir, prints a target when it is git <verb>.
 git_seg() {
