@@ -63,11 +63,11 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # word (_tarith). It feeds the tool advice and, beside main_targets, the push and commit checks. A
 # misread here can hide only what main_targets still reads, except where main's own quote reading drifts
 # from bash; for those, S_AMB (the caller's) is set to 1 on a heredoc with no exact terminator or a quote
-# the parse may have misread (_tdq, _tdqh, _tdqb): one left open, another escape in $'..', or inside a $( ),
-# ${ } or backtick of "..", a ", ' (but not a plain '..' read by _tdqsq, unless a ; & | or newline is in the
-# same substitution), \, a # not after a word character, case, a ) or } that does not match the innermost
-# open (, { or backtick, a heredoc WORD that is not plain text, or a heredoc body there with no terminator.
-# new_targets then adds raw_targets.
+# the parse may have misread (_tdq, _tdqh, _tdqb): one left open, another escape in $'..', or, inside a $( ),
+# ${ } or backtick of "..", a " or ', \, a # not after a word character, case, a ) or } that does not match
+# the innermost open (, { or backtick, a heredoc WORD that is not plain text, or a heredoc body there with no
+# terminator. A plain '..' there (_tdqsq) sets it only when a ; & | or newline is also in the open
+# substitutions. new_targets then adds raw_targets.
 tokenize() {
   # LC_ALL=C first, alone: ${s:i:1} is O(1) per byte instead of O(i) per character, and n counts bytes
   local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() dqx=0 dqp=0 tas=0 raw=${TK_RAW:-}
@@ -148,8 +148,8 @@ _tdqsq() {
 }
 # dqx: a '..' was read by _tdqsq in the open substitutions; dqp: a ; & | or newline is in them. Both at
 # once, in either order, set S_AMB: the separator may start a command this reader does not parse, which
-# the raw reading finds. A command first in the substitution, or in one nested in it, is not read, as on
-# origin/main. Both reset when the last open substitution closes (_tdqpop).
+# the raw reading finds. A command first in the substitution, or in one nested in it, is not read, here or
+# by main_targets. Both reset when the last open substitution closes (_tdqpop).
 _tdqsep() { dqp=1; [ "$dqx" = 0 ] || S_AMB=1; }
 _tdqpop() { dqs=${dqs%?}; [ -n "$dqs" ] || { dqx=0; dqp=0; }; }
 # _tdqh: the << at $i inside a substitution of "..": queue its WORD (<<- marked by a leading 1). <<< is a
@@ -182,7 +182,9 @@ _tdqb() {
 # _tarith: at the $ of an unquoted $(( at $i, take the expansion to its matching )) into the word, so a <<
 # in it is a shift, not a heredoc; one holding a quote, \, backtick or newline, or left open, is left to the
 # main loop. A failed scan records where it stopped (tas) and no $(( before that is scanned again, so the
-# scans stay linear in the command (review round 8: 1000 unmatched $(( took 24 s).
+# scans stay linear in the command. A valid $(( )) nested in a failed one is then read character by
+# character too: its << can read later lines as a heredoc body, hiding them from this reading, not from
+# main_targets.
 _tarith() {
   local j=$((i+3)) d=2
   [ "$j" -ge "$tas" ] || return 0
