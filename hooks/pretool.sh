@@ -61,26 +61,31 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # backticks, arithmetic and [[ ]], comments out the rest of its line. $'..' and $".." drop the $, as bash
 # does ($'..' follows \' and \\). < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic,
 # plain ( ) in them counted in pd; ${ } depth is bc, $( ) depth sd, bt is 1 in backticks, dk 1 from any unquoted [[ word to ]],
-# sb the open [ depth inside the current word (a[i] subscripts).
+# kp the ( ) depth inside it, sb the open [ depth inside the current word (a[i] subscripts); dq, dqb, dqn
+# track $( ), ${ } and backticks inside ".." (_tdq).
 # S_AMB (the caller's) is set to 1 when the parse is ambiguous, for anything this does not model exactly:
 # a quote, ${ }, $( ), backtick or arithmetic left open; a heredoc with no exact terminator; a << read while
 # a ${ }, $( ) or backtick is open; any other # that starts a word (after ), (, a redirect, an fd word,
 # or inside ${ }, $( ), backticks, arithmetic, [[ ]]); < or > inside [[ ]] or an open [ of a word; another
-# escape in $'..'; or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
+# escape in $'..'; a ]] inside a ( ) group of [[ ]]; a " inside a $( ), ${ } or backtick of "..", or a ) or }
+# there closing more than it opened; or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
 # unskipped parses (safe_targets). TK_MODE lit or cmt gives those: no heredoc body skipped, < and > always
 # redirects, and # never (lit) or always (cmt) a comment when it starts a word.
 tokenize() {
   # LC_ALL=C: ${s:i:1} is O(1) per byte instead of O(i) per character; only ASCII bytes are syntax
-  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 sb=0 m=${TK_MODE:-}
+  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 kp=0 sb=0 dq=0 dqb=0 dqn=0 m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
-      if [ "$c" = "'" ]; then q=""; elif [ "$c" = '\' ]; then [[ "${s:i+1:1}" == [\'\\] ]] || { S_AMB=1; tok+=$c; }; tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
-    elif [ "$q" = '"' ]; then
-      if [ "$c" = '"' ]; then q=""; elif [ "$c" = '\' ] && [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
+      if [ "$c" = "'" ]; then q=""
+      elif [ "$c" = '\' ]; then
+        [[ "${s:i+1:1}" == [\'\\] ]] || { S_AMB=1; tok+=$c; }
+        tok+=${s:i+1:1}; i=$((i+1))
+      else tok+=$c; fi
+    elif [ "$q" = '"' ]; then _tdq
     else case "$c" in
-      "'"|'"') q=$c; has=1
-        if [ "${tok: -1}" = '$' ] && [ "${s:i-1:1}" = '$' ] && [[ "${s:0:i}" != *'\$' ]]; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
+      "'"|'"') q=$c; has=1; dq=0; dqb=0; dqn=0
+        if [ "${tok: -1}" = '$' ] && _tansi; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
       '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c
@@ -98,11 +103,13 @@ tokenize() {
       '|') _tw; _ts; if [ "${s:i+1:1}" = '|' ]; then i=$((i+1)); np=0; else np=1; [ "${s:i+1:1}" = '&' ] && i=$((i+1)); fi;;
       '(') if [ "${s:i+1:1}" = '(' ]; then ad=$((ad+1)); i=$((i+1))
         elif [ $((ad+bd)) -gt 0 ]; then pd=$((pd+1))
-        elif [ "$sd" -gt 0 ] || { [ "$i" -gt 0 ] && [ "${s:i-1:1}" = '$' ]; }; then sd=$((sd+1)); fi
+        elif [ "$sd" -gt 0 ] || { [ "$i" -gt 0 ] && [ "${s:i-1:1}" = '$' ]; }; then sd=$((sd+1))
+        elif [ "$dk" -gt 0 ]; then kp=$((kp+1)); fi
         _tw; _ts; np=0;;
       ')') if [ "$pd" -gt 0 ]; then pd=$((pd-1))
         elif [ "$ad" -gt 0 ] && [ "${s:i+1:1}" = ')' ]; then ad=$((ad-1)); i=$((i+1))
-        elif [ "$sd" -gt 0 ]; then sd=$((sd-1)); fi
+        elif [ "$sd" -gt 0 ]; then sd=$((sd-1))
+        elif [ "$kp" -gt 0 ]; then kp=$((kp-1)); fi
         _tw; _ts; np=0;;
       ';') _tw; _ts; np=0;;
       $'\n') _tw; _ts; np=0; [ ${#hds[@]} -gt 0 ] && { if [ -z "$m" ]; then _tb; else hds=(); fi; };;
@@ -118,12 +125,37 @@ tokenize() {
 _tw() {
   if [ "$has$tok" != 0 ]; then
     if [ -n "$rop" ]; then r+=("$rop$GS$tok")
-      # any word after << is a heredoc delimiter, as in bash (-EOF, 1, $x); shifts in (( )) and $[ ] never get here
-      case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1; [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1;; esac; rop=""
+      # any word after << is a heredoc delimiter, as in bash (-EOF, 1, $x); shifts in (( )) and $[ ] never get
+      # here, and _tr already set S_AMB for a << read inside ${ }, $( ) or a backtick
+      case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1;; esac; rop=""
     else
-      if [ "$has" = 0 ]; then case "$tok" in '[[') dk=1;; ']]') dk=0;; esac; fi   # any [[ word: if, !, time, { may come first
+      # any [[ word opens dk (if, !, time, { may come first); a ]] inside a ( ) group of it is literal in bash
+      if [ "$has" = 0 ]; then case "$tok" in '[[') dk=1; kp=0;; ']]') if [ "$kp" -gt 0 ]; then S_AMB=1; else dk=0; fi;; esac; fi
       w+=("$tok"); fi
   fi; tok=""; has=0; sb=0
+}
+# _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (depth dq, dqb 1 in a
+# backtick, dqn once any opened) may hold quotes of its own, so a " met inside one, or a ) or } that closes
+# more than was opened, sets S_AMB instead of being followed.
+_tdq() {
+  if [ "$c" = '"' ]; then [ $((dq+dqb)) -gt 0 ] && S_AMB=1; q=""
+  elif [ "$c" = '\' ] && [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1))
+  else tok+=$c
+    case "$c" in
+      '$') [[ "${s:i+1:1}" == [\({] ]] && { dq=$((dq+1)); dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
+      '('|'{') [ "$dq" -gt 0 ] && dq=$((dq+1));;
+      ')'|'}') if [ "$dq" -gt 0 ]; then dq=$((dq-1)); elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
+      '`') dqb=$((1-dqb)); dqn=1;;
+    esac
+  fi
+}
+# _tansi: true when the quote at $i follows a $ that bash reads as $'..' or $"..": an odd run of unescaped $
+# (an even run is $$ pairs, the PID). An odd run of \ before the $ run escapes its first $.
+_tansi() {
+  local k=$((i-1)) d=0 b=0
+  while [ "$k" -ge 0 ] && [ "${s:k:1}" = '$' ]; do d=$((d+1)); k=$((k-1)); done
+  while [ "$k" -ge 0 ] && [ "${s:k:1}" = '\' ]; do b=$((b+1)); k=$((k-1)); done
+  [ $(( (d - b % 2) % 2 )) = 1 ]
 }
 _ts() {
   rop=""
