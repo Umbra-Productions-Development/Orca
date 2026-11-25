@@ -69,7 +69,7 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # is not plain text, or a heredoc body there with no terminator. new_targets then adds raw_targets.
 tokenize() {
   # LC_ALL=C first, alone: ${s:i:1} is O(1) per byte instead of O(i) per character, and n counts bytes
-  local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() raw=${TK_RAW:-}
+  local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() dqx=0 dqp=0 raw=${TK_RAW:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
@@ -78,9 +78,9 @@ tokenize() {
         [[ "${s:i+1:1}" == [\'\\] ]] || { S_AMB=1; tok+=$c; }
         tok+=${s:i+1:1}; i=$((i+1))
       else tok+=$c; fi
-    elif [ "$q" = '"' ]; then case "$c" in '"'|'\'|'$'|'('|'{'|')'|'}'|'`'|"'"|'#'|'<'|$'\n'|c) _tdq;; *) tok+=$c;; esac
+    elif [ "$q" = '"' ]; then case "$c" in '"'|'\'|'$'|'('|'{'|')'|'}'|'`'|"'"|'#'|'<'|$'\n'|c|';'|'&'|'|') _tdq;; *) tok+=$c;; esac
     else case "$c" in
-      "'"|'"') if [ -n "$raw" ]; then tok+=$c; continue; fi; q=$c; has=1; dqs=''; dqn=0; dqh=()
+      "'"|'"') if [ -n "$raw" ]; then tok+=$c; continue; fi; q=$c; has=1; dqs=''; dqn=0; dqh=(); dqx=0; dqp=0
         if [ "${tok: -1}" = '$' ] && _tansi; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
@@ -116,7 +116,9 @@ _tw() {
 # heredoc (_tdqh); its body, from the next line to the line equal to its WORD, is kept raw in the word
 # (_tdqb), as bash reads it. A ' (not $') with a $( ) innermost and no backtick open is read to the next
 # ', as bash does there, when that text holds none of " ` \ ( ) { } $ or a newline: none of those, so
-# skipping it changes nothing this reader tracks, even inside $(( )), where bash does not quote.
+# skipping it changes nothing this reader tracks, even inside $(( )), where bash does not quote. Such a
+# read with a ; & | or newline also inside the open substitutions (dqx, dqp) still sets S_AMB: the
+# substitution may hold a command this reader does not parse, which the raw reading finds.
 _tdq() {
   local z=${#dqs} t
   if [ "$c" = '"' ]; then [ "$z" -gt 0 ] && S_AMB=1; q=""
@@ -127,18 +129,20 @@ _tdq() {
       '$') [[ "${s:i+1:1}" == [\({] ]] && { dqs+=${s:i+1:1}; dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
       '('|'{') [ -n "$dqs" ] && dqs+=$c;;
       ')'|'}') if [ -n "$dqs" ]; then case "${dqs: -1}$c" in '()'|'{}') ;; *) S_AMB=1;; esac; dqs=${dqs%?}
+          [ -n "$dqs" ] || { dqx=0; dqp=0; }
         elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
-      '`') if [ "${dqs: -1}" = '`' ]; then dqs=${dqs%?}; else dqs+=$c; fi; dqn=1;;
+      '`') if [ "${dqs: -1}" = '`' ]; then dqs=${dqs%?}; [ -n "$dqs" ] || { dqx=0; dqp=0; }; else dqs+=$c; fi; dqn=1;;
+      ';'|'&'|'|') [ "$z" -gt 0 ] && { dqp=1; [ "$dqx" = 0 ] || S_AMB=1; };;
       "'") if [ "${dqs: -1}" = '(' ] && [[ "$dqs" != *'`'* ]] && [ "${s:i-1:1}" != '$' ]; then
              t=${s:i+1}; t=${t%%"'"*}
              if [ $((i+1+${#t})) -lt "$n" ] && [[ "$t" != *[\"\`\\\(\)\{\}\$$'\n']* ]]; then
-               tok+=$t"'"; i=$((i+1+${#t})); else S_AMB=1; fi
+               tok+=$t"'"; i=$((i+1+${#t})); dqx=1; [ "$dqp" = 0 ] || S_AMB=1; else S_AMB=1; fi
            elif [ "$z" -gt 0 ]; then S_AMB=1; fi;;
       '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" != [A-Za-z0-9_\$\{/.:=,+@%^~-] ]] && S_AMB=1;;
       c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
            && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;
       '<') [ "$z" -gt 0 ] && [ "${s:i+1:1}" = '<' ] && _tdqh;;
-      $'\n') [ ${#dqh[@]} -gt 0 ] && _tdqb;;
+      $'\n') if [ ${#dqh[@]} -gt 0 ]; then _tdqb; elif [ "$z" -gt 0 ]; then dqp=1; [ "$dqx" = 0 ] || S_AMB=1; fi;;
     esac
   fi
   return 0
