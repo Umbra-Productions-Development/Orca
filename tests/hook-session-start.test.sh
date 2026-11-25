@@ -50,11 +50,13 @@ out=$(HERDR_ENV=1 ORCA_ROLE=apply PATH="$stub:$PATH" bash "$hook" < <(payload Se
 assert_status $st 0 "herdr fork: exit 0"
 assert_not_contains "$(cat "$TMPDIR/herdr.log" 2>/dev/null)" "agent rename" "herdr fork: no agent rename call"
 assert_eq "$(id)" "" "herdr fork: no identity written"
+assert_contains "$out" "orca-lc: project=proj" "herdr fork: context printed"
 rm -f "$TMPDIR/herdr.log"
 out=$(HERDR_ENV=1 ORCA_ROLE=apply PATH="$stub:$PATH" bash "$hook" < <(payload SessionStart "$r" '{session_id: "s-hstart"}')); st=$?
 assert_status $st 0 "herdr startup: exit 0"
 assert_contains "$(cat "$TMPDIR/herdr.log" 2>/dev/null)" "agent rename pane-c proj-apply" "herdr startup: the pane is renamed"
 assert_eq "$(id)" s-hstart "herdr startup: identity written"
+assert_contains "$out" "orca-lc: project=proj" "herdr startup: context printed"
 
 plain=$(mktemp -d); git init -q "$plain"
 out=$(payload SessionStart "$plain" | bash "$hook"); st=$?
