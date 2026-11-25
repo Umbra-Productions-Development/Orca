@@ -87,7 +87,7 @@ Subagents do not appear on the herdr board and have no tab. `orca-lc role start 
 
 ## Handoffs
 
-`orca-lc handoff write <ticket> <role>` prints a fresh file path, already carrying that role's Owns and Never lines from this skill; write the handoff below them, never `/tmp`. Reading a handoff you wrote leaves it in place. `orca-lc role start` writes the handoff itself from stdin. Reference specs, commits and PRs by path or URL. `orca-lc handoff read <ticket> [role]` prints the latest and archives it; reading a handoff file with Read does the same through a hook. Do not read a handoff you are not going to work. A ticket names the same handoffs in any case. A ticket and role hold one live handoff: `write` refuses while another session's is unconsumed; pass `--as <name>` only when taking it over is the point.
+`orca-lc handoff write <ticket> <role>` prints a fresh file path, already carrying that role's Owns and Never lines from this skill; write the handoff below them, never `/tmp`. Reading a handoff you wrote leaves it in place; a subagent of your session reading it consumes it, since it reads to work it. `orca-lc role start` writes the handoff itself from stdin. Reference specs, commits and PRs by path or URL. `orca-lc handoff read <ticket> [role]` prints the latest and archives it; reading a handoff file with Read does the same through a hook. Do not read a handoff you are not going to work. A ticket names the same handoffs in any case. A ticket and role hold one live handoff: `write` refuses while another session's is unconsumed; pass `--as <name>` only when taking it over is the point.
 
 ## Evidence for review and verify
 
