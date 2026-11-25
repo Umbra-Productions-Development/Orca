@@ -57,10 +57,16 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # words), S_H (1 when it carries a heredoc) and S_HEAD (index of its pipeline's head). Callers declare
 # them local. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
 # optional fd digit; >&N, N>&M and <&N are fd duplications with target &N. Heredoc bodies are skipped.
-# An unquoted # starting a word, outside ${ }, backticks and arithmetic, comments out the rest of its line.
-# < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic; ${ } depth is bc, bt is 1 in backticks.
+# An unquoted # starting a word, outside ${ }, $( ), backticks and arithmetic, comments out the rest of its line.
+# < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic, plain ( ) in them counted in pd;
+# ${ } depth is bc, $( ) depth sd, bt is 1 in backticks.
+# S_AMB (the caller's) is set to 1 when the parse is ambiguous: a quote, ${ }, $( ), backtick or arithmetic
+# left open, a heredoc with no exact terminator, a # or heredoc inside an open ${ }, $( ), backtick or
+# arithmetic, or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
+# unskipped parses (safe_targets). TK_MODE lit or cmt gives those: no heredoc body skipped, < and > always
+# redirects, and # never (lit) or always (cmt) a comment when it starts a word.
 tokenize() {
-  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0
+  local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = '"' ]; then
@@ -69,25 +75,33 @@ tokenize() {
       "'"|'"') q=$c; has=1;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
-      '>'|'<') if [ $((ad+bd)) -gt 0 ]; then tok+=$c; else _tr; fi;;
-      '#') if [ "$has$tok" = 0 ] && [ $((ad+bd+bc+bt)) = 0 ]; then
-          while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done
-        else tok+=$c; fi;;
+      '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c; else _tr; fi;;
+      '#') if [ "$has$tok" != 0 ] || [ "$m" = lit ]; then tok+=$c
+        elif [ -z "$m" ] && [ $((ad+bd+bc+bt+sd)) -gt 0 ]; then tok+=$c; S_AMB=1
+        else while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done; fi;;
       '$') tok+=$c; case "${s:i+1:1}" in '[') bd=$((bd+1)); tok+='['; i=$((i+1));; '{') bc=$((bc+1)); tok+='{'; i=$((i+1));; esac;;
       '[') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd+1));;
       ']') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd-1));;
-      '}') tok+=$c; [ "$bc" -gt 0 ] && bc=$((bc-1));;
+      '}') tok+=$c; [ "$bc" -gt 0 ] && { bc=$((bc-1)); [ $((sd+bt)) -gt 0 ] && S_AMB=1; };;
       '`') tok+=$c; bt=$((1-bt));;
       '&') if [ "${s:i+1:1}" = '>' ]; then _tr; else _tw; _ts; np=0; fi;;
       '|') _tw; _ts; if [ "${s:i+1:1}" = '|' ]; then i=$((i+1)); np=0; else np=1; [ "${s:i+1:1}" = '&' ] && i=$((i+1)); fi;;
-      '(') [ "${s:i+1:1}" = '(' ] && { ad=$((ad+1)); i=$((i+1)); }; _tw; _ts; np=0;;
-      ')') [ "$ad" -gt 0 ] && [ "${s:i+1:1}" = ')' ] && { ad=$((ad-1)); i=$((i+1)); }; _tw; _ts; np=0;;
+      '(') if [ "${s:i+1:1}" = '(' ]; then ad=$((ad+1)); i=$((i+1))
+        elif [ $((ad+bd)) -gt 0 ]; then pd=$((pd+1))
+        elif [ "$sd" -gt 0 ] || { [ "$i" -gt 0 ] && [ "${s:i-1:1}" = '$' ]; }; then sd=$((sd+1)); fi
+        _tw; _ts; np=0;;
+      ')') if [ "$pd" -gt 0 ]; then pd=$((pd-1))
+        elif [ "$ad" -gt 0 ] && [ "${s:i+1:1}" = ')' ]; then ad=$((ad-1)); i=$((i+1))
+        elif [ "$sd" -gt 0 ]; then sd=$((sd-1)); fi
+        _tw; _ts; np=0;;
       ';') _tw; _ts; np=0;;
-      $'\n') _tw; _ts; np=0; [ ${#hds[@]} -gt 0 ] && _tb;;
+      $'\n') _tw; _ts; np=0; [ ${#hds[@]} -gt 0 ] && { if [ -z "$m" ]; then _tb; else hds=(); fi; };;
       *) tok+=$c;;
     esac; fi
   done
   _tw; _ts
+  [ -n "$q" ] || [ $((ad+bd+bc+bt+sd+pd)) -gt 0 ] && S_AMB=1
+  return 0
 }
 # tokenize's helpers, on its locals: end a word (a redirect target when an operator waits), end a segment,
 # read a redirect operator at $i, skip heredoc bodies after the line at $i.
@@ -95,7 +109,8 @@ _tw() {
   if [ "$has$tok" != 0 ]; then
     if [ -n "$rop" ]; then r+=("$rop$GS$tok")
       # a heredoc delimiter is a word or quoted; `1<<3` is a shift, not a heredoc
-      case "$rop" in '<<'|'<<-') { [ "$has" = 1 ] || [[ "$tok" =~ ^[A-Za-z_] ]]; } && { hds+=("$rop$GS$tok"); hd=1; };; esac; rop=""
+      case "$rop" in '<<'|'<<-') { [ "$has" = 1 ] || [[ "$tok" =~ ^[A-Za-z_] ]]; } && { hds+=("$rop$GS$tok"); hd=1
+        [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1; };; esac; rop=""
     else w+=("$tok"); fi
   fi; tok=""; has=0
 }
@@ -130,8 +145,9 @@ _tb() {
   for x in "${hds[@]}"; do op=${x%%"$GS"*}; d=${x#*"$GS"}
     while [ "$i" -lt "$n" ]; do rest=${s:i+1}; ln=${rest%%$'\n'*}; i=$((i+1+${#ln}))
       [ "$op" = '<<-' ] && ln=${ln#"${ln%%[!$'\t']*}"}
-      [ "$ln" = "$d" ] && break
+      [ "$ln" = "$d" ] && continue 2
     done
+    S_AMB=1   # no exact terminator: the body ran to the end of the command
   done; hds=()
 }
 # _split <joined>: the caller's seg, split on US.
@@ -145,13 +161,22 @@ git_targets() {
   local verb=$1 dir=${2:-$cwd} k seg=()
   for ((k=0; k<${#S_W[@]}; k++)); do _split "${S_W[k]}"; git_seg; done
 }
+# safe_targets <verb> <command> [dir]: git_targets over <command>'s own segment list. When the parse is
+# ambiguous (S_AMB), the targets of both unskipped parses instead, so a misparse can hide no push or
+# commit from the gate. A well-formed heredoc body stays skipped. Inside a fallback, TK_MODE carries down.
+safe_targets() {
+  local S_W=() S_P=() S_R=() S_H=() S_HEAD=() S_AMB=0
+  tokenize "$2"
+  if [ "$S_AMB" = 0 ] || [ -n "${TK_MODE:-}" ]; then git_targets "$1" "${3:-$cwd}"; return; fi
+  for TK_MODE in lit cmt; do S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done | awk '!x[$0]++'
+}
 # One segment of git_targets: reads and moves the caller's $dir, prints a target when it is git <verb>.
 git_seg() {
   local j=0 a d gd="" wt=""
   while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done
   case "${seg[j]:-}" in
     cd) a=${seg[j+1]:-"~"}; [ "$a" = - ] || dir=$(absdir "$dir" "$a"); return;;
-    bash|sh) if [ "${seg[j+1]:-}" = -c ]; then local S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "${seg[j+2]:-}"; git_targets "$verb" "$dir"; fi; return;;
+    bash|sh) [ "${seg[j+1]:-}" = -c ] && safe_targets "$verb" "${seg[j+2]:-}" "$dir"; return;;
     git) ;; *) return;;
   esac
   d=$dir; j=$((j+1))
@@ -248,13 +273,13 @@ root=$(orca_root .)
 case "$tool" in
   Bash)
     cmd=$(jq -r '.tool_input.command // ""' <<<"$in")
-    S_W=() S_P=() S_R=() S_H=() S_HEAD=(); tokenize "$cmd"   # one segment list for every consumer below
+    S_W=() S_P=() S_R=() S_H=() S_HEAD=(); S_AMB=0; tokenize "$cmd"   # the segment list tool advice reads; push and commit go through safe_targets
     while IFS= read -r t; do
       [ -n "$(orca_root "$t")" ] || continue
       (cd "$t" && orca-lc gate-fresh) || block "git push blocked: gate marker missing or stale for $t. Run 'orca-lc gate' there and push only after it passes"
-    done < <(git_targets push)
+    done < <(safe_targets push "$cmd")
     [ -n "$root" ] && grep -qE '(^|[;&|]\s*)git\s+merge([^-[:alnum:]_]|$)' <<<"$cmd" && block "git merge blocked: PRs merge on GitHub (gh pr merge). A local merge closes the PR without review"
-    t=$(git_targets commit | head -1)
+    t=$(safe_targets commit "$cmd" | head -1)
     if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
       r=$(orca-lc name 2>/dev/null | jq -r '.role // ""'); tk=$(cd "$t" && orca-lc ticket 2>/dev/null)
