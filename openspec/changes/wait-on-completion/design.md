@@ -4,7 +4,7 @@
 
 - A background `Bash` command, a background subagent, and `herdr agent prompt` (what `orca-lc notify` sends) each wake an idle session. A subagent that ends its turn while its own background command runs is woken by it too; a test on 2026-10-19 showed the subagent resuming 5 s after its task finished.
 - A PreToolUse hook gets `transcript_path`, and `agent_id` only for subagent calls. The hook needs no subagent case, because the same wait works in both.
-- The gate marker `.git/orca-gate-ok` holds `tree_sig`: HEAD plus a hash of the uncommitted diff and the untracked file names. `cmd_gate_fresh` compares it with the current tree.
+- The gate marker `.git/orca-gate-ok` holds `tree_sig`: HEAD plus a hash of the uncommitted diff, the untracked entries (see "The gate skip"), `.orca/config.json` and `.env`. `cmd_gate_fresh` compares it with the current tree.
 
 ## The hook
 
