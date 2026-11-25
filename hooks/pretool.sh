@@ -138,7 +138,7 @@ _tw() {
 }
 # _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (dqs the stack of open
 # (, { and backticks, dqn once any opened) is a shell of its own that this does not parse, except
-# for heredocs. In one, a ", ', \, a word-start #, the word case, or a ) or } that does not match the
+# for heredocs. In one, a ", ', \, a # not after a word character (as $(x)#), the word case, or a ) or } that does not match the
 # innermost open ( or { (a backtick included, or closes more than was opened) sets S_AMB: each could
 # end it, or the outer string, where bash would not. A << there is a heredoc (_tdqh); its body, from the
 # next line to the line equal to its WORD, is kept raw in the word (_tdqb), as bash reads it.
@@ -155,7 +155,7 @@ _tdq() {
         elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
       '`') if [ "${dqs: -1}" = '`' ]; then dqs=${dqs%?}; else dqs+=$c; fi; dqn=1;;
       "'") [ "$z" -gt 0 ] && S_AMB=1;;
-      '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] && S_AMB=1;;
+      '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" != [A-Za-z0-9_\$\{/.:=,+@%^~-] ]] && S_AMB=1;;
       c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
            && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;
       '<') [ "$z" -gt 0 ] && [ "${s:i+1:1}" = '<' ] && _tdqh;;
