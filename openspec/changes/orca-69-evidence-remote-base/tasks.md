@@ -1,6 +1,6 @@
 ## 1. Base selection
 
-- [x] 1.1 `bin/orca-lc` `pick_base` (replaces `base_ref`): fetch `origin <baseBranch>` with the explicit refspec and `GIT_TERMINAL_PROMPT=0`, prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
+- [x] 1.1 `bin/orca-lc` `pick_base` (replaces `base_ref`): fetch `origin <baseBranch>` with the explicit refspec, `GIT_TERMINAL_PROMPT=0` and ssh in batch mode (task 5.13), prefer `origin/<baseBranch>`, else local, else `HEAD~1`; report the ref and its label (design.md "Base selection").
 
 ## 2. evidence
 
@@ -16,7 +16,7 @@
 
 - [x] 4.1 `cmd_worktree up`, new-branch path only: take the base from `pick_base` (in the current checkout); die naming the base on `no base`, before creating anything (design.md "worktree up").
 - [x] 4.2 Print `base <ref> (<label>)` when the new branch is cut from the base, not when a ticket branch is reused.
-- [x] 4.3 Ticket-branch fetch: explicit `+refs/heads/<branch>:refs/remotes/origin/<branch>` refspec and `GIT_TERMINAL_PROMPT=0`, still non-fatal.
+- [x] 4.3 Ticket-branch fetch: explicit `+refs/heads/<branch>:refs/remotes/origin/<branch>` refspec and the same no-prompt fetch (`fetch_origin_branch`), still non-fatal.
 - [x] 4.4 Reusing `origin/<branch>`: `worktree add -b` without `--track`, then set `branch.<branch>.remote` and `branch.<branch>.merge`.
 
 ## 5. Tests and docs
