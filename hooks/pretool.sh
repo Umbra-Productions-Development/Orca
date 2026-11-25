@@ -50,7 +50,7 @@ textpath() {
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
 
 # The sleep rule. Each helper takes the command flattened to one line.
-SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9]'
+SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
 # mask <text>: the text with each quoted string, quotes included, replaced by as many x's, so a commit message
 # naming a sleep or a check is not one, and an offset in the mask is the same offset in the text. Inside one kind
 # of quote the other kind is plain text ("the server's log").

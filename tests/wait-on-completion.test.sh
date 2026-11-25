@@ -32,6 +32,7 @@ check 0 'sleep 2; orca-lc inbox send t x'
 check 2 'sleep 30; gh pr checks 8'
 check 2 'sleep 30; gh run view 12'
 check 2 'sleep 30; gh run list'
+check 2 'sleep .5; gh pr view 8'
 # Quoted text and checks that ran before the sleep are not waits on them.
 check 0 'git commit -m "docs: sleep 30 before gh pr view"'
 check 0 "git commit -m \"the server's 'sleep 2; gh pr view 8' wait\""
