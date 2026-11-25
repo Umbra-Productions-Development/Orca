@@ -664,6 +664,7 @@ owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 # review2, reviewer, code-review and the like are the review role; same for propose and apply.
 # Prefix or -suffix only, so preview and reapply stay extra sessions.
 canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) echo propose;; apply*|*-apply) echo apply;; *) echo "$1";; esac; }
+is_core_role() { case "$(canon_role "$1")" in propose|apply|review) return 0;; esac; return 1; }
 ticket_slug() { tkey "${1//-/}"; }
 # herdr keeps an entry with agent null for about half a second after its process ends; that entry is not a live session.
 ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | select((has("agent") and .agent == null) | not)
@@ -722,7 +723,7 @@ cmd_role() {
       local body; body=$(cat); [ -n "$body" ] || die "empty handoff body"
       leak_guard "role start handoff" "$body" || exit $?
       local t r dir ws name; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); dir=$(wt_dir "$t")
-      case "$r" in propose|apply|review) [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session";; esac
+      ! is_core_role "$r" || [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session"
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       name="$(ticket_slug "$t")-$r"
@@ -733,12 +734,13 @@ cmd_role() {
       if [ -n "$ag" ]; then
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
       else
-        local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
-          other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
+        local other="" n; if ! is_core_role "$r"; then # extra sessions replace, never stack
+          # A session is an extra unless its name past the ticket folds into a core role (review2 too) or is an orchestrator's.
+          other=$(jq -r '.[].name' <<<"$all" | while read -r n; do is_core_role "${n#*-}" || case "${n#*-}" in orchestrator*) ;; *) echo "$n";; esac; done)
           [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
           [ -z "$other" ] || ready_or_die "$replace" "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status // empty' <<<"$all")" "retire it once it reports (orca-lc role retire $t ${replace#*-} --wait), then rerun"
-          [ -z "$other" ] || role_tab_owned "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")" || die "the tab of $replace was not opened by role start; exit it yourself";;
-        esac
+          [ -z "$other" ] || role_tab_owned "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")" || die "the tab of $replace was not opened by role start; exit it yourself"
+        fi
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
         [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
@@ -755,9 +757,9 @@ cmd_role() {
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
           die "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
-        [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command"
+        [ "$(agent_status "$name")" != blocked ] || ready_or_die "$name" blocked ""
       fi
-      case "$r" in propose|apply|review) cmd_role owner "$t" --set "$r" >/dev/null;; esac
+      ! is_core_role "$r" || cmd_role owner "$t" --set "$r" >/dev/null
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
     retire)
