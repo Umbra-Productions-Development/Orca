@@ -180,7 +180,7 @@ _cw() { local seg=() j=0; _split "${S_W[$1]}"; while [ $j -lt ${#seg[@]} ] && [[
 # (search), writes a new file (write) or changes one (edit) with a command a dedicated tool covers.
 tool_scan() { local k o; for ((k=0; k<${#S_W[@]}; k++)); do o=$(tool_seg "$k"); [ -n "$o" ] && { echo "$o"; return; }; done; }
 tool_seg() {
-  local k=$1 seg=() j=0 c vo="" fl=" " ops=() a x ch m e=0 p op t h
+  local k=$1 seg=() j=0 c vo="" fl=" " ops=() a x ch m e=0 p op t h in=0 rd=()
   _split "${S_W[k]}"
   while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done
   c=${seg[j]:-}
@@ -192,7 +192,8 @@ tool_seg() {
     *) return;;
   esac
   for ((j=j+1; j<${#seg[@]}; j++)); do a=${seg[j]}
-    if [ $e = 1 ] || [ "$a" = - ] || [[ "$a" != -* ]]; then ops+=("$a")
+    if [ "$a" = - ] && [ $e = 0 ]; then in=1   # - is stdin, not a file operand
+    elif [ $e = 1 ] || [[ "$a" != -* ]]; then ops+=("$a")
     elif [ "$a" = -- ]; then e=1
     elif [[ "$a" == --* ]]; then fl+="${a%%=*} "; [[ "$a" != *=* && "$vo" == *" $a "* ]] && j=$((j+1))
     else for ((m=1; m<${#a}; m++)); do ch=-${a:m:1}; fl+="$ch "
@@ -200,22 +201,29 @@ tool_seg() {
       done
     fi
   done
+  # Stdin: piped in, a - operand, or a <, <<, <<- or <<< redirect on the segment.
+  x=${S_R[k]}; while [ -n "$x" ]; do rd+=("${x%%"$RS"*}"); [[ "$x" == *"$RS"* ]] && x=${x#*"$RS"} || x=""; done
+  [ "${S_P[k]}" = 1 ] && in=1
+  for x in "${rd[@]}"; do case "${x%%"$GS"*}" in '<'|'<<'|'<<-'|'<<<') in=1;; esac; done
   case "$c" in cat|echo|printf)
-    x=${S_R[k]}; seg=(); while [ -n "$x" ]; do seg+=("${x%%"$RS"*}"); [[ "$x" == *"$RS"* ]] && x=${x#*"$RS"} || x=""; done
-    for x in "${seg[@]}"; do op=${x%%"$GS"*}; t=${x#*"$GS"}
-      { [ "$t" = /dev/null ] || [[ "$t" == '&'* ]]; } && continue
+    for x in "${rd[@]}"; do op=${x%%"$GS"*}; t=${x#*"$GS"}
+      case "$t" in /dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) continue;; esac
       case "$op" in '>'|'>|'|'&>') echo "write $c"; return;; '>>'|'&>>') echo "edit $c"; return;; esac
     done;;
   esac
   case "$c" in
-    cat|head|tail|less|more|bat) [ ${#ops[@]} -gt 0 ] && echo "read $c";;
+    cat|head|tail|less|more|bat) [ ${#ops[@]} -gt 0 ] || return
+      # following a growing file is something Read cannot do
+      [ "$c" = tail ] && [[ "$fl" =~ \ (-f|-F|--follow)\  ]] && return
+      [ "$c" = less ] && [[ " ${ops[*]} " == *" +F "* ]] && return
+      echo "read $c";;
     sed) p=1; [[ "$fl" =~ \ (-e|-f|--expression|--file)\  ]] && p=0
       if [[ "$fl" =~ \ (-i|--in-place)\  ]]; then [ ${#ops[@]} -gt $p ] && echo "edit sed"
       elif [[ "$fl" =~ \ (-n|--quiet|--silent)\  ]]; then [ ${#ops[@]} -gt $p ] && echo "read sed"; fi;;
     grep|egrep|fgrep|rg|ag) [ "$c" = rg ] && [[ "$fl" == *" --files "* ]] && { echo "glob rg"; return; }
       p=1; [[ "$fl" =~ \ (-e|-f|--regexp|--file)\  ]] && p=0
       if [ ${#ops[@]} -gt $p ]; then echo "search $c"
-      elif [ "${S_P[k]}" != 1 ]; then
+      elif [ "$in" != 1 ]; then
         case "$c" in rg|ag) echo "search $c";; *) [[ "$fl" =~ \ (-r|-R|--recursive|--dereference-recursive)\  ]] && echo "search $c";; esac
       fi;;
     tee) [ ${#ops[@]} -gt 0 ] || return; h=${S_HEAD[k]}
