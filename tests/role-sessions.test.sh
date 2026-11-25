@@ -10,7 +10,8 @@ echo '[]' >"$H/agents"; echo '[]' >"$H/tabs"; : >"$H/log"
 printf 'MemAvailable:   8192000 kB\n' >"$H/meminfo"
 
 # Fake herdr: agents and tabs live in $H as JSON; every mutating call is logged. Each agent start and /clear gives a new
-# Claude session id (sidN). Switch files in $H: start-fails (agent start errors, no agent), no-sid (agent get reports no id),
+# Claude session id (sidN). Switch files in $H: start-fails (agent start errors, no agent), starts-blocked (agent start
+# succeeds but the agent comes up blocked at a prompt), no-sid (agent get reports no id),
 # stale (N or never: polls of agent get that still report the id from before /clear), prompt-fails (a prompt other than /clear fails).
 cat >"$tmp/bin/herdr" <<EOF
 #!/usr/bin/env bash
@@ -42,7 +43,8 @@ case "$1 $2" in
                   echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(if .name==$n then .agent=null | .agent_status="idle" else . end)'
                   [ "$4" = /clear ] && put agents --arg n "$3" --arg s "$(newsid)" 'map(if .name==$n then .agent_status="done" | .pending=$s else . end)'; :;;
   "agent start") [ -f "$H/start-fails" ] && { echo '{"error":{"code":"agent_start_timeout","message":"agent did not become ready"}}'; exit 1; }
-                 put agents --arg n "$3" --arg p "$7" --arg c "$wt" --arg s "$(newsid)" '. + [{name:$n, agent_status:"idle", pane_id:$p, tab_id:("t"+$p), cwd:$c, agent_session:{value:$s}}]'; echo "start $3 timeout $9" >>"$H/log";;
+                 st=idle; [ -f "$H/starts-blocked" ] && st=blocked
+                 put agents --arg n "$3" --arg p "$7" --arg c "$wt" --arg s "$(newsid)" --arg st "$st" '. + [{name:$n, agent_status:$st, pane_id:$p, tab_id:("t"+$p), cwd:$c, agent_session:{value:$s}}]'; echo "start $3 timeout $9" >>"$H/log";;
   "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
                 put tabs --arg t "tp$n" --arg l "$l" '. + [{tab_id:$t, label:$l}]'; jq -n --arg p "p$n" '{result:{root_pane:{pane_id:$p}}}';;
   "tab list") jq '{result:{tabs:.}}' "$H/tabs";;
@@ -301,3 +303,9 @@ check 'roleStartTimeoutMs reaches agent start' '[ "$(tail -1 <<<"$(grep "^start 
 jq '.roleStartTimeoutMs = "soon"' "$H/cfg" >"$cfgf"; gone_apply; s0=$(starts); run role start ABC-1 apply
 check 'a roleStartTimeoutMs that is not a positive integer dies with the key' '[ "$(cat "$H/rc")" = 1 ] && grep -q "roleStartTimeoutMs must be a positive integer" "$H/out" && [ "$(starts)" = "$s0" ]'
 cp "$H/cfg" "$cfgf"
+
+# herdr agent start succeeds, but the agent comes up blocked at a prompt: the same report, and no job is sent.
+gone_apply; touch "$H/starts-blocked"; p0=$(prompts); s0=$(starts); BODY="apply job J" run role start ABC-1 apply
+J=$(live_apply)
+check 'an agent that starts blocked gets the startup report and no prompt' '[ "$(cat "$H/rc")" = 1 ] && [ "$(starts)" = $((s0+1)) ] && grep -q "abc1-apply is waiting at a prompt in tab .apply. (pane p[0-9]*):" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && grep -q "^  | .*Enter to confirm" "$H/out" && grep -q "Answer it there, then rerun" "$H/out" && ! grep -q "herdr:" "$H/out" && [ "$(prompts)" = "$p0" ] && [ "$(live_apply | wc -l)" = 1 ] && [ -z "$(fmv sent "$J")" ] && [ -z "$(fmv sent-to "$J")" ]'
+rm "$H/starts-blocked"
