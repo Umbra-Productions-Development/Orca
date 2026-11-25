@@ -63,10 +63,10 @@ from_sleep() { local pre l; [[ $1 =~ $SLEEP ]] || return 0; pre=${1%%"${BASH_REM
   l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
   [ "$(after_done "$l")" = "$l" ] || l=""
   printf '%s%s\n' "$l" "${1#"$pre"}"; }
-# readiness_exempt <file> <flat> <unquoted>: a loop whose until/while condition greps the file (a server's
-# readiness line) waits on output, not on completion, since a server never completes. Not when a sleep after
-# the last 'done' reads the file again.
-readiness_exempt() { grep -oE '(^|[;&|(][[:space:]]*)(until|while)[[:space:]]+[^;]*' <<<"$3" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
+# readiness_exempt <file> <flat>: a loop whose until/while condition greps the file (a server's readiness line)
+# waits on output, not on completion, since a server never completes. Not when a sleep after the last 'done'
+# reads the file again. Both read the command as written, so a quoted path counts.
+readiness_exempt() { grep -oE '(^|[;&|(][[:space:]]*)(until|while)[[:space:]]+[^;]*' <<<"$2" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
   && ! grep -oE "$SLEEP.*" <<<"$(after_done "$2")" | grep -qF -- "$1"; }
 # bg_writes <file> <transcript>: a run_in_background command of this session names the file.
 bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
@@ -79,7 +79,7 @@ sleep_rule() { local flat nq raw after f wake="End the turn instead: its complet
   raw=$(from_sleep "$flat"); after=$(from_sleep "$nq")
   grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
   while IFS= read -r f; do
-    [ -n "$f" ] && ! readiness_exempt "$f" "$flat" "$nq" && bg_writes "$f" "$2" \
+    [ -n "$f" ] && ! readiness_exempt "$f" "$flat" && bg_writes "$f" "$2" \
       && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
   done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)
   grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"

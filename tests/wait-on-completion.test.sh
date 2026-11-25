@@ -48,6 +48,7 @@ check 2 'until grep -q ok /tmp/x/build.log; do sleep 1; done; sleep 240; tail /t
 # A background server never completes: a readiness loop on its log passes; a bare sleep is pointed at that loop.
 jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"npm run dev > server.log 2>&1", run_in_background:true}}]}}' >>"$tp"
 check 0 'until grep -q ready server.log; do sleep 1; done'
+check 0 'until grep -q ready "server.log"; do sleep 1; done'
 check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
 check 2 'sleep 3; tail server.log'
 out=$(jq -n --arg d "$repo" --arg t "$tp" '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:"sleep 3; tail server.log"}}' | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)
