@@ -1,9 +1,13 @@
-: "${ORCA_TEST_TMP:?run via tests/run.sh}"
+# Sourced by tests/run.sh; a direct run, or a source from an interactive shell, stops here.
+[ -n "${ORCA_TEST_TMP:-}" ] || { echo "run via tests/run.sh" >&2; return 1 2>/dev/null || exit 1; }
 # install.sh installs into $CLAUDE_CONFIG_DIR when set, else $HOME/.claude, registers hook commands that follow the
 # variable at run time, keeps one entry per Orca hook on rerun, and migrates only Orca's old default matcher. Run: tests/run.sh tests/install-config-dir.test.sh
 src="$ORCA_SRC"
 tmp=$(mktemp -d)
 export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR XDG_STATE_HOME
+# install.sh requires claude gh herdr and asks `claude plugin list`; stubs in lib.sh's $TMPDIR/bin (first on PATH)
+# shadow the real ones, so a runner without them still passes and the real claude is never called.
+for t in claude gh herdr; do printf '#!/bin/sh\nexit 0\n' > "$TMPDIR/bin/$t"; chmod +x "$TMPDIR/bin/$t"; done
 
 ok() { [ "$1" = 0 ] || fail "$2"; }
 run() { out=$(bash "$src/install.sh" "$@" </dev/null 2>&1); st=$?; }
