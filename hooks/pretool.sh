@@ -62,11 +62,12 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # and \\); dqs, dqn and dqh track $( ), ${ } and backticks inside ".." (_tdq); an unquoted $(( )) is one
 # word (_tarith). It feeds the tool advice and, beside main_targets, the push and commit checks. A
 # misread here can hide only what main_targets still reads, except where main's own quote reading drifts
-# from bash; for those, S_AMB (the caller's) is set to 1 on a heredoc with no exact terminator or a
-# quote the parse may have misread (_tdq, _tdqh, _tdqb): one left open, another escape in $'..', or
-# inside a $( ), ${ } or backtick of "..", a ", ' (but a plain '..', see _tdq), \, a # not after a word
-# character, case, a ) or } that does not match the innermost open (, { or backtick, a heredoc WORD that
-# is not plain text, or a heredoc body there with no terminator. new_targets then adds raw_targets.
+# from bash; for those, S_AMB (the caller's) is set to 1 on a heredoc with no exact terminator or a quote
+# the parse may have misread (_tdq, _tdqh, _tdqb): one left open, another escape in $'..', or inside a $( ),
+# ${ } or backtick of "..", a ", ' (but not a plain '..' read by _tdqsq, unless a ; & | or newline is in the
+# same substitution), \, a # not after a word character, case, a ) or } that does not match the innermost
+# open (, { or backtick, a heredoc WORD that is not plain text, or a heredoc body there with no terminator.
+# new_targets then adds raw_targets.
 tokenize() {
   # LC_ALL=C first, alone: ${s:i:1} is O(1) per byte instead of O(i) per character, and n counts bytes
   local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() dqx=0 dqp=0 tas=0 raw=${TK_RAW:-}
@@ -110,17 +111,10 @@ _tw() {
 }
 # _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (dqs the stack of open
 # (, { and backticks, dqn once any opened) is a shell of its own that this does not parse, except for
-# heredocs and plain '..'. In one, a ", ', \, a # not after a word character (as $(x)#), the word case,
-# or a ) or } that does not match the innermost open ( or { (a backtick included, or closes more than was
-# opened) sets S_AMB: each could end it, or the outer string, where bash would not. A << there is a
-# heredoc (_tdqh); its body, from the next line to the line equal to its WORD, is kept raw in the word
-# (_tdqb), as bash reads it. A ' (not $') with a $( ) innermost and no backtick open is read to the next
-# ', as bash does there, when that text holds none of " ` \ ( ) { } $ or a newline: none of those, so
-# skipping it changes nothing this reader tracks, even inside $(( )), where bash does not quote. Such a
-# read with a ; & | or newline also inside the open substitutions (dqx, dqp) still sets S_AMB: the
-# substitution may hold a command this reader does not parse, which the raw reading finds.
+# heredocs (_tdqh, _tdqb: the body kept raw in the word, as bash reads it) and plain '..' (_tdqsq). What
+# in one could end it, or the outer string, where bash would not, sets S_AMB (the list is at tokenize).
 _tdq() {
-  local z=${#dqs} t
+  local z=${#dqs}
   if [ "$c" = '"' ]; then [ "$z" -gt 0 ] && S_AMB=1; q=""
   elif [ "$c" = '\' ]; then [ "$z" -gt 0 ] && S_AMB=1
     if [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
@@ -128,25 +122,36 @@ _tdq() {
     case "$c" in
       '$') [[ "${s:i+1:1}" == [\({] ]] && { dqs+=${s:i+1:1}; dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
       '('|'{') [ -n "$dqs" ] && dqs+=$c;;
-      ')'|'}') if [ -n "$dqs" ]; then case "${dqs: -1}$c" in '()'|'{}') ;; *) S_AMB=1;; esac; dqs=${dqs%?}
-          [ -n "$dqs" ] || { dqx=0; dqp=0; }
+      ')'|'}') if [ -n "$dqs" ]; then case "${dqs: -1}$c" in '()'|'{}') ;; *) S_AMB=1;; esac; _tdqpop
         elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
-      '`') if [ "${dqs: -1}" = '`' ]; then dqs=${dqs%?}; [ -n "$dqs" ] || { dqx=0; dqp=0; }; else dqs+=$c; fi; dqn=1;;
-      ';'|'&'|'|') [ "$z" -gt 0 ] && { dqp=1; [ "$dqx" = 0 ] || S_AMB=1; };;
-      "'") if [ "${dqs: -1}" = '(' ] && [[ "$dqs" != *'`'* ]] && [ "${s:i-1:1}" != '$' ]; then
-             t=${s:i+1}; t=${t%%"'"*}
-             if [ $((i+1+${#t})) -lt "$n" ] && [[ "$t" != *[\"\`\\\(\)\{\}\$$'\n']* ]]; then
-               tok+=$t"'"; i=$((i+1+${#t})); dqx=1; [ "$dqp" = 0 ] || S_AMB=1; else S_AMB=1; fi
-           elif [ "$z" -gt 0 ]; then S_AMB=1; fi;;
+      '`') if [ "${dqs: -1}" = '`' ]; then _tdqpop; else dqs+=$c; fi; dqn=1;;
+      ';'|'&'|'|') [ "$z" -gt 0 ] && _tdqsep;;
+      "'") _tdqsq || { [ "$z" -gt 0 ] && S_AMB=1; };;
       '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" != [A-Za-z0-9_\$\{/.:=,+@%^~-] ]] && S_AMB=1;;
       c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
            && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;
       '<') [ "$z" -gt 0 ] && [ "${s:i+1:1}" = '<' ] && _tdqh;;
-      $'\n') if [ ${#dqh[@]} -gt 0 ]; then _tdqb; elif [ "$z" -gt 0 ]; then dqp=1; [ "$dqx" = 0 ] || S_AMB=1; fi;;
+      $'\n') if [ ${#dqh[@]} -gt 0 ]; then _tdqb; elif [ "$z" -gt 0 ]; then _tdqsep; fi;;
     esac
   fi
   return 0
 }
+# _tdqsq: at a ' (not $') inside "..", with a ( innermost (of $( ), $(( )) or a subshell) and no backtick
+# open, read to the next ' as bash does there, when that text holds none of " ` \ ( ) { } $ or a newline:
+# skipping such text changes nothing this reader tracks, even in $(( )), where bash does not quote. False
+# when it does not apply, for the caller's S_AMB.
+_tdqsq() {
+  [ "${dqs: -1}" = '(' ] && [[ "$dqs" != *'`'* ]] && [ "${s:i-1:1}" != '$' ] || return 1
+  local t=${s:i+1}; t=${t%%"'"*}
+  [ $((i+1+${#t})) -lt "$n" ] && [[ "$t" != *[\"\`\\\(\)\{\}\$$'\n']* ]] || return 1
+  tok+=$t"'"; i=$((i+1+${#t})); dqx=1; [ "$dqp" = 0 ] || S_AMB=1
+}
+# dqx: a '..' was read by _tdqsq in the open substitutions; dqp: a ; & | or newline is in them. Both at
+# once, in either order, set S_AMB: the separator may start a command this reader does not parse, which
+# the raw reading finds. A command first in the substitution, or in one nested in it, is not read, as on
+# origin/main. Both reset when the last open substitution closes (_tdqpop).
+_tdqsep() { dqp=1; [ "$dqx" = 0 ] || S_AMB=1; }
+_tdqpop() { dqs=${dqs%?}; [ -n "$dqs" ] || { dqx=0; dqp=0; }; }
 # _tdqh: the << at $i inside a substitution of "..": queue its WORD (<<- marked by a leading 1). <<< is a
 # here-string. A WORD that is not plain [A-Za-z0-9_] text, whole or in one pair of quotes, sets S_AMB.
 _tdqh() {
