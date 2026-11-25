@@ -55,35 +55,43 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # tokenize <command>: the command's segments, into the caller's S_W (words, quotes removed, US-joined),
 # S_P (1 when fed by an unquoted |, not ||), S_R (redirects "op GS target", RS-joined, removed from the
 # words), S_H (1 when it carries a heredoc) and S_HEAD (index of its pipeline's head). Callers declare
-# them local. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
+# them local; it appends to them. ; & | ( ) and newlines end a segment. Redirects come from unquoted characters only, with an
 # optional fd digit; >&N, N>&M and <&N are fd duplications with target &N. Heredoc bodies are skipped.
-# An unquoted # starting a word, outside ${ }, $( ), backticks and arithmetic and not right after a ) (bash
-# keeps $(x)#b one word), comments out the rest of its line.
-# < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic, plain ( ) in them counted in pd;
-# ${ } depth is bc, $( ) depth sd, bt is 1 in backticks.
-# S_AMB (the caller's) is set to 1 when the parse is ambiguous: a quote, ${ }, $( ), backtick or arithmetic
-# left open, a heredoc with no exact terminator, a # or heredoc met while a ${ }, $( ), backtick or
-# arithmetic is open, a # right after a ), or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
+# An unquoted # starting a word right after a blank, newline, ; & or | (or at the start), outside ${ }, $( ),
+# backticks, arithmetic and [[ ]], comments out the rest of its line. $'..' and $".." drop the $, as bash
+# does ($'..' follows \' and \\). < and > inside (( )) (depth ad) or $[ ] (bracket depth bd) are arithmetic,
+# plain ( ) in them counted in pd; ${ } depth is bc, $( ) depth sd, bt is 1 in backticks, dk 1 in [[ ]]
+# (opened by a segment's first word), sb the open [ depth inside the current word (a[i] subscripts).
+# S_AMB (the caller's) is set to 1 when the parse is ambiguous, for anything this does not model exactly:
+# a quote, ${ }, $( ), backtick or arithmetic left open; a heredoc with no exact terminator; a << read while
+# a ${ }, $( ) or backtick is open; any other # that starts a word (after ), (, a redirect, an fd word,
+# or inside ${ }, $( ), backticks, arithmetic, [[ ]]); < or > inside [[ ]] or an open [ of a word; another
+# escape in $'..'; or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
 # unskipped parses (safe_targets). TK_MODE lit or cmt gives those: no heredoc body skipped, < and > always
 # redirects, and # never (lit) or always (cmt) a comment when it starts a word.
 tokenize() {
   # LC_ALL=C: ${s:i:1} is O(1) per byte instead of O(i) per character; only ASCII bytes are syntax
-  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 m=${TK_MODE:-}
+  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 sb=0 m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
+    elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
+      if [ "$c" = "'" ]; then q=""; elif [ "$c" = '\' ]; then [[ "${s:i+1:1}" == [\'\\] ]] || { S_AMB=1; tok+=$c; }; tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
     elif [ "$q" = '"' ]; then
       if [ "$c" = '"' ]; then q=""; elif [ "$c" = '\' ] && [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
     else case "$c" in
-      "'"|'"') q=$c; has=1;;
+      "'"|'"') q=$c; has=1
+        if [ "${tok: -1}" = '$' ] && [ "${s:i-1:1}" = '$' ] && [[ "${s:0:i}" != *'\$' ]]; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
-      '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c; else _tr; fi;;
+      '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c
+        elif [ -z "$m" ] && [ $((dk+sb)) -gt 0 ]; then tok+=$c; S_AMB=1
+        else _tr; fi;;
       '#') if [ "$has$tok" != 0 ] || [ "$m" = lit ]; then tok+=$c
-        elif [ -z "$m" ] && { [ $((ad+bd+bc+bt+sd)) -gt 0 ] || { [ "$i" -gt 0 ] && [ "${s:i-1:1}" = ')' ]; }; }; then tok+=$c; S_AMB=1
+        elif [ -z "$m" ] && { [ $((ad+bd+bc+bt+sd+dk)) -gt 0 ] || { [ "$i" -gt 0 ] && [[ "${s:i-1:1}" != [' '$'\t'$'\n'';&|'] ]]; }; }; then tok+=$c; S_AMB=1
         else while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done; fi;;
       '$') tok+=$c; case "${s:i+1:1}" in '[') bd=$((bd+1)); tok+='['; i=$((i+1));; '{') bc=$((bc+1)); tok+='{'; i=$((i+1));; esac;;
-      '[') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd+1));;
-      ']') tok+=$c; [ "$bd" -gt 0 ] && bd=$((bd-1));;
+      '[') tok+=$c; if [ "$bd" -gt 0 ]; then bd=$((bd+1)); else sb=$((sb+1)); fi;;
+      ']') tok+=$c; if [ "$bd" -gt 0 ]; then bd=$((bd-1)); elif [ "$sb" -gt 0 ]; then sb=$((sb-1)); fi;;
       '}') tok+=$c; [ "$bc" -gt 0 ] && { bc=$((bc-1)); [ $((sd+bt)) -gt 0 ] && S_AMB=1; };;
       '`') tok+=$c; bt=$((1-bt));;
       '&') if [ "${s:i+1:1}" = '>' ]; then _tr; else _tw; _ts; np=0; fi;;
@@ -112,8 +120,10 @@ _tw() {
     if [ -n "$rop" ]; then r+=("$rop$GS$tok")
       # any word after << is a heredoc delimiter, as in bash (-EOF, 1, $x); shifts in (( )) and $[ ] never get here
       case "$rop" in '<<'|'<<-') hds+=("$rop$GS$tok"); hd=1; [ $((bc+bt+sd+ad+bd)) -gt 0 ] && S_AMB=1;; esac; rop=""
-    else w+=("$tok"); fi
-  fi; tok=""; has=0
+    else
+      if [ "$has" = 0 ]; then case "$tok" in '[[') [ ${#w[@]} -gt 0 ] || dk=1;; ']]') dk=0;; esac; fi
+      w+=("$tok"); fi
+  fi; tok=""; has=0; sb=0
 }
 _ts() {
   rop=""
@@ -135,6 +145,7 @@ _tr() {
       *) op=$c;;
     esac;;
   esac
+  case "$op" in '<<'|'<<-') [ $((bc+bt+sd)) -gt 0 ] && S_AMB=1;; esac   # depth when << is read, before its word closes anything
   rop=$fd$op
 }
 # _tdup: at >& or <&, read an fd word after optional blanks: digits, -, or a $name (bare or in ""). <& always duplicates;
