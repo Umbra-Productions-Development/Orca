@@ -4,11 +4,11 @@
 set -uo pipefail
 src="$(cd "$(dirname "$0")/.." && pwd)"
 tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR
+export HOME="$tmp/home"; mkdir -p "$HOME"; unset CLAUDE_CONFIG_DIR XDG_STATE_HOME
 
 fail=0
 ok() { if [ "$1" = 0 ]; then echo "ok   $2"; else echo "FAIL $2"; fail=1; fi; }
-run() { out=$(bash "$src/install.sh" "$@" 2>&1); st=$?; }
+run() { out=$(bash "$src/install.sh" "$@" </dev/null 2>&1); st=$?; }
 cmd() { printf 'bash "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/hooks/orca/%s.sh"' "$1"; }
 # count <settings> <event> <script>: hooks in the event whose command names hooks/orca/<script>.sh
 count() { jq --arg s "$3" --arg e "$2" '[.hooks[$e][]?.hooks[]? | select(.command | test("hooks[/\\\\]orca[/\\\\]" + $s + "\\.sh"))] | length' "$1"; }
