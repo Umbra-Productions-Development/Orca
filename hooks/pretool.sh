@@ -67,13 +67,15 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # a quote, ${ }, $( ), backtick or arithmetic left open; a heredoc with no exact terminator; a << read while
 # a ${ }, $( ) or backtick is open; any other # that starts a word (after ), (, a redirect, an fd word,
 # or inside ${ }, $( ), backticks, arithmetic, [[ ]]); < or > inside [[ ]] or an open [ of a word; another
-# escape in $'..'; a ]] inside a ( ) group of [[ ]]; a " inside a $( ), ${ } or backtick of "..", or a ) or }
-# there closing more than it opened; or a } closing ${ } while a $( ) or backtick is open. Push and commit detection then use
-# unskipped parses (safe_targets). TK_MODE lit or cmt gives those: no heredoc body skipped, < and > always
-# redirects, and # never (lit) or always (cmt) a comment when it starts a word.
+# escape in $'..'; a ]] inside a ( ) group of [[ ]]; inside a $( ), ${ } or backtick of "..", a ", ', \,
+# word-start #, case, or a ) or } closing more than it opened (_tdq); or a } closing ${ } while a $( ) or
+# backtick is open. Push and commit detection then use unskipped parses (pick_targets). TK_MODE lit, cmt or
+# raw gives those: no heredoc body skipped, < and > always redirects, and # never (lit, raw) or always (cmt)
+# a comment when it starts a word; raw also reads ' and " as plain characters, so a quote misread cannot
+# swallow a push.
 tokenize() {
   # LC_ALL=C: ${s:i:1} is O(1) per byte instead of O(i) per character; only ASCII bytes are syntax
-  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 kp=0 sb=0 dq=0 dqb=0 dqn=0 m=${TK_MODE:-}
+  local LC_ALL=C s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() ad=0 bd=0 bc=0 bt=0 sd=0 pd=0 dk=0 kp=0 sb=0 dq=0 dqb=0 dqn=0 dqh=() m=${TK_MODE:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
@@ -82,16 +84,16 @@ tokenize() {
         [[ "${s:i+1:1}" == [\'\\] ]] || { S_AMB=1; tok+=$c; }
         tok+=${s:i+1:1}; i=$((i+1))
       else tok+=$c; fi
-    elif [ "$q" = '"' ]; then _tdq
+    elif [ "$q" = '"' ]; then case "$c" in '"'|'\'|'$'|'('|'{'|')'|'}'|'`'|"'"|'#'|'<'|$'\n'|c) _tdq;; *) tok+=$c;; esac
     else case "$c" in
-      "'"|'"') q=$c; has=1; dq=0; dqb=0; dqn=0
+      "'"|'"') if [ "$m" = raw ]; then tok+=$c; continue; fi; q=$c; has=1; dq=0; dqb=0; dqn=0; dqh=()
         if [ "${tok: -1}" = '$' ] && _tansi; then tok=${tok%?}; [ "$c" = "'" ] && q=A; fi;;
       '\') tok+=${s:i+1:1}; i=$((i+1)); has=1;;
       ' '|$'\t') _tw;;
       '>'|'<') if [ -z "$m" ] && [ $((ad+bd)) -gt 0 ]; then tok+=$c
         elif [ -z "$m" ] && [ $((dk+sb)) -gt 0 ]; then tok+=$c; S_AMB=1
         else _tr; fi;;
-      '#') if [ "$has$tok" != 0 ] || [ "$m" = lit ]; then tok+=$c
+      '#') if [ "$has$tok" != 0 ] || [ "$m" = lit ] || [ "$m" = raw ]; then tok+=$c
         elif [ -z "$m" ] && { [ $((ad+bd+bc+bt+sd+dk)) -gt 0 ] || { [ "$i" -gt 0 ] && [[ "${s:i-1:1}" != [' '$'\t'$'\n'';&|'] ]]; }; }; then tok+=$c; S_AMB=1
         else while [ $((i+1)) -lt "$n" ] && [ "${s:i+1:1}" != $'\n' ]; do i=$((i+1)); done; fi;;
       '$') tok+=$c; case "${s:i+1:1}" in '[') bd=$((bd+1)); tok+='['; i=$((i+1));; '{') bc=$((bc+1)); tok+='{'; i=$((i+1));; esac;;
@@ -135,19 +137,57 @@ _tw() {
   fi; tok=""; has=0; sb=0
 }
 # _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (depth dq, dqb 1 in a
-# backtick, dqn once any opened) may hold quotes of its own, so a " met inside one, or a ) or } that closes
-# more than was opened, sets S_AMB instead of being followed.
+# backtick, dqn once any opened) is a shell of its own that this does not parse, except for heredocs. In one,
+# a ", ', \, a word-start #, the word case, or a ) or } closing more than was opened sets S_AMB: each could
+# end it, or the outer string, where bash would not. A << there is a heredoc (_tdqh); its body, from the
+# next line to the line equal to its WORD, is kept raw in the word (_tdqb), as bash reads it.
 _tdq() {
-  if [ "$c" = '"' ]; then [ $((dq+dqb)) -gt 0 ] && S_AMB=1; q=""
-  elif [ "$c" = '\' ] && [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1))
+  local z=$((dq+dqb))
+  if [ "$c" = '"' ]; then [ "$z" -gt 0 ] && S_AMB=1; q=""
+  elif [ "$c" = '\' ]; then [ "$z" -gt 0 ] && S_AMB=1
+    if [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
   else tok+=$c
     case "$c" in
       '$') [[ "${s:i+1:1}" == [\({] ]] && { dq=$((dq+1)); dqn=1; tok+=${s:i+1:1}; i=$((i+1)); };;
       '('|'{') [ "$dq" -gt 0 ] && dq=$((dq+1));;
       ')'|'}') if [ "$dq" -gt 0 ]; then dq=$((dq-1)); elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
       '`') dqb=$((1-dqb)); dqn=1;;
+      "'") [ "$z" -gt 0 ] && S_AMB=1;;
+      '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] && S_AMB=1;;
+      c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
+           && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;
+      '<') [ "$z" -gt 0 ] && [ "${s:i+1:1}" = '<' ] && _tdqh;;
+      $'\n') [ ${#dqh[@]} -gt 0 ] && _tdqb;;
     esac
   fi
+  return 0
+}
+# _tdqh: the << at $i inside a substitution of "..": queue its WORD (<<- marked by a leading 1). <<< is a
+# here-string. A WORD that is not plain [A-Za-z0-9_] text, whole or in one pair of quotes, sets S_AMB.
+_tdqh() {
+  local j=$((i+2)) t=0 w e
+  if [ "${s:j:1}" = '<' ]; then tok+='<<'; i=$((i+2)); return; fi
+  [ "${s:j:1}" = - ] && { t=1; j=$((j+1)); }
+  while [[ "${s:j:1}" == [' '$'\t'] ]]; do j=$((j+1)); done
+  e=${s:j:1}
+  if [[ "$e" == [\'\"] ]]; then w=${s:j+1}; w=${w%%"$e"*}; j=$((j+${#w}+2)); [ "${s:j-1:1}" = "$e" ] || w=""
+  else w=${s:j}; w=${w%%[!A-Za-z0-9_]*}; j=$((j+${#w})); fi
+  if [ -z "$w" ] || [[ "$w" == *[!A-Za-z0-9_]* ]] || { [ "$j" -lt "$n" ] && [[ "${s:j:1}" != [' '$'\t'$'\n'')|;&'] ]]; }; then
+    S_AMB=1; return; fi
+  tok+=${s:i+1:j-i-1}; i=$((j-1)); dqh+=("$t$w")
+}
+# _tdqb: at the newline at $i, keep each queued heredoc body raw in the word, through its terminator line;
+# a body with no terminator runs to the end and sets S_AMB.
+_tdqb() {
+  local h l
+  for h in "${dqh[@]}"; do
+    while :; do
+      [ $((i+1)) -lt "$n" ] || { S_AMB=1; dqh=(); return; }
+      l=${s:i+1}; l=${l%%$'\n'*}; tok+=$'\n'$l; i=$((i+1+${#l}))
+      [ "${h:0:1}" = 1 ] && while [ "${l:0:1}" = $'\t' ]; do l=${l:1}; done
+      [ "$l" = "${h:1}" ] && break
+    done
+  done; dqh=()
 }
 # _tansi: true when the quote at $i follows a $ that bash reads as $'..' or $"..": an odd run of unescaped $
 # (an even run is $$ pairs, the PID). An odd run of \ before the $ run escapes its first $.
@@ -228,13 +268,13 @@ safe_targets() { local S_W S_P S_R S_H S_HEAD S_AMB=0; _treset; tokenize "$2"; p
 # target of the caller's own (skipped) segment list, which must hold tokenize's parse of <command> and where
 # a cd in a heredoc body moves nothing, plus those of
 # the unskipped parses (no heredoc body skipped): the whole command with # as a word (lit) and with # at a
-# word start as a comment (cmt), and its lines one by one in lit, cd carrying from line to line, so a quote a
+# word start as a comment (cmt), with quotes as plain characters (raw), and its lines one by one in lit, cd carrying from line to line, so a quote a
 # body line leaves open cannot swallow the next. TK_MODE is local to _fallback_passes and reaches tokenize
 # and any nested safe_targets by dynamic scope; the pipeline's subshell keeps it from the caller.
 fallback_targets() { { git_targets "$1" "${3:-$cwd}"; _fallback_passes "$@"; } | awk '!x[$0]++'; }
 _fallback_passes() {
   local S_W S_P S_R S_H S_HEAD S_AMB TK_MODE ln
-  for TK_MODE in lit cmt; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
+  for TK_MODE in lit cmt raw; do _treset; tokenize "$2"; git_targets "$1" "${3:-$cwd}"; done
   # the lines append to one list, so cd carries from line to line (S_HEAD indexes span lines; unused here)
   TK_MODE=lit; _treset; while IFS= read -r ln; do tokenize "$ln"; done <<<"$2"; git_targets "$1" "${3:-$cwd}"
 }
