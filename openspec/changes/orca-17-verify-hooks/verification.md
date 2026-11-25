@@ -7,8 +7,8 @@ Filled by the apply session after merge (tasks.md section 5, design.md "Live che
 | Item | Value |
 |---|---|
 | Date | |
-| `claude --version` | |
-| Stable checkout `rev-parse --short HEAD` | |
+| `claude --version` (run version; README minimum stays 2.1.318) | |
+| Stable checkout `rev-parse --short HEAD` (expected `1604372`) | |
 | `readlink -f "$(command -v orca-lc)"` | |
 | SessionStart matcher | |
 | `orca-lc gate-fresh` exit | |
