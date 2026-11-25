@@ -15,11 +15,11 @@ fires 'cd sub && cat f' "Read tool"; fires 'bash -c "cat f"' "Read tool"; fires 
 fires 'cat a > b' "Write tool"; fires "grep '>' f" "Grep tool"
 fires 'cat f' "toolAdvice: false"
 fires 'cat f 2>err.log' "Read tool"; fires 'echo x 1>f' "Write tool"; fires 'rg --files' "Glob tool"
-fires 'cat - f' "Read tool"; fires 'tail -n 5 app.log' "Read tool"; fires 'less app.log' "Read tool"; fires 'rg x f <<<"$y"' "Grep tool"
+fires 'echo x >&f' "Write tool"; fires 'echo x >& f' "Write tool"; fires 'cat - f' "Read tool"; fires 'tail -n 5 app.log' "Read tool"; fires 'less app.log' "Read tool"; fires 'rg x f <<<"$y"' "Grep tool"
 
 quiet 'git log | grep x'; quiet 'git log | head -n 20'; quiet 'git log | grep -A 3 fix'; quiet 'git log | rg fix'
 quiet 'cmd | head -5'; quiet 'make > build.log'; quiet 'make | tee build.log'; quiet 'make 2>&1 | tee build.log'
-quiet 'echo hi > /dev/null'; quiet 'echo x >&2'; quiet 'ls 2>&1'; quiet 'ls -la'; quiet "awk '{print}' f"
+quiet 'echo hi > /dev/null'; quiet 'echo x >&2'; quiet 'echo x >&$fd'; quiet 'echo x >&-'; quiet 'ls 2>&1'; quiet 'ls -la'; quiet "awk '{print}' f"
 quiet 'find . -name x -exec rm {} \;'
 quiet 'echo x 2>err.log'
 quiet 'tail -f app.log'; quiet 'tail -F app.log'; quiet 'tail --follow=name app.log'; quiet 'less +F app.log'
@@ -32,6 +32,7 @@ quiet $'git commit -F - <<EOF\nit\'s done\nhead notes.txt\nEOF'
 # once per session per kind
 assert_contains "$(run 'cat one' s1)" "Read tool"
 assert_eq "$(run 'cat other' s1)" "0 " "second read in a session is quiet"
+assert_eq "$(run 'head other.txt' s1)" "0 " "a read by another command in the same session is quiet"
 assert_contains "$(run 'grep -r x .' s1)" "Grep tool" "another kind still fires"
 assert_contains "$(run 'cat other' s2)" "Read tool" "another session fires again"
 assert_contains "$(run 'cat other' '')" "Read tool" "no session_id: first"
@@ -44,6 +45,8 @@ assert_eq "$(ls "$r/.git/orca-tool-advice" | grep -c '\.\.')" 0 "no ../x marker"
 # toolAdvice: false
 off=$(new_repo '{"project":"proj","gate":"true","toolAdvice":false}')
 assert_eq "$(run 'cat file' s9 "$off")" "0 " "toolAdvice false: quiet"
+str=$(new_repo '{"project":"proj","gate":"true","toolAdvice":"false"}')
+assert_contains "$(run 'cat file' s10 "$str")" "Read tool" "only a literal false turns it off, not the string \"false\""
 
 # code-graph advice takes precedence
 src=$(new_repo '{"project":"proj","gate":"true","sourceGlob":"src/"}')
