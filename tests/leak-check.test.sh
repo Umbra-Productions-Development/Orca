@@ -334,6 +334,12 @@ pre 2 "handoff with a relative path blocked" Write ".orca/handoffs/orca-9/x.md" 
 if [ "$(id -u)" != 0 ]; then mkdir -p "$TMPDIR/wt/zebra-noexec"; chmod 000 "$TMPDIR/wt/zebra-noexec"
   pre 0 "unsearchable dir passes" Write "$TMPDIR/wt/zebra-noexec/x/y.md" "$hit"; clean; ok $? "pretool: an unsearchable dir's cd error is not echoed"
   chmod 755 "$TMPDIR/wt/zebra-noexec"; fi
+# A sharedDir outside any git repo is still scanned: the edit's own repo lookup finds none there (#115).
+od="$TMPDIR/outside-shared"; mkdir -p "$od/handoffs/orca-9"; ! git -C "$od" rev-parse 2>/dev/null; ok $? "outside sharedDir is in no git repo"
+jq -n --arg s "$od" '{leakCheck:true, sharedDir:$s}' > .orca/config.json
+pre 2 "handoff in a sharedDir outside any repo blocked" Write "$od/handoffs/orca-9/x.md" "$hit"
+pre 0 "clean handoff in a sharedDir outside any repo passes" Write "$od/handoffs/orca-9/x.md" '{"content":"all clean"}'
+printf '{"leakCheck":true}\n' > .orca/config.json
 pre 0 "missing dirs under a sibling pass" Write "$S/handoffs-old/a/b/x.md" "$hit"
 mv "$S/handoffs" "$S/handoffs.away"; pre 2 "handoff before handoffs/ exists blocked" Write "$S/handoffs/orca-1/x.md" "$hit"; mv "$S/handoffs.away" "$S/handoffs"
 # A leak-check that fails for any reason blocks, and its output is not echoed.
@@ -353,6 +359,13 @@ printf '{"leakCheck":false}\n' > .orca/config.json
 pre 0 "leakCheck false: handoff hit passes" Write "$S/handoffs/orca-9/x.md" "$hit"
 printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > .orca/config.json
 pre 2 "test-lock block on a test file" Write "$TMPDIR/repo/zebra.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the path"
+# The block names no root either: the file's repo, wherever it sits, may carry a denylisted term in its path (#115).
+zr="$TMPDIR/zebra-root"; git init -q "$zr"; mkdir -p "$zr/.orca"; printf '{"testGlob":"\\\\.test\\\\.sh$"}\n' > "$zr/.orca/config.json"
+pre 2 "test-lock block on a test file in another repo" Write "$zr/a.test.sh" '{"content":"x"}'; clean; ok $? "pretool: test-lock block never echoes the file's repo root"
+# A ~/ path into the shared dirs is scanned as its expansion, as Claude Code writes it (#115).
+printf '{"leakCheck":true}\n' > .orca/config.json
+HOME=$TMPDIR pre 2 "handoff Write by a ~/ path blocked" Write "~/repo/.orca/handoffs/orca-9/x.md" "$hit"
+HOME=$TMPDIR pre 0 "clean handoff Write by a ~/ path passes" Write "~/repo/.orca/handoffs/orca-9/x.md" '{"content":"all clean"}'
 
 # An unreadable list refuses everywhere with exit 2, named by kind, never by its path; nothing is written.
 if [ "$(id -u)" != 0 ]; then

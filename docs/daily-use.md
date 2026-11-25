@@ -11,7 +11,7 @@ Two checkouts of Orca:
 | `Orca` | `main` and feature branches | Developing Orca |
 | `Orca-stable` (a `git worktree` of the same clone) | `stable` | The install everyday work runs on |
 
-`install.sh` runs from `Orca-stable` only. It symlinks `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: pull `stable` in `Orca-stable`, run `install.sh` again. An install that points at another checkout is left alone; run `./install.sh --force` from `Orca-stable` to move it there.
+`install.sh` runs from `Orca-stable` only. It links `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: `git pull` on `stable` in `Orca-stable`, then `./install.sh` again. On Git Bash without Developer Mode, install copies instead of linking and says so; there the rerun after every pull is what updates the copies. An install made from another Orca checkout stops install and changes nothing; run `./install.sh --force` from `Orca-stable` to move it there. To remove Orca: `./install.sh --uninstall` from `Orca-stable`; it lists every path it leaves in place and exits 1 when it leaves any.
 
 ```bash
 git -C Orca worktree add --track -b stable ../Orca-stable origin/stable
@@ -66,7 +66,7 @@ The orchestrator starts `apply` the same way. Ownership moves forward: only the 
 Apply implements `tasks.md`, commit by commit. While it works:
 
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
-- Editing a test file is blocked. When a test is genuinely wrong, `orca-lc test-lock on`, change it, say why in the commit body, `orca-lc test-lock off`.
+- Editing a test file is blocked. When a test is genuinely wrong, run `orca-lc test-lock on` in the worktree that holds the test, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
 - `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. When the tree already carries a fresh mark it skips and says so; `--force` reruns it. Any later edit, or a change to `.orca/config.json` or `.env`, makes the mark stale. With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.
 - Each commit is reported to the orchestrator; the PreToolUse hook reminds it.
