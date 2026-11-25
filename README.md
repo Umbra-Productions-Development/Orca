@@ -140,7 +140,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
-| `minFreeMemMb` | Available memory, in MB, under which `role start` refuses to open a new session. Default `3000` |
+| `minFreeMemMb` | Available memory, in MB, under which `role start` refuses to open a new session; reuse and `--replace` skip it. Default `3000` |
 
 Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an agent name, or `{"do": "<instruction>"}`. Any object entry may add `"when": "<regex>"` to run only when a path matches: a review path (the diff's paths minus `reviewExcludes`) for `reviewPasses` and `reviewChecks`, any path in the diff for `applyChecks`.
 

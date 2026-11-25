@@ -80,6 +80,9 @@ run role start ABC-1 propose
 check 'low memory refuses a new session and lists idle ones' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "under minFreeMemMb 3000.*abc1-review" "$H/out"'
 run role start ABC-1 review
 check 'low memory still allows reuse' 'grep -q "^handoff " "$H/out"'
+run role start ABC-1 walk --replace abc1-tour
+check 'low memory still allows --replace, which frees a session' '[ "$(agents)" = "abc1-review abc1-walk" ]'
+run role start ABC-1 tour --replace abc1-walk
 ORCA_MEMINFO="$H/none" run role start ABC-1 propose
 check 'unknown free memory (no /proc/meminfo) opens the session' 'jq -e "any(.name==\"abc1-propose\")" "$H/agents" >/dev/null'
 run role retire ABC-1 propose

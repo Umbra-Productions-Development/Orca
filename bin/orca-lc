@@ -742,8 +742,10 @@ cmd_role() {
           [ -z "$other" ] || role_tab_owned "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")" || die "the tab of $replace was not opened by role start; exit it yourself"
         fi
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
-        # No /proc/meminfo (macOS): free memory is unknown, so the guard stands aside rather than refusing every start.
-        [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. Idle sessions on $t to retire (orca-lc role retire $t <role>): $(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")"
+        # The guard stands aside when free memory is unknown (no /proc/meminfo, as on macOS) and on --replace,
+        # which exits one session for each one it opens.
+        local idle; idle=$(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name] | join(", ")' <<<"$all")
+        [ -z "$other" ] && [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. $( [ -n "$idle" ] && echo "Idle sessions on $t to retire (orca-lc role retire $t <role>): $idle" || echo "No session on $t is idle; retire one once it reports")"
       fi
       local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
       if [ -n "$ag" ]; then
