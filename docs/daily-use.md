@@ -66,7 +66,7 @@ The orchestrator starts `apply` the same way. Ownership moves forward: only the 
 Apply implements `tasks.md`, commit by commit. While it works:
 
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
-- `orca-lc test-affected` and `orca-lc evidence` measure against `origin/<baseBranch>`, fetched first, so a stale local base branch never leaks its missing commits into the diff; `evidence <base>` uses the base you give it as is, and the evidence file's header names the base and merge base it used.
+- `orca-lc test-affected` and `orca-lc evidence` measure against `origin/<baseBranch>`, fetched first, so a stale local base branch does not leak its missing commits into the diff. With no `origin/<baseBranch>` at all they fall back to the local base branch, labelled `local; fetch failed`, and a stale one does leak; `evidence <base>` uses the base you give it as is, and the evidence file's header names the base and merge base it used.
 - Editing a test file is blocked. When a test is genuinely wrong, run `orca-lc test-lock on` in the worktree that holds the test, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
 - `orca-lc gate` runs the full gate (in a split pane that closes on success) and marks the exact tree. Any later edit makes the mark stale. With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.

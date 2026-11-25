@@ -28,3 +28,6 @@
 - [x] 5.5 Confirm cases 7, 8 and 10 fail before 4.x and pass after; say so in the commit bodies.
 - [x] 5.6 `docs/daily-use.md`: say `worktree up` cuts new branches from the fetched `origin/<baseBranch>` and prints the base it used.
 - [x] 5.7 Run `orca-lc gate`; it passes.
+- [x] 5.8 `fetch_origin_branch` helper for the explicit-refspec fetch, used by `pick_base` and `worktree up`; `pick_base` sets `base_branch` and the no-base message uses it (PR #149 review).
+- [x] 5.9 `docs/daily-use.md`: say the local-base fallback (`local; fetch failed`) can leak a stale base's commits (PR #149 review).
+- [x] 5.10 `tests/base.test.sh` case 12: the `WARNING: upstream not set` fallback on a reused remote ticket branch (`orca-lc test-lock on`, reason in commit body, `test-lock off`).

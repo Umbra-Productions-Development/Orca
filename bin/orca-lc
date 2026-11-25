@@ -280,13 +280,16 @@ cmd_leak_check() {
   return 1
 }
 
-# pick_base -> sets the caller's base and base_label: origin/<baseBranch> after fetching it, else the local
-# branch, else HEAD~1. The explicit refspec updates origin/<b> even when origin's fetch refspec leaves it out.
+# fetch_origin_branch <branch> [git args] -> fetches origin's <branch> into origin/<branch>, quietly, never
+# prompting. The explicit refspec updates origin/<branch> even when origin's fetch refspec leaves it out.
+fetch_origin_branch() { GIT_TERMINAL_PROMPT=0 git "${@:2}" fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1" >/dev/null 2>&1; }
+# pick_base -> sets the caller's base, base_label and base_branch (baseBranch): origin/<baseBranch> after
+# fetching it, else the local branch, else HEAD~1.
 pick_base() {
-  local b fetch="fetch failed"; b=$(cfg '.baseBranch' main)
-  GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1 && fetch=fetched
-  if git rev-parse -q --verify "refs/remotes/origin/$b" >/dev/null; then base="origin/$b" base_label=$fetch
-  elif git rev-parse -q --verify "$b^{commit}" >/dev/null; then base=$b base_label="local; fetch failed"
+  local fetch="fetch failed"; base_branch=$(cfg '.baseBranch' main)
+  fetch_origin_branch "$base_branch" && fetch=fetched
+  if git rev-parse -q --verify "refs/remotes/origin/$base_branch" >/dev/null; then base="origin/$base_branch" base_label=$fetch
+  elif git rev-parse -q --verify "$base_branch^{commit}" >/dev/null; then base=$base_branch base_label="local; fetch failed"
   else base=HEAD~1 base_label="no base"; fi
 }
 has() { command -v "$1" >/dev/null; }
@@ -300,14 +303,14 @@ cmd_test_affected() {
   local tc; tc=$(cfg '.testCommand'); [ -n "$tc" ] || die "set testCommand in .orca/config.json"
   has codegraph || die "test-affected needs codegraph"
   local r; r=$(root) || die "not in a repo"; cd "$r" || exit 1; load_env; ensure_graphs
-  local base base_label mb; pick_base; mb=$(git merge-base HEAD "$base" 2>/dev/null) || mb=$(git rev-parse HEAD~1)
+  local base base_label base_branch mb; pick_base; mb=$(git merge-base HEAD "$base" 2>/dev/null) || mb=$(git rev-parse HEAD~1)
   local files; files=$( { git diff --name-only "$mb"; git ls-files --others --exclude-standard; } | sort -u | codegraph affected --stdin --quiet 2>/dev/null)
   [ -n "$files" ] || { echo "orca-lc: no affected test files"; return 0; }
   echo "$files"; bash -c "$tc $(echo "$files" | tr '\n' ' ')"
 }
 cmd_evidence() {
   local r; r=$(root) || die "not in a repo"; cd "$r" || exit 1; ensure_graphs
-  local base base_label mb out; out="$(gitdir)/orca-evidence.md"
+  local base base_label base_branch mb out; out="$(gitdir)/orca-evidence.md"
   if [ $# -gt 0 ]; then base=$1 base_label=given; else pick_base; fi
   # Before the redirect opens: a failure here must not truncate the last good evidence file.
   mb=$(git merge-base HEAD "$base" 2>/dev/null) || die "no merge base between HEAD and $base"
@@ -498,7 +501,7 @@ cmd_worktree() {
       if [ ! -d "$dir" ]; then
         # Reuse the ticket's branch where it exists: the local one as it is, else the remote one. The explicit
         # refspec finds a remote branch origin's fetch refspec leaves out; a missing one fails silently.
-        GIT_TERMINAL_PROMPT=0 git -C "$main" fetch -q origin "+refs/heads/$branch:refs/remotes/origin/$branch" >/dev/null 2>&1
+        fetch_origin_branch "$branch" -C "$main"
         if git -C "$main" show-ref -q --verify "refs/heads/$branch"; then git -C "$main" worktree add "$dir" "$branch" || die "git worktree add failed"
         elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then
           # Not --track: it refuses a remote-tracking ref no fetch refspec maps. The two keys are the upstream.
@@ -507,8 +510,8 @@ cmd_worktree() {
             echo "WARNING: upstream not set; git push -u origin $branch"
         else
           # Cut from the fetched remote base: the main checkout's own branch may be stale or somebody else's.
-          local base base_label; pick_base
-          [ "$base_label" != "no base" ] || die "no base: neither origin/$(cfg '.baseBranch' main) nor $(cfg '.baseBranch' main) exists; nothing created"
+          local base base_label base_branch; pick_base
+          [ "$base_label" != "no base" ] || die "no base: neither origin/$base_branch nor $base_branch exists; nothing created"
           if inherdr; then herdr worktree create --cwd "$main" --branch "$branch" --base "$base" --path "$dir" --label "$t" --no-focus >/dev/null || die "herdr worktree create failed"
           else git -C "$main" worktree add -b "$branch" "$dir" "$base" || die "git worktree add failed"; fi
           echo "base $base ($base_label)"
