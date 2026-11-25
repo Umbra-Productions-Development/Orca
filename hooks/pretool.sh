@@ -108,13 +108,16 @@ _tw() {
   fi; tok=""; has=0
 }
 # _tdq: one character $c inside "..". A $( ), ${ } or backtick opened in these quotes (dqs the stack of open
-# (, { and backticks, dqn once any opened) is a shell of its own that this does not parse, except
-# for heredocs. In one, a ", ', \, a # not after a word character (as $(x)#), the word case, or a ) or } that does not match the
-# innermost open ( or { (a backtick included, or closes more than was opened) sets S_AMB: each could
-# end it, or the outer string, where bash would not. A << there is a heredoc (_tdqh); its body, from the
-# next line to the line equal to its WORD, is kept raw in the word (_tdqb), as bash reads it.
+# (, { and backticks, dqn once any opened) is a shell of its own that this does not parse, except for
+# heredocs and plain '..'. In one, a ", ', \, a # not after a word character (as $(x)#), the word case,
+# or a ) or } that does not match the innermost open ( or { (a backtick included, or closes more than was
+# opened) sets S_AMB: each could end it, or the outer string, where bash would not. A << there is a
+# heredoc (_tdqh); its body, from the next line to the line equal to its WORD, is kept raw in the word
+# (_tdqb), as bash reads it. A ' (not $') with a $( ) innermost and no backtick open is read to the next
+# ', as bash does there, when that text holds none of " ` \ ( ) { } $ or a newline: none of those, so
+# skipping it changes nothing this reader tracks, even inside $(( )), where bash does not quote.
 _tdq() {
-  local z=${#dqs}
+  local z=${#dqs} t
   if [ "$c" = '"' ]; then [ "$z" -gt 0 ] && S_AMB=1; q=""
   elif [ "$c" = '\' ]; then [ "$z" -gt 0 ] && S_AMB=1
     if [[ "${s:i+1:1}" == [\"\\\$\`] ]]; then tok+=${s:i+1:1}; i=$((i+1)); else tok+=$c; fi
@@ -125,7 +128,11 @@ _tdq() {
       ')'|'}') if [ -n "$dqs" ]; then case "${dqs: -1}$c" in '()'|'{}') ;; *) S_AMB=1;; esac; dqs=${dqs%?}
         elif [ "$dqn" = 1 ]; then S_AMB=1; fi;;
       '`') if [ "${dqs: -1}" = '`' ]; then dqs=${dqs%?}; else dqs+=$c; fi; dqn=1;;
-      "'") [ "$z" -gt 0 ] && S_AMB=1;;
+      "'") if [ "${dqs: -1}" = '(' ] && [[ "$dqs" != *'`'* ]] && [ "${s:i-1:1}" != '$' ]; then
+             t=${s:i+1}; t=${t%%"'"*}
+             if [ $((i+1+${#t})) -lt "$n" ] && [[ "$t" != *[\"\`\\\(\)\{\}\$$'\n']* ]]; then
+               tok+=$t"'"; i=$((i+1+${#t})); else S_AMB=1; fi
+           elif [ "$z" -gt 0 ]; then S_AMB=1; fi;;
       '#') [ "$z" -gt 0 ] && [[ "${s:i-1:1}" != [A-Za-z0-9_\$\{/.:=,+@%^~-] ]] && S_AMB=1;;
       c) [ "$z" -gt 0 ] && [ "${s:i:4}" = case ] && [[ "${s:i-1:1}" == [' '$'\t'$'\n'';&|(`'] ]] \
            && [[ "${s:i+4:1}" == [' '$'\t'$'\n'] ]] && S_AMB=1;;

@@ -122,6 +122,9 @@ assert_eq "$(hook "$r" $'cat <<$(echo E)\nbody\n$(echo E)\ngit push\n$' | tail -
 assert_eq "$(hook "$r" $'cat <<${x:- y}\nbody\n${x:- y}\ngit push\n${x:-' | tail -1)" 2 "a delimiter word opening \${ } hides nothing"
 assert_eq "$(hook "$r" $'cat <<`echo E`\nb\n`echo E`\ngit push\n`echo' | tail -1)" 2 "a delimiter word opening a backtick hides nothing"
 assert_eq "$(hook "$r" "[[ a < b ]] && echo 'ok; git push later'" | tail -1)" 0 "< in [[ ]] leaves a quoted push text alone"
+assert_eq "$(hook "$r" "git commit -m \"wip \$(date '+%F'): tests pass; git push after review\"" | tail -1)" 0 "a '..' in \"\$( )\" is read exactly: the message's push text is no push"
+assert_eq "$(hook "$r" "echo \"\$(git log --format='%s' -1)\"; echo 'tip; git push later'" | tail -1)" 0 "a '..' in \"\$( )\" leaves a later quoted push text alone"
+assert_eq "$(hook "$r" "echo \"\$(echo 'a b')\"; git push" | tail -1)" 2 "a push after a '..' in \"\$( )\" is gated"
 assert_eq "$(hook "$r" 'git pu"sh" origin main' | tail -1)" 2 "a verb split by quotes is still read by main's reading"
 assert_eq "$(hook "$r" 'git p\ush' | tail -1)" 2 "a verb split by a backslash is still read by main's reading"
 # a push origin/main's reading misses: a redirect glued to the verb
