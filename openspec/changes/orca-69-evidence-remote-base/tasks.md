@@ -33,3 +33,4 @@
 - [x] 5.10 `tests/base.test.sh` case 12: the `WARNING: upstream not set` fallback on a reused remote ticket branch (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
 - [x] 5.11 `worktree up`: warn `upstream not set` only when `branch.<b>.merge` is still unset after the writes; `fetch_origin_branch` takes `[-C dir] <branch>` in git's order (PR #149 review).
 - [x] 5.12 `tests/base.test.sh`: cases 10 and 12 share the outside-the-refspec fixture; case 12 asserts no `base` line and writes its `git` wrapper with a heredoc, real path quoted (PR #149 review; test-lock on/off, reason in commit body).
+- [x] 5.13 `fetch_origin_branch`: run the user's ssh command (`GIT_SSH_COMMAND`, else `core.sshCommand`, else `ssh`) with `-o BatchMode=yes` so an ssh passphrase or host-key prompt cannot hang the fetch; a `GIT_SSH` program alone is left as is. `tests/base.test.sh` case 13 drives both sources (PR #149 review suggestion; test-lock on/off, reason in commit body).

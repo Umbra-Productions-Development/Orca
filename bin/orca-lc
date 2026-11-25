@@ -282,7 +282,15 @@ cmd_leak_check() {
 
 # fetch_origin_branch [-C dir] <branch> -> fetches origin's <branch> into origin/<branch>, quietly, never
 # prompting. The explicit refspec updates origin/<branch> even when origin's fetch refspec leaves it out.
-fetch_origin_branch() { local b="${!#}"; GIT_TERMINAL_PROMPT=0 git "${@:1:$#-1}" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1; }
+# GIT_TERMINAL_PROMPT=0 stops https prompts; ssh asks on /dev/tty, so the ssh command the user would get
+# (GIT_SSH_COMMAND, else core.sshCommand, else ssh) runs with BatchMode=yes. A GIT_SSH program alone is
+# left as is: it may not take ssh's -o.
+fetch_origin_branch() {
+  local b="${!#}" ssh; local -a g=("${@:1:$#-1}") e=(GIT_TERMINAL_PROMPT=0)
+  ssh=${GIT_SSH_COMMAND:-$(git "${g[@]}" config --get core.sshCommand)}
+  [ -z "$ssh" ] && [ -n "${GIT_SSH:-}" ] || e+=("GIT_SSH_COMMAND=${ssh:-ssh} -o BatchMode=yes")
+  env "${e[@]}" git "${g[@]}" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1
+}
 # pick_base -> sets the caller's base, base_label and base_branch (baseBranch): origin/<baseBranch> after
 # fetching it, else the local branch, else HEAD~1.
 pick_base() {
