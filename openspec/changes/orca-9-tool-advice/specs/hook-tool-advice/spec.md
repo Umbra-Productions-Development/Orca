@@ -30,7 +30,7 @@ In a repository carrying `.orca/config.json`, the PreToolUse hook SHALL advise, 
 
 ### Requirement: Heredoc bodies are not commands
 
-The hook SHALL skip heredoc bodies when reading a Bash command, for the tool advice and for the push and commit checks alike.
+The hook SHALL skip heredoc bodies when reading a Bash command, for the tool advice and for the push and commit checks alike. When the parse is ambiguous (a quote, `${ }`, `$( )`, backtick or arithmetic left open, a heredoc without an exact terminator, or a `#` or `<<` it cannot place), the push and commit checks SHALL instead read the command with heredoc bodies unskipped, so a misparse never hides a push or commit (fail closed).
 
 #### Scenario: Push text inside a heredoc body
 - **WHEN** the command is `cat > notes <<EOF`, a body line `git push origin main`, then `EOF`, and the gate marker is stale
@@ -38,6 +38,10 @@ The hook SHALL skip heredoc bodies when reading a Bash command, for the tool adv
 
 #### Scenario: Push after the heredoc ends
 - **WHEN** a `git push` line follows the heredoc's terminator and the gate marker is stale
+- **THEN** the hook blocks the push
+
+#### Scenario: Unterminated heredoc fails closed
+- **WHEN** the command is `cat > notes <<EOF` followed by a body line `git push origin main` and no `EOF` line, and the gate marker is stale
 - **THEN** the hook blocks the push
 
 #### Scenario: Never a block

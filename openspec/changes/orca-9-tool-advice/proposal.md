@@ -6,7 +6,7 @@ Sessions often read, search or write files through Bash (`cat`, `grep`, `find`, 
 
 - `hooks/pretool.sh`, Bash branch: after the code-graph advice, advise (never block) when a command segment reads, searches or writes a file that a dedicated tool covers. The message is one line naming the command, the tool and the off switch.
 - Detection is per command segment, through the same quote-aware split `git_targets` uses (it follows `cd`, `bash -c` and `env`/`command` prefixes). A reader or searcher fires only with a file operand, so pipelines over command output (`git log | grep x`, `cmd | head`) stay quiet.
-- The tokenizer is shared and built once per call; it skips heredoc bodies for every consumer, so a heredoc body line starting with `git push` is no longer gated (a deliberate change to the push/commit checks). `tee` advises only when its pipeline starts with `cat`/`echo`/`printf` or a heredoc.
+- The tokenizer is shared and built once per call; it skips heredoc bodies for every consumer, so a heredoc body line starting with `git push` is no longer gated (a deliberate change to the push/commit checks). When the parse is ambiguous, push and commit detection fails closed and reads bodies unskipped. `tee` advises only when its pipeline starts with `cat`/`echo`/`printf` or a heredoc.
 - Once per session per kind (read, search, write), remembered by a marker under the git dir; every call when the payload has no `session_id`.
 - New config key `toolAdvice` (boolean, default `true`); `false` turns the advice off.
 - Docs: README config table, `orca.example.json`, `docs/daily-use.md`.
