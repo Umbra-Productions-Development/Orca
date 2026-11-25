@@ -96,3 +96,13 @@ assert_not_contains "$out" "base " "remote ticket branch: base line printed for 
 r=$(stale_repo); d=$(dirname "$r"); git -C "$r" remote remove origin; git -C "$r" branch -qD main; git -C "$r" branch t-4/work
 out=$(wt_up "$r" T-4); assert_status $? 0 "local ticket branch, no base: worktree up failed: $out"
 assert_contains "$out" "on t-4/work" "local ticket branch, no base: not reused"
+
+# 12. worktree up, upstream config fails on a reused remote ticket branch: still reused, warns with the push command
+r=$(stale_repo); d=$(dirname "$r"); c=$(mktemp -d)/clone
+git clone -q "$d/remote.git" "$c"; git -C "$c" checkout -q -b t-3/work
+echo t > "$c/ticket.txt"; git -C "$c" add -A; git -C "$c" commit -qm ticket; git -C "$c" push -q origin t-3/work
+w=$(mktemp -d); real=$(command -v git)
+printf '#!/bin/sh\nfor a; do case "$a" in branch.*.remote|branch.*.merge) [ "$prev" = config ] || [ "$prev2" = config ] && exit 1;; esac; prev2=$prev prev=$a; done\nexec %s "$@"\n' "$real" > "$w/git"; chmod +x "$w/git"
+out=$(PATH="$w:$PATH" wt_up "$r" T-3); assert_status $? 0 "upstream not set: worktree up failed: $out"
+[ -f "$d/T-3/ticket.txt" ] || fail "upstream not set: not reused"
+assert_contains "$out" "WARNING: upstream not set; git push -u origin t-3/work" "upstream not set: no warning"
