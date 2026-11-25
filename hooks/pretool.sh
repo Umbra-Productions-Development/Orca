@@ -69,7 +69,7 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # is not plain text, or a heredoc body there with no terminator. new_targets then adds raw_targets.
 tokenize() {
   # LC_ALL=C first, alone: ${s:i:1} is O(1) per byte instead of O(i) per character, and n counts bytes
-  local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() dqx=0 dqp=0 raw=${TK_RAW:-}
+  local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() dqx=0 dqp=0 tas=0 raw=${TK_RAW:-}
   for ((i=0; i<n; i++)); do c=${s:i:1}
     if [ "$q" = "'" ]; then [ "$c" = "'" ] && q="" || tok+=$c
     elif [ "$q" = A ]; then   # $'..': \' and \\ followed, any other escape is not modelled
@@ -175,13 +175,16 @@ _tdqb() {
   done; dqh=()
 }
 # _tarith: at the $ of an unquoted $(( at $i, take the expansion to its matching )) into the word, so a <<
-# in it is a shift, not a heredoc; one holding a quote, \, backtick or newline is left to the main loop.
+# in it is a shift, not a heredoc; one holding a quote, \, backtick or newline, or left open, is left to the
+# main loop. A failed scan records where it stopped (tas) and no $(( before that is scanned again, so the
+# scans stay linear in the command (review round 8: 1000 unmatched $(( took 24 s).
 _tarith() {
   local j=$((i+3)) d=2
+  [ "$j" -ge "$tas" ] || return 0
   while [ "$j" -lt "$n" ] && [ "$d" -gt 0 ]; do
-    case "${s:j:1}" in '(') d=$((d+1));; ')') d=$((d-1));; [\'\"\`\\]|$'\n') return;; esac; j=$((j+1))
+    case "${s:j:1}" in '(') d=$((d+1));; ')') d=$((d-1));; [\'\"\`\\]|$'\n') tas=$j; return 0;; esac; j=$((j+1))
   done
-  [ "$d" = 0 ] || return 0; tok+=${s:i+1:j-i-1}; i=$((j-1))
+  [ "$d" = 0 ] || { tas=$j; return 0; }; tok+=${s:i+1:j-i-1}; i=$((j-1))
 }
 # _tansi: true when the quote at $i follows a $ that bash reads as $'..' or $"..": an odd run of unescaped $
 # (an even run is $$ pairs, the PID). An odd run of \ before the $ run escapes its first $.

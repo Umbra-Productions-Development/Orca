@@ -151,5 +151,9 @@ assert_eq "$(hook "$plain" "git -C $d/stale push")" 2 "non-Orca cwd pushing into
 assert_eq "$(hook "$r" "git -C $plain/p push")" 0 "push into a repo without config is left alone"
 assert_eq "$(hook "$r" "git -C $d/stale status")" 0 "not a push"
 assert_eq "$(hook "$r" 'echo git push')" 0 "git push as an argument is not a push"
+# 1000 unmatched $(( (3 KB) scan in linear time: the 15 s hook timeout would let the push run (#9 review round 8)
+c=$'git push\n: '; for k in $(seq 1000); do c+='$(('; done
+t0=$(date +%s); assert_eq "$(hook "$r" "$c" | tail -1)" 2 "a push before 1000 unmatched \$(( is gated"
+[ $(( $(date +%s) - t0 )) -le 6 ] || fail "1000 unmatched \$(( took over 6 s"
 assert_contains "$(hook_json Bash "$d/fresh" "git -C $d/stale push" | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)" "stale for $d/stale"
 assert_eq "$(hook "$d/fresh" 'git merge stale')" 2 "merge still blocked"
