@@ -8,13 +8,20 @@
 
 ## The hook
 
-A foreground `Bash` call (no `run_in_background: true`) whose command holds `sleep <n>` is blocked when the command also:
+A foreground `Bash` call (no `run_in_background: true`) whose command holds `sleep <n>` outside quotes is blocked when what runs after the sleep:
 
 1. names a Claude Code task output (`…/tasks/<id>.output`), or a `.log`, `.out` or `.txt` file that a `run_in_background` command of this session names in the transcript;
-2. runs `herdr agent get|list|read`, `orca-lc peers` or `orca-lc inbox`;
+2. runs `herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox` or `orca-lc inbox read` (`orca-lc inbox send` passes);
 3. runs `gh pr view|checks` or `gh run view|list`.
 
-Anything else passes with no message. The file match goes through the transcript so a `sleep 3; tail server.log` that waits for a process not started in the background is never blocked.
+What counts as running after the sleep:
+
+- Quoted text is dropped before matching, so `git commit -m "… sleep 30 before gh pr view"` passes. Double-quoted text goes first, so an apostrophe inside it does not pair with a later single quote. File names are read from the command as written, since a path may be quoted.
+- Outside a loop, only the text from the sleep on counts: `gh pr view 83; sleep 2; echo ok` passes.
+- When the sleep sits in a loop still open before it, the text from that loop's `while`, `until` or `for` on counts, because the loop's check runs again after the sleep: `for …; do gh pr view 8; sleep 30; done` is blocked. A loop that closed before the sleep does not count: `for …; do gh pr view 8; done; sleep 2; echo ok` passes. The nearest loop keyword wins, so a sleep in an outer loop after a closed inner one counts from the sleep.
+- A loop whose `until` or `while` condition greps a background-written file passes for that file: `until grep -q ready server.log; do sleep 1; done` waits on a server's readiness line, and a server never completes. A sleep after the loop's last `done` that reads the same file is still blocked. A loop with no such condition (`while sleep 60; do tail build.log; done`) is not exempt.
+
+Anything else passes with no message. The file match goes through the transcript so a `sleep 3; tail server.log` that waits for a process not started in the background is never blocked. When the file is a background command's, the block message names the readiness loop for a command that never exits.
 
 ## The gate skip
 
