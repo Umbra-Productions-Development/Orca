@@ -16,12 +16,17 @@ fires 'cd sub && cat f' "Read tool"; fires 'bash -c "cat f"' "Read tool"; fires 
 fires 'cat a > b' "Write tool"; fires "grep '>' f" "Grep tool"
 fires 'cat f' "toolAdvice: false"
 fires 'cat f 2>err.log' "Read tool"; fires 'echo x 1>f' "Write tool"; fires 'rg --files' "Glob tool"
+fires 'cat - f' "Read tool"; fires 'tail -n 5 app.log' "Read tool"; fires 'less app.log' "Read tool"; fires 'rg x f <<<"$y"' "Grep tool"
 
 quiet 'git log | grep x'; quiet 'git log | head -n 20'; quiet 'git log | grep -A 3 fix'; quiet 'git log | rg fix'
 quiet 'cmd | head -5'; quiet 'make > build.log'; quiet 'make | tee build.log'; quiet 'make 2>&1 | tee build.log'
 quiet 'echo hi > /dev/null'; quiet 'echo x >&2'; quiet 'ls 2>&1'; quiet 'ls -la'; quiet "awk '{print}' f"
 quiet 'find . -name x -exec rm {} \;'
 quiet 'echo x 2>err.log'
+quiet 'tail -f app.log'; quiet 'tail -F app.log'; quiet 'tail --follow=name app.log'; quiet 'less +F app.log'
+quiet 'cat -'; quiet 'git show x | cat -'; quiet 'grep pat -'
+quiet 'echo x > /dev/stderr'; quiet 'echo x >/dev/tty'; quiet 'printf x > /dev/stdout'
+quiet 'rg x <<<"$y"'; quiet $'rg x <<EOF\nbody\nEOF'; quiet 'grep x < f'; quiet 'cat < f'
 quiet $'git commit -F - <<EOF\nless noise in tail output\nhead notes.txt\nEOF'
 quiet $'git commit -F - <<EOF\nit\'s done\nhead notes.txt\nEOF'
 
