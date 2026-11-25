@@ -26,6 +26,43 @@ abspath() { local p="$1" c d; ap=""
 orca_root() { local r; r=$(git -C "$1" rev-parse --show-toplevel 2>/dev/null) && [ -f "$r/.orca/config.json" ] && echo "$r"; }
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
 
+# The sleep rule. Each helper takes the command flattened to one line.
+SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9]'
+# unquote <text>: the text without quoted strings, so a commit message naming a sleep or a check is not one.
+# Double quotes go first: an apostrophe inside them ("the server's log") would otherwise pair with the next single quote.
+unquote() { sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g" <<<"$1"; }
+# after_done <text>: what follows the last 'done', or the whole text when there is none.
+after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
+# from_sleep <text>: from the first sleep to the end; or, when that sleep sits in a loop still open before it,
+# from the loop keyword, since the loop's check runs again after the sleep. The nearest loop keyword wins, so a
+# sleep in an outer loop after a closed inner one reads from the sleep.
+from_sleep() { local pre l; [[ $1 =~ $SLEEP ]] || return 0; pre=${1%%"${BASH_REMATCH[0]}"*}
+  l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
+  [ "$(after_done "$l")" = "$l" ] || l=""
+  printf '%s%s\n' "$l" "${1#"$pre"}"; }
+# readiness_exempt <file> <flat> <unquoted>: a loop whose until/while condition greps the file (a server's
+# readiness line) waits on output, not on completion, since a server never completes. Not when a sleep after
+# the last 'done' reads the file again.
+readiness_exempt() { grep -oE '(^|[;&|(][[:space:]]*)(until|while)[[:space:]]+[^;]*' <<<"$3" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
+  && ! grep -oE "$SLEEP.*" <<<"$(after_done "$2")" | grep -qF -- "$1"; }
+# bg_writes <file> <transcript>: a run_in_background command of this session names the file.
+bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
+# sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
+# wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
+# (a path may be quoted); peer and CI checks read it unquoted.
+sleep_rule() { local flat nq raw after f wake="End the turn instead: its completion wakes this session, inside a subagent too"
+  flat=$(tr '\n' ' ' <<<"$1"); nq=$(unquote "$flat")
+  grep -qE "$SLEEP" <<<"$nq" || return 0
+  raw=$(from_sleep "$flat"); after=$(from_sleep "$nq")
+  grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
+  while IFS= read -r f; do
+    [ -n "$f" ] && ! readiness_exempt "$f" "$flat" "$nq" && bg_writes "$f" "$2" \
+      && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
+  done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)
+  grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
+  grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
+  return 0; }
+
 # git_targets <verb> <command> [dir]: the directory each `git [global opts] <verb>` in the command acts on,
 # one per line. Words split with shell quoting; ; & | ( ) and newlines end a segment. `cd <dir>` carries
 # into later segments (relative to the one before, from the payload cwd); -C stacks on it; --git-dir names
@@ -98,38 +135,7 @@ case "$tool" in
       case "$r" in ""|session|orchestrator) ;; *) [ -n "$tk" ] && advise "Once this commit lands, report it: orca-lc notify $tk --role orchestrator \"<sha> <subject>\"";; esac
     fi
     [ -n "$root" ] || exit 0
-    # A sleep whose answer is already on its way: the runtime wakes the session when the turn ends. Every other sleep passes.
-    # Matching skips quoted text (a commit message naming a sleep) and reads only what runs after the sleep,
-    # or, when the sleep sits in a loop still open before it, from that loop on, since the loop's check runs
-    # again after the sleep. Double quotes go first: an apostrophe inside them ("the server's log") would
-    # otherwise pair with the next single quote.
-    sl='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9]'
-    flat=$(tr '\n' ' ' <<<"$cmd"); nq=$(sed -E "s/\"[^\"]*\"//g; s/'[^']*'//g" <<<"$flat")
-    # ponytail: the nearest loop keyword before the sleep wins; a sleep in an outer loop after a closed inner one reads from the sleep.
-    from_sleep() { local pre l; [[ $1 =~ $sl ]] || return 0; pre=${1%%"${BASH_REMATCH[0]}"*}
-      l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
-      grep -qE '(^|[;&|[:space:]])done([^[:alnum:]_]|$)' <<<"$l" && l=""
-      printf '%s%s\n' "$l" "${1#"$pre"}"; }
-    if [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" != true ] && grep -qE "$sl" <<<"$nq"; then
-      wake="End the turn instead: its completion wakes this session, inside a subagent too"
-      after=$(from_sleep "$nq"); raw=$(from_sleep "$flat")
-      grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
-      tp=$(jq -r '.transcript_path // empty' <<<"$in")
-      # A loop whose condition greps the file (a server's readiness line) passes: a server never completes.
-      # Only that file is exempt, and not when a sleep after the last 'done' reads it again.
-      polls=$(grep -oE '(^|[;&|(]\s*)(until|while)\s+[^;]*' <<<"$nq" | grep -E '(^|\s)grep\s')
-      post=$(grep -oE "$sl.*" <<<"$(sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$flat")")
-      if [ -f "$tp" ]; then
-        while IFS= read -r f; do
-          [ -n "$f" ] || continue
-          if grep -qF -- "$f" <<<"$polls" && ! grep -qF -- "$f" <<<"$post"; then continue; fi
-          grep -F -- "$f" "$tp" | jq -e --arg f "$f" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1 \
-            && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
-        done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)
-      fi
-      grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
-      grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
-    fi
+    [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" = true ] || sleep_rule "$cmd" "$(jq -r '.transcript_path // empty' <<<"$in")"
     grep -qE '(^|[;&|]\s*)git\s+rebase\b' <<<"$cmd" && advise "After the rebase, run the gate's type check even when git reports no conflict: two edits to different lines of one logic rebase clean and still break the build."
     # discovery-shaped commands over source: the graph answers cheaper. Off until sourceGlob is set.
     src=$(jq -r '.sourceGlob // empty' "$root/.orca/config.json")
