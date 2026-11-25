@@ -284,27 +284,30 @@ cmd_leak_check() {
 # prompting. The explicit refspec updates origin/<branch> even when origin's fetch refspec leaves it out.
 # GIT_TERMINAL_PROMPT=0 stops https prompts. ssh asks on /dev/tty, so the ssh command git would run
 # (GIT_SSH_COMMAND, else core.sshCommand, else ssh) gets -o BatchMode=yes when it takes ssh's options:
-# not for a plink, putty or simple variant, nor for a GIT_SSH program alone.
+# not for a plink, tortoiseplink, putty or simple variant, nor for a GIT_SSH program alone. A set but empty
+# GIT_SSH_VARIANT means ssh, as in git.
 fetch_origin_branch() {
   local -a g=(git) e=(GIT_TERMINAL_PROMPT=0); local ssh v
   if [ "$1" = -C ]; then g+=(-C "$2"); shift 2; fi
   ssh=${GIT_SSH_COMMAND:-$("${g[@]}" config --get core.sshCommand)}
   if [ -n "$ssh" ] || [ -z "${GIT_SSH:-}" ]; then
-    ssh=${ssh:-ssh}; v=${GIT_SSH_VARIANT:-$("${g[@]}" config --get ssh.variant)}
+    ssh=${ssh:-ssh}
+    if [ -n "${GIT_SSH_VARIANT+set}" ]; then v=${GIT_SSH_VARIANT:-ssh}; else v=$("${g[@]}" config --get ssh.variant); fi
     case $(ssh_variant "$ssh" "$v") in
-      plink|plink.exe|putty|tortoiseplink|tortoiseplink.exe|simple) ;;
+      plink|putty|tortoiseplink|simple) ;;
       *) e+=("GIT_SSH_COMMAND=$ssh -o BatchMode=yes") ;;
     esac
   fi
   env "${e[@]}" "${g[@]}" fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1" >/dev/null 2>&1
 }
 # ssh_variant <ssh command> [ssh.variant] -> the variant git uses: the setting unless auto, else the
-# program's lowercased name (a quoted first word may hold spaces).
+# program's lowercased name without .exe (a quoted first word may hold spaces). A setting is passed as
+# is: git reads plink.exe there as ssh.
 ssh_variant() {
   local p=$1
   [ -n "${2:-}" ] && [ "$2" != auto ] && { echo "$2"; return; }
   case $p in \"*) p=${p#\"}; p=${p%%\"*} ;; \'*) p=${p#\'}; p=${p%%\'*} ;; *) p=${p%% *} ;; esac
-  p=${p##*/}; p=${p##*\\}; echo "$p" | tr '[:upper:]' '[:lower:]'
+  p=${p##*/}; p=${p##*\\}; p=$(echo "$p" | tr '[:upper:]' '[:lower:]'); echo "${p%.exe}"
 }
 # pick_base -> sets the caller's base, base_label and base_branch (baseBranch): origin/<baseBranch> after
 # fetching it, else the local branch, else HEAD~1, labelled "no base" and returning 1.
