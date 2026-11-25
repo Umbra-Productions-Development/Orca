@@ -1,6 +1,6 @@
 ## Context
 
-Base: PR #84 at `5f8c353` (`feat/role-session-reuse`). Its `role start` runs every refusal first, then writes the handoff, then either sends `/clear` to the live idle session or opens one (kept tab or new tab, `herdr agent start --timeout 60000`), then sets the owner and sends the first prompt with `cmd_notify`.
+Base: PR #84 (`feat/role-session-reuse`). Its `role start` runs in two named phases. Checks: every refusal, the handoff write included; a live session must be idle or done (`ready_or_die`), and an extra's `--replace` target is checked here. Actions: either `/clear` to the live idle session, or exit the `--replace` target and open one (kept tab or new tab, `herdr agent start --timeout 60000`), then set the owner and send the first prompt with `cmd_notify`. This change fits into those two phases. PR #84 also archives the handoff when an action fails; this change does not keep that (see Decisions).
 
 herdr 0.9.5 facts this design uses:
 - `herdr agent get <name>` gives `.result.agent.agent_session.value` (the Claude session id), `.pane_id`, `.tab_id` and `.agent_status`.
@@ -23,12 +23,12 @@ Refusals come first, as in PR #84, so a refused start still never costs a sessio
    - `L` is stamped `sent-to` an id that is not live (the session died or was retired before reading it) → `L` is orphaned. With the same body, keep it (`resume=L`) and resend it in step 9. With a different body, step 7 replaces it. No refusal: nobody is left to read it (review finding 2).
    - `L` is not stamped and has `body-sha1: H` → `resume=L`. With a different body, step 7 replaces it, as `cmd_handoff write` already does.
 5. Live session (`ag` set):
-   - `working` → refuse (PR #84's message).
+   - Any status but `idle` or `done` (`working`, herdr's `unknown`) → refuse (PR #84's `ready_or_die`).
    - A ledger file for `sid` exists, or `L` is stamped `sent-to` `sid` (it got a different job; same-body was settled in steps 3 and 4) → without `--new`, refuse with `<name> is live and already received <handoff from ledger>; rerun with --new to clear it and send this one`. When that handoff is still the live `L`, the message adds `(not read yet)`. "Still the live `L`" is checked by content: the ledger names `L`'s path and `L`'s `body-sha1` matches the ledger's. An archived handoff frees its file name, and a handoff written in the same second can take it. When only the `sent-to` stamp shows the job, the message names `L` with `(not read yet)`. This settles decision Q6.
    - Neither → a session that never got a job, such as one that was stuck at a startup prompt on the first run. Carry on. `--new` changes nothing here, and no `/clear` is sent (review suggestion 4).
 6. No live session: PR #84's extra/`--replace` and memory checks, unchanged.
 7. Write the handoff unless `resume` is set, with the new frontmatter key `body-sha1:`. `cmd_handoff write` archives a live handoff it replaces, as before.
-8. A live session that has a ledger file, with `--new` → `/clear`, wait (PR #84), then `sid=$(session_id "$name" --changed-from "$sid")`: `/clear` starts a new Claude session, and herdr may still report the old id for a moment. Taking the old id there would write the ledger under it, and the step-4 orphan rule would later resend the job (re-review finding A). If it dies here, the handoff is written but unsent, so a rerun with `--new` resumes it. No live session → open it (PR #84) with `--timeout $(roleStartTimeoutMs)`. If the start fails or the session is `blocked`, die with the blocked-startup report. Otherwise `sid=$(session_id "$name")`.
+8. A live session that has a ledger file, with `--new` → `/clear`, wait (PR #84), then `sid=$(session_id "$name" --changed-from "$sid")`: `/clear` starts a new Claude session, and herdr may still report the old id for a moment. Taking the old id there would write the ledger under it, and the step-4 orphan rule would later resend the job (re-review finding A). If it dies here, the handoff is written but unsent, so a rerun with `--new` resumes it. No live session → open it (PR #84) with `--timeout $(roleStartTimeoutMs)`. If the start fails or the session is `blocked`, die with the blocked-startup report. Otherwise `sid=$(session_id "$name")`. A failed action in this step dies with the handoff live and unsent; the rerun each message asks for resumes it (step 4), never writes a second one.
 9. Owner (propose/apply/review): read the old owner, set the new one, and print `owner: <old> -> <new>` when they differ (`owner: <new>` when none was recorded). Nothing is printed when the owner is unchanged.
 10. Stamp `sent: <date -Is>` and `sent-to: <sid>` into the handoff, write the ledger file for `sid`, then run `cmd_notify`. If `cmd_notify` fails, remove the stamps and the ledger file and die. Stamping before sending avoids a race with the session archiving the file as soon as it reads it.
 
@@ -73,7 +73,7 @@ The fake herdr gains `agent_session.value` on agents (a new id per `agent start`
 
 The fake herdr's `agent get` can return an empty `agent_session`, or the pre-`/clear` id for a set number of calls, for cases 9, 12 and 13, and the poll's 10 s can be overridden for tests (`ORCA_SID_WAIT`).
 
-PR #84's cases that reuse a live session (`review2` folds and reuses with `/clear`, plus the reuse refusals) gain `--new`. `tests/init.test.sh` checks `roleStartTimeoutMs: 60000`. Editing tests requires `orca-lc test-lock on`, with the reason in the commit body.
+PR #84's case for a start that fails after the handoff write asserts that the handoff stays live and unsent, and that the rerun starts the session with that same handoff. PR #84's cases that reuse a live session (`review2` folds and reuses with `/clear`, plus the reuse refusals) gain `--new`. `tests/init.test.sh` checks `roleStartTimeoutMs: 60000`. Editing tests requires `orca-lc test-lock on`, with the reason in the commit body.
 
 ## Decisions
 
@@ -99,8 +99,9 @@ PR #84's cases that reuse a live session (`review2` folds and reuses with `/clea
 - A live handoff stamped `sent-to` the live session's id counts as received even when its ledger file is missing: the same body is `already sent:`, and a different body refuses without `--new` — code review should-fix on step 5.
 - `(not read yet)` compares the ledger's `body-sha1` with the live handoff's, not just its path, because an archived handoff's file name can be taken again — apply, from the first code review.
 - `roleStartTimeoutMs` is read only when a session is to be opened — code re-review suggestion.
+- A start that fails after the handoff write (agent start, a blocked startup, `/clear`, the new session id) keeps the handoff live and unsent, and the rerun resumes it. PR #84's archive-on-failure is not kept, and its failed-start test now asserts the resume — user, relayed by the orchestrator, on the stack review's should-fix.
 
 ## Risks
 
 - Step 8 assumes `/clear` gives the session a new Claude session id and that herdr reports it within the poll window. If herdr keeps the old id after `/clear`, every `--new` reuse dies at step 8. Task 4.2 checks this against a real herdr session. If it fails, apply reports it to the orchestrator before shipping, and the proposal changes: for example, the ledger would key on the pane id plus a counter.
-- This change rewrites PR #84's reuse cases. If #84 changes again before merge, this branch rebases with `orca-lc stack rebase`.
+- This change rewrites PR #84's reuse cases and its failed-start case. If #84 changes again before merge, this branch rebases with `orca-lc stack rebase`, keeping the resume-on-rerun decision above.
