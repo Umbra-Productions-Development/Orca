@@ -41,9 +41,18 @@ The `tests/lib.sh` edit and the new test files are test edits: unlock with `orca
 
 ## Live checks
 
-These need a real Claude Code 2.1.318 session on Linux, in an Orca worktree, with the new hooks installed. `~/.claude/hooks/orca` and `orca-lc` link into the stable checkout, and `install.sh` must not run outside the checkout the install comes from, so the checks run after merge: pull the stable checkout, rerun `install.sh` there, start a fresh session. The PR therefore references #17 without closing it; #17's acceptance boxes, "Verified on Linux" included, are ticked and the issue closed once the checks pass.
+These need a real Claude Code session on Linux (2.1.332 installed at the time of this section), in an Orca worktree, with the new hooks installed. `~/.claude/hooks/orca` and `orca-lc` link into the stable checkout, and `install.sh` must not run outside the checkout the install comes from, so the checks run after merge: fast-forward the stable checkout to `origin/main`, rerun `install.sh` there, start a fresh session. The PR therefore references #17 without closing it; #17's acceptance boxes, "Verified on Linux" included, are ticked and the issue closed once the checks pass.
 
 Checks: `git push` without a fresh gate is blocked; `git merge` is blocked; an Edit of a locked test file in the session's own worktree is blocked (#115 affects other worktrees); session start prints context; Stop shows the undone-work line to the user (in a worktree it also lists "uncommitted changes" until #127 lands); a Read of a handoff written by another session (its `by:` is not the reader's session id) tells Claude it was archived; a `/branch` session starts with the pane's identity intact; after `/fork`, the original session's `orca-lc name` still shows its own id.
+
+How they run (tasks.md 5.0-5.9 hold the exact commands and pass lines):
+
+- Who: the apply session `orca17-apply`, in its tab of the ORCA-17 workspace, cwd the ORCA-17 worktree. Every hook under test fires on that session's own tool calls or turn ends. The orchestrator does the install (5.0) and writes the second-session handoff (5.6). The user types `/fork` (5.8) and `/branch` (5.7) in apply's tab, since only a typed slash command starts them.
+- Probes that do nothing if the hook fails: `git push --dry-run` to a throwaway ref, `git merge --ff-only HEAD`, a Write of a new `tests/` file that apply deletes on a fail.
+- The gate stays stale through 5.5: apply never runs `orca-lc gate` during the checks, and 5.0 records that `gate-fresh` exits 1.
+- Stop's `systemMessage` reaches the user only, so apply cannot see it in its context. It ends a turn after a marker line, and on its next turn reads its own pane with `herdr pane read` and quotes what follows the marker.
+- `/fork` runs before `/branch`: after `/branch` the pane identity keeps the parent's id (Risks), so 5.8's "original session keeps its own id" can only be checked while identity and live session still agree.
+- Results: `verification.md` in this change, one row per check (command or action, quoted output, pass or fail), with a header recording the Claude Code version, the stable checkout sha, where `orca-lc` resolves and the SessionStart matcher. Apply commits it; a fail goes to the orchestrator as a finding.
 
 ## Decisions
 
@@ -60,6 +69,11 @@ Checks: `git push` without a fresh gate is blocked; `git merge` is blocked; an E
 - The handoff live check names a handoff written by another session, and fork paths `/branch` and `/fork` both get checks — propose (proposal review suggestions 2 and 4).
 - `.openspec.yaml` with `skip_specs: true`, as `document-size-counting-opt-out` has, so `openspec validate` passes — propose (proposal review suggestion 5).
 - The `.orca` symlink showing as untracked (Stop always reports "uncommitted changes" in worktrees) stays out of this change; #127 covers it — orchestrator.
+- Live checks are run by the apply session on its own tool calls and turn ends; the orchestrator installs and writes the 5.6 handoff; the user types `/fork` and `/branch` in apply's tab — propose (ORCA-17 propose handoff).
+- Each probe is harmless when the hook fails to block it (`--dry-run` push, `--ff-only HEAD` merge, a new probe file deleted on a fail) — propose.
+- `/fork` (5.8) runs before `/branch` (5.7), since `/branch` leaves the pane identity on the parent's id — propose.
+- Stop's line is checked by apply reading its own pane with `herdr pane read` after a marker line, since `systemMessage` never reaches Claude — propose.
+- Results are recorded in a new `verification.md` in this change, committed by apply — propose (ORCA-17 propose handoff).
 
 ## Risks
 
