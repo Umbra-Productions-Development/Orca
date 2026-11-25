@@ -255,6 +255,8 @@ C=$(sent_path)
 check '--new replaces the unread handoff' '[ "$(live_apply)" = "$C" ] && grep -qx "apply job C" "$C" && [ "$(find "$hd/archive" -name "apply-*" -exec grep -lx "apply job B" {} + | wc -l)" = 1 ] && [ "$(prompts)" = 3 ]'
 rm "$rd/$(apsid)"; BODY="apply job C" run role start ABC-1 apply
 check 'a handoff sent to this session with this body is already sent, even with its ledger file missing' '[ "$(cat "$H/rc")" = 0 ] && grep -qx "already sent: $C" "$H/out" && [ "$(prompts)" = 3 ] && [ "$(live_apply)" = "$C" ]'
+BODY="apply job C2" run role start ABC-1 apply
+check 'a different body for a session sent an unread handoff refuses, even with its ledger file missing' '[ "$(cat "$H/rc")" = 1 ] && grep -q "already received $C (not read yet)" "$H/out" && grep -q "rerun with --new" "$H/out" && [ "$(prompts)" = 3 ] && [ "$(live_apply)" = "$C" ]'
 
 gone_apply; s0=$(starts); BODY="apply job C" run role start ABC-1 apply
 check 'a session gone before reading: the same body opens a new one and resends the same handoff' '[ "$(cat "$H/rc")" = 0 ] && [ "$(starts)" = $((s0+1)) ] && [ "$(sent_path)" = "$C" ] && [ "$(fmv sent-to "$C")" = "$(apsid)" ] && [ "$(prompts)" = 4 ]'

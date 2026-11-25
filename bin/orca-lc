@@ -852,12 +852,16 @@ cmd_role() {
       if [ -n "$ag" ]; then
         [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
-        if [ -f "$led" ]; then
-          local got nr=""; got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && ledger_is "$led" "$L" && nr=" (not read yet)"
+        # Received: a ledger file for sid, or the live handoff stamped sent-to sid (its ledger file may be missing).
+        local recv=""; { [ -f "$led" ] || { [ -n "$L" ] && [ "$(fm sent-to "$L")" = "$sid" ]; }; } && recv=1
+        if [ -n "$recv" ]; then
+          local got nr=""
+          if [ -f "$led" ]; then got=$(ledger_handoff "$led"); [ "$(ledger_get handoff "$led")" = "$L" ] && ledger_is "$led" "$L" && nr=" (not read yet)"
+          else got="$L"; nr=" (not read yet)"; fi
           [ -n "$new" ] || die "$name is live and already received $got$nr; rerun with --new to clear it and send this one"
           clear=1
         fi
-        # No ledger file: the session never got a job (it stopped at a startup prompt on the first run). It carries on, no /clear.
+        # Not received: the session never got a job (it stopped at a startup prompt on the first run). It carries on, no /clear.
       else
         if ! is_core_role "$r"; then # extra sessions replace, never stack
           # A session is an extra unless its name past the ticket folds into a core role (review2 too) or is an orchestrator's.
