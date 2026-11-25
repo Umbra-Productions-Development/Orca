@@ -7,7 +7,7 @@ Established facts:
 - `advise()` prints a PreToolUse JSON with `systemMessage` and `additionalContext`, then exits 0; the first advice reached is the only one a call gets.
 - Bash branch order today: push gate, merge block, commit-report advice, then (only when the cwd's repo carries `.orca/config.json`) rebase advice, code-graph advice for `grep|rg|egrep|ag` and for `cat|sed -n|head|tail` over `sourceGlob` paths.
 - `git_targets` already tokenises a command with shell quoting, splits segments on `; & | ( )` and newlines, carries `cd` into later segments, and recurses into `bash|sh -c "<cmd>"`. `git_seg` skips `VAR=x`, `env`, `command`, `exec`, `time`, `nohup` prefixes.
-- The tokenizer today reads heredoc bodies as commands: each body line is a segment, and an apostrophe in a body opens a quote that swallows the rest. A body line starting with `git push` is gated as a push (proposal review S3).
+- The tokenizer today reads heredoc bodies as commands: each body line is a segment, and an apostrophe in a body opens a quote that swallows the rest. A body line starting with `git push` is gated as a push.
 - The payload carries `session_id` (post-read.sh and session-start.sh read it).
 - Tests: `tests/*.test.sh` sourced by `tests/run.sh` with `lib.sh` (`new_repo`, `hook_json`, asserts).
 
@@ -19,24 +19,26 @@ Established facts:
 
 ## Shared tokenizer
 
-One tokenizer builds the segment list once per Bash call; the push consumer, the commit consumer and `tool_seg` all run over that list (proposal review G3). `cd` carrying, `bash|sh -c` recursion and prefix skipping stay as today.
+One tokenizer builds the segment list once per Bash call; the push consumer, the commit consumer and `tool_seg` all run over that list. `cd` carrying, `bash|sh -c` recursion and prefix skipping stay as today.
 
 Each segment records:
 
 - its words, quotes removed;
-- `piped`: true when the segment started right after an unquoted `|` (not `||`) (review S2);
+- `piped`: true when the segment started right after an unquoted `|` (not `||`);
 - its redirects as `(op, target)` pairs, removed from the words;
 - `heredoc`: true when it carries a `<<` or `<<-` redirect.
 
-Redirects (review G1) are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` are fd duplications: recorded with target `&N`, never a file, and the `&` in them does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
+Redirects are recognised only from unquoted characters, so `grep '>' f` keeps `>` as a word. Operators: `>`, `>>`, `>|`, `&>`, `&>>`, `<`, `<<`, `<<-`, `<<<`, each with an optional leading fd digit (`2>file`, `2>>file`). The target is the rest of the token or the next word. `>&N`, `N>&M`, `<&N` are fd duplications: recorded with target `&N`, never a file, and the `&` in them does not end a segment (`echo x >&2` is one segment with no file redirect). A redirect operator with no target at the end of a segment is dropped.
 
-Heredoc bodies (review S3): after an unquoted `<<WORD` or `<<-WORD` (WORD may be quoted; quotes removed), the lines after the end of the current line are body: skipped until a line equal to WORD (`<<-`: leading tabs stripped first), and never tokenised. Several heredocs on one line are skipped in order. An unterminated body runs to the end of the command.
+Heredoc bodies: after an unquoted `<<WORD` or `<<-WORD` (WORD may be quoted; quotes removed), the lines after the end of the current line are body: skipped until a line equal to WORD (`<<-`: leading tabs stripped first), and never tokenised. Several heredocs on one line are skipped in order. An unterminated body runs to the end of the command.
+
+An unquoted `#` starting a word comments out the rest of its line, so `<<word` or an apostrophe in a comment opens no heredoc and no quote. `<` and `>` inside `(( ))` or `$[ ]` are arithmetic, not redirects.
 
 This changes `git_targets` behaviour on purpose: a heredoc body line that starts with `git push` or `git commit` is no longer read as a command, so it is not gated or advised. Everything else in push/commit parsing is unchanged; `tests/hook-push.test.sh` and `tests/hook-commit.test.sh` stay green and gain heredoc cases.
 
 ## Segment analysis
 
-For each segment, with `c` the command word after prefixes, options are parsed per command so an option's value is never taken for an operand (review S1). Value-taking options (separate word, or attached: `-n20`, `--lines=20`):
+For each segment, with `c` the command word after prefixes, options are parsed per command so an option's value is never taken for an operand. Value-taking options (separate word, or attached: `-n20`, `--lines=20`):
 
 - `head`, `tail`: `-n -c --lines --bytes`
 - `grep`, `egrep`, `fgrep`: `-A -B -C -m -e -f -d -D --after-context --before-context --context --max-count --regexp --file --directories --devices --include --exclude --exclude-dir --label`
@@ -45,26 +47,29 @@ For each segment, with `c` the command word after prefixes, options are parsed p
 - `sed`: `-e -f -l --expression --file --line-length`
 - `less`, `more`, `bat`, `cat`, `tee`, `echo`, `printf`, `find`: none for this purpose (`find`'s predicates are not operands).
 
-`--` ends options. `ops` is what remains.
+`--` ends options. `ops` is what remains; a lone `-` is stdin, not an operand. A segment reads stdin when it is `piped`, has a `-` operand, or carries a `<`, `<<`, `<<-` or `<<<` redirect.
 
 Kinds:
 
-- **read** (→ Read): `c` in `cat head tail less more bat`, or `sed` with `-n` and no `-i`; fires when `ops` is non-empty (for `sed -n` without `-e`/`-f`, the first operand is the script and a file operand must follow).
-- **search** (→ Grep): `c` in `grep egrep fgrep rg ag`. The first operand is the pattern unless `-e`/`-f`/`--regexp`/`--file` gave it. Fires when a file operand remains; or, when the segment is not `piped`, with `-r`/`-R`/`--recursive` (grep) or for `rg`/`ag` (they search the cwd). A `piped` segment with no file operand reads the pipe and stays quiet.
+- **read** (→ Read): `c` in `cat head tail less more bat`, or `sed` with `-n` and no `-i`; fires when `ops` is non-empty, except `tail -f`/`-F`/`--follow` and `less +F`, which follow a file Read cannot (for `sed -n` without `-e`/`-f`, the first operand is the script and a file operand must follow).
+- **search** (→ Grep): `c` in `grep egrep fgrep rg ag`. The first operand is the pattern unless `-e`/`-f`/`--regexp`/`--file` gave it. Fires when a file operand remains; or, when the segment does not read stdin, with `-r`/`-R`/`--recursive` (grep) or for `rg`/`ag` (they search the cwd). A segment reading stdin with no file operand stays quiet.
 - **search** (→ Glob): `c` is `find` and no `-exec`, `-execdir`, `-ok`, `-okdir`, `-delete` appears.
-- **write, new file** (→ Write): `c` in `cat echo printf` with a `>`, `>|` or `&>` redirect to a file target (not `/dev/null`, not `&N`).
-- **write, append** (→ Edit): `c` in `cat echo printf` with a `>>` or `&>>` redirect to a file target (review G5).
-- **write** via `tee` (→ Write, or Edit with `-a`): `c` is `tee` with an operand, and only when its pipeline's head segment is `cat`, `echo` or `printf`, or carries a heredoc. `make 2>&1 | tee build.log` is quiet (review S4, user decision).
+- **write, new file** (→ Write): `c` in `cat echo printf` with a `>`, `>|` or `&>` redirect to a file target (not `/dev/null`, `/dev/stdout`, `/dev/stderr`, `/dev/tty`, not `&N`).
+- **write, append** (→ Edit): `c` in `cat echo printf` with a `>>` or `&>>` redirect to a file target.
+- **write** via `tee` (→ Write, or Edit with `-a`): `c` is `tee` with an operand, and only when its pipeline's head segment is `cat`, `echo` or `printf`, or carries a heredoc. `make 2>&1 | tee build.log` is quiet (user decision).
 - **edit** (→ Edit): `sed` with `-i` and a file operand.
 - A redirect on any other command (`make > build.log`) does not count.
-- Within one segment, write and edit win over read and search (review G2): `cat a > b` is a write.
+- Within one segment, write and edit win over read and search: `cat a > b` is a write.
 - Any path counts; no path is special-cased.
+- **glob** (→ Glob): `rg --files` lists files rather than searching them; it gets a Glob message and shares the `search` marker.
 - The first segment that fires decides the kind.
+
+Kinds that pick the message: read, search, glob, write, edit. Kinds that key the once-per-session marker stay read, search, write: glob shares `search`, edit (append, `tee -a`, `sed -i`) shares `write`.
 
 ## Once per session
 
 - Marker: `$(git rev-parse --git-dir)/orca-tool-advice/<session_id>-<kind>`, kind one of `read`, `search`, `write` (append and `sed -i` count as `write`). Present: exit 0 silently. Absent: create it (`mkdir -p`), then advise.
-- `session_id` is used only when it matches `^[A-Za-z0-9_-]+$`; anything else is treated as absent (review G4).
+- `session_id` is used only when it matches `^[A-Za-z0-9_-]+$`; anything else is treated as absent.
 - No usable `session_id`: no marker, advise every time.
 - Markers are never cleaned up by this change; they are a few bytes per session.
 
@@ -75,6 +80,7 @@ One line, by kind, `<cmd>` the segment's command word:
 - read: ``Bash `<cmd>` reads a file: the Read tool covers it (line-numbered, no output cap). Set toolAdvice: false in .orca/config.json to silence this.``
 - search: ``Bash `<cmd>` searches files: the Grep tool (Glob for find) covers it. Set toolAdvice: false in .orca/config.json to silence this.``
 - write: ``Bash `<cmd>` writes a file: the Write tool covers it. Set toolAdvice: false in .orca/config.json to silence this.``
+- glob (`rg --files`): ``Bash `<cmd>` lists files: the Glob tool covers it. Set toolAdvice: false in .orca/config.json to silence this.``
 - append / edit: ``Bash `<cmd>` changes a file: the Edit tool covers it. Set toolAdvice: false in .orca/config.json to silence this.``
 
 Exact wording is the apply session's, provided it names the command, the tool and the switch.
@@ -101,21 +107,21 @@ Push and commit (`tests/hook-push.test.sh`, `tests/hook-commit.test.sh`, test-lo
 - `toolAdvice` is on by default; only `false` turns it off; `permission_mode` is not consulted — user (recommended, accepted).
 - Advice fires once per session per kind (read/search/write), marker under the git dir; every call without a `session_id` — user (recommended, accepted; no-session fallback confirmed in the read-back).
 - Code-graph advice takes precedence; tool advice runs after it, one message per call — user (recommended, accepted).
-- Read/search detection is per segment through the `git_targets` tokenizer and fires only with a file operand (grep/rg/ag: after the pattern; recursive grep with no dir counts) — user (recommended, accepted).
+- Read/search detection is per segment over the segment list `tokenize` builds (the list `git_targets` also reads) and fires only with a file operand (grep/rg/ag: after the pattern; recursive grep with no dir counts) — user (recommended, accepted).
 - Writes are `cat`/`echo`/`printf` redirected to a file (heredocs included), `tee <file>`, `sed -i`; other commands' output redirects, `/dev/null` and fd redirects do not count — user (recommended, accepted).
 - Command set: reads `cat head tail sed -n less more bat` → Read; searches `grep egrep fgrep rg ag` → Grep, `find` without `-exec`/`-delete` → Glob; `awk jq wc ls` excluded — user (recommended, accepted).
 - Any file path counts; nothing is special-cased by location — user (recommended, accepted).
 - Message names the command, the tool and `toolAdvice: false` — user (recommended, accepted).
 - New `tests/hook-tool-advice.test.sh` in the `lib.sh` layout; README, `orca.example.json` and `docs/daily-use.md` in the same change; one change, one PR — user (confirmed in the read-back).
-- `tee` fires only when its pipeline's head is `cat`, `echo` or `printf`, or a heredoc; `make | tee build.log` is quiet (proposal review S4) — user.
-- Heredoc bodies are skipped in the shared tokenizer, for the tool advice and for the push/commit consumers alike; a body line starting with `git push` is no longer gated (proposal review S3) — user.
-- Option values are skipped per command so they are never file operands (proposal review S1) — propose (review finding, adopted).
-- A segment fed by `|` with no file operand never searches the cwd (`rg`, `ag`, `grep -r`) (proposal review S2) — propose (review finding, adopted).
-- Redirect operators come only from unquoted characters; fd forms and duplications are defined (proposal review G1) — propose (review suggestion, adopted).
-- Within a segment, write/edit wins over read/search (proposal review G2) — propose (review suggestion, adopted).
-- The command is tokenised once and every consumer runs over the one segment list (proposal review G3) — propose (review suggestion, adopted).
-- `session_id` must match `^[A-Za-z0-9_-]+$` to be used in the marker path (proposal review G4) — propose (review suggestion, adopted).
-- Appends (`>>`, `tee -a`) and `sed -i` point to Edit, new-file writes to Write (proposal review G5) — propose (review suggestion, adopted).
+- `tee` fires only when its pipeline's head is `cat`, `echo` or `printf`, or a heredoc; `make | tee build.log` is quiet (raised in the proposal review) — user.
+- Heredoc bodies are skipped in the shared tokenizer, for the tool advice and for the push/commit consumers alike; a body line starting with `git push` is no longer gated (raised in the proposal review) — user.
+- Option values are skipped per command so they are never file operands (raised in the proposal review) — propose (review finding, adopted).
+- A segment fed by `|` with no file operand never searches the cwd (`rg`, `ag`, `grep -r`) (raised in the proposal review) — propose (review finding, adopted).
+- Redirect operators come only from unquoted characters; fd forms and duplications are defined (raised in the proposal review) — propose (review suggestion, adopted).
+- Within a segment, write/edit wins over read/search (raised in the proposal review) — propose (review suggestion, adopted).
+- The command is tokenised once and every consumer runs over the one segment list (raised in the proposal review) — propose (review suggestion, adopted).
+- `session_id` must match `^[A-Za-z0-9_-]+$` to be used in the marker path (raised in the proposal review) — propose (review suggestion, adopted).
+- Appends (`>>`, `tee -a`) and `sed -i` point to Edit, new-file writes to Write (raised in the proposal review) — propose (review suggestion, adopted).
 
 ## Risks
 
