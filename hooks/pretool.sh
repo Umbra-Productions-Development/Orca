@@ -59,14 +59,14 @@ US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|ex
 # characters only, with an optional fd digit; >&N, N>&M and <&N are fd duplications with target &N.
 # Heredoc bodies are skipped. An unquoted # starting a word right after a blank, newline, ; & or | (or at
 # the start) comments out the rest of its line. $'..' and $".." drop the $, as bash does ($'..' follows \'
-# and \\); dqs, dqn and dqh track $( ), ${ } and backticks inside ".." (_tdq).
-# It feeds the tool advice and, beside main_targets, the push and commit checks. A misread here can hide
-# only what main_targets still reads, except where main's own quote reading drifts from bash; for those,
-# S_AMB (the caller's) is set to 1 on a heredoc with no exact terminator or a quote the parse may have
-# misread: one left open, another escape in $'..', or inside a $( ), ${ } or backtick of "..", a ", ', \,
-# a # not after a word character, case, or a ) or } that does not match the innermost open (, { or
-# backtick (_tdq). raw_targets then reads the
-# command again with TK_RAW=1: ' and " plain characters, # never a comment, no heredoc body skipped.
+# and \\); dqs, dqn and dqh track $( ), ${ } and backticks inside ".." (_tdq); an unquoted $(( )) is one
+# word (_tarith). It feeds the tool advice and, beside main_targets, the push and commit checks. A
+# misread here can hide only what main_targets still reads, except where main's own quote reading drifts
+# from bash; for those, S_AMB (the caller's) is set to 1 on a heredoc with no exact terminator or a
+# quote the parse may have misread (_tdq, _tdqh, _tdqb): one left open, another escape in $'..', or
+# inside a $( ), ${ } or backtick of "..", a ", ' (but a plain '..', see _tdq), \, a # not after a word
+# character, case, a ) or } that does not match the innermost open (, { or backtick, a heredoc WORD that
+# is not plain text, or a heredoc body there with no terminator. new_targets then adds raw_targets.
 tokenize() {
   # LC_ALL=C first, alone: ${s:i:1} is O(1) per byte instead of O(i) per character, and n counts bytes
   local LC_ALL=C; local s=$1 n=${#1} i c tok="" has=0 q="" rop="" w=() r=() hd=0 np=0 hds=() dqs='' dqn=0 dqh=() raw=${TK_RAW:-}
