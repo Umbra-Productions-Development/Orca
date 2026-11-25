@@ -17,7 +17,7 @@ cat >>"$tmp/bin/herdr" <<'EOF'
 put() { local f="$1"; shift; jq -c "$@" "$H/$f" >"$H/$f.n" && mv "$H/$f.n" "$H/$f"; }
 case "$1 $2" in
   "workspace list") jq -n --arg d "$wt" '{result:{workspaces:[{workspace_id:"w1",worktree:{checkout_path:$d}}]}}';;
-  "agent list") jq '{result:{agents:.}}' "$H/agents"; put agents 'map(select((has("agent") and .agent == null) | not))';;   # a stale entry lasts one list, as on herdr 0.9.5
+  "agent list") jq '{result:{agents:.}}' "$H/agents"; put agents 'map(select((has("agent") and .agent == null and (.keep | not)) | not))';;   # a stale entry lasts one list, as on herdr 0.9.5 (keep: until the test drops it)
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
   "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
@@ -130,6 +130,12 @@ run role start ABC-1 tour --replace abc1-mine
 check '--replace refuses a tab role start did not open before writing the handoff' 'grep -q "tab of abc1-mine was not opened by role start" "$H/out" && [ "$(live)" = "$before" ]'
 set_status abc1-propose done; run role start ABC-1 propose
 check 'a session that finished as done is reused' 'grep -q "^handoff " "$H/out" && grep -q "prompt abc1-propose /clear" "$H/log"'
+# Right after a retire herdr may still list the session, agent null, on its pane: that pane is free.
+run role retire ABC-1 propose; ptab=$(jq -r '[.[] | select(.label=="propose")][0].tab_id' "$H/tabs"); tabs=$(jq length "$H/tabs")
+edit agents --arg t "$ptab" '. + [{name:"abc1-propose", agent:null, keep:true, agent_status:"idle", tab_id:$t, pane_id:($t|ltrimstr("t"))}]'
+run role start ABC-1 propose
+check 'a stale entry left by an exit does not make the kept tab busy' '[ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r "[.[] | select(.name==\"abc1-propose\" and .keep==null)][0].pane_id" "$H/agents")" = "${ptab#t}" ]'
+edit agents 'map(select(.keep | not))'
 run role retire ABC-1 review
 add_agent abc1-review2 tp1 p1
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review

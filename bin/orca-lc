@@ -708,7 +708,7 @@ role_tab_pane() {
   local tabs busy
   tabs=$(herdr tab list --workspace "$1" 2>/dev/null | jq -c --arg l "$2" '[.result.tabs[] | select(.label==$l) | .tab_id]')
   [ "${tabs:-[]}" != "[]" ] || return 0
-  busy=$(herdr agent list 2>/dev/null | jq -c '[.result.agents[].pane_id]')
+  busy=$(herdr agent list 2>/dev/null | jq -c '[.result.agents[] | select((has("agent") and .agent == null) | not) | .pane_id]')
   # For each labelled tab in order: its first pane, kept only when no agent runs in it; the first one left wins.
   herdr pane list --workspace "$1" 2>/dev/null | jq -r --argjson tabs "$tabs" --argjson busy "${busy:-[]}" '
     .result.panes as $panes
