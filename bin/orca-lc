@@ -280,9 +280,9 @@ cmd_leak_check() {
   return 1
 }
 
-# fetch_origin_branch <branch> [git args] -> fetches origin's <branch> into origin/<branch>, quietly, never
+# fetch_origin_branch [-C dir] <branch> -> fetches origin's <branch> into origin/<branch>, quietly, never
 # prompting. The explicit refspec updates origin/<branch> even when origin's fetch refspec leaves it out.
-fetch_origin_branch() { GIT_TERMINAL_PROMPT=0 git "${@:2}" fetch -q origin "+refs/heads/$1:refs/remotes/origin/$1" >/dev/null 2>&1; }
+fetch_origin_branch() { local b="${!#}"; GIT_TERMINAL_PROMPT=0 git "${@:1:$#-1}" fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b" >/dev/null 2>&1; }
 # pick_base -> sets the caller's base, base_label and base_branch (baseBranch): origin/<baseBranch> after
 # fetching it, else the local branch, else HEAD~1.
 pick_base() {
@@ -501,12 +501,14 @@ cmd_worktree() {
       if [ ! -d "$dir" ]; then
         # Reuse the ticket's branch where it exists: the local one as it is, else the remote one. The explicit
         # refspec finds a remote branch origin's fetch refspec leaves out; a missing one fails silently.
-        fetch_origin_branch "$branch" -C "$main"
+        fetch_origin_branch -C "$main" "$branch"
         if git -C "$main" show-ref -q --verify "refs/heads/$branch"; then git -C "$main" worktree add "$dir" "$branch" || die "git worktree add failed"
         elif git -C "$main" show-ref -q --verify "refs/remotes/origin/$branch"; then
-          # Not --track: it refuses a remote-tracking ref no fetch refspec maps. The two keys are the upstream.
+          # Not --track: it refuses a remote-tracking ref no fetch refspec maps. The two keys are the upstream;
+          # warn only when they are still unset afterwards (worktree add may have set them itself).
           git -C "$main" worktree add -b "$branch" "$dir" "origin/$branch" || die "git worktree add failed"
-          { git -C "$main" config "branch.$branch.remote" origin && git -C "$main" config "branch.$branch.merge" "refs/heads/$branch"; } ||
+          git -C "$main" config "branch.$branch.remote" origin && git -C "$main" config "branch.$branch.merge" "refs/heads/$branch"
+          [ "$(git -C "$main" config "branch.$branch.merge")" = "refs/heads/$branch" ] ||
             echo "WARNING: upstream not set; git push -u origin $branch"
         else
           # Cut from the fetched remote base: the main checkout's own branch may be stale or somebody else's.

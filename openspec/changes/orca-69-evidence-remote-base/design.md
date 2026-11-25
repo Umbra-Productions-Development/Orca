@@ -2,7 +2,7 @@
 
 `pick_base` (it replaces `base_ref`) is the one place that picks the base. It sets the caller's `base`, `base_label` and `base_branch`, which the caller declares `local`, so the fetch runs once per call. It:
 
-1. runs `fetch_origin_branch "$b"`, which is `GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b"` (`b` = `baseBranch`, default `main`), output discarded, failure not fatal. The explicit refspec updates `origin/$b` even when origin's configured fetch refspec leaves it out; the variable stops a credential prompt from hanging the command;
+1. runs `fetch_origin_branch [-C dir] "$b"`, which is `GIT_TERMINAL_PROMPT=0 git fetch -q origin "+refs/heads/$b:refs/remotes/origin/$b"` (`b` = `baseBranch`, default `main`), output discarded, failure not fatal. The explicit refspec updates `origin/$b` even when origin's configured fetch refspec leaves it out; the variable stops a credential prompt from hanging the command;
 2. uses `origin/$b` when `git rev-parse -q --verify "refs/remotes/origin/$b"` succeeds, whether or not the fetch did;
 3. else uses the local `$b` when `$b^{commit}` resolves;
 4. else falls back to `HEAD~1`, as `base_ref` did.
@@ -62,7 +62,7 @@ New file `tests/base.test.sh` (a test edit: `orca-lc test-lock on`, reason in th
 9. **worktree up, no base**: `stale_repo`, `git remote remove origin`, `git branch -D main`. `worktree up T-2` exits non-zero, its message names `main`, and no `T-2` directory exists.
 10. **worktree up, remote ticket branch outside the refspec**: a second clone pushes `t-3/work` with a file `ticket.txt`; the repo narrows `remote.origin.fetch` to `+refs/heads/main:refs/remotes/origin/main`. `worktree up T-3` reuses the remote branch: the worktree holds `ticket.txt`, `branch.t-3/work.remote` is `origin` and `branch.t-3/work.merge` is `refs/heads/t-3/work`, and no `base` line is printed.
 11. **worktree up, existing local branch, no base**: `stale_repo`, `git remote remove origin`, `git branch -D main`, `git branch t-4/work`. `worktree up T-4` succeeds and reuses `t-4/work`: an existing ticket branch needs no base.
-12. **worktree up, upstream not set**: as case 10, with a `git` wrapper first on `PATH` that fails `git config branch.*` writes. `worktree up T-3` exits 0, reuses the branch, and prints `WARNING: upstream not set; git push -u origin t-3/work`.
+12. **worktree up, upstream not set**: case 10's fixture (shared with it), with a `git` wrapper first on `PATH` that fails `git config branch.*` writes. `worktree up T-3` exits 0, reuses the branch, prints `WARNING: upstream not set; git push -u origin t-3/work`, and prints no `base` line.
 
 Cases 1, 7, 8 and 10 must fail before their fix and pass after it (1 is already shown).
 
@@ -89,7 +89,7 @@ Cases 1, 7, 8 and 10 must fail before their fix and pass after it (1 is already 
 - `worktree up` picks a base, and dies on `no base`, only when it cuts a new branch; reusing an existing ticket branch needs no base — propose, from the ORCA-69 proposal review's suggestion 1.
 - `pick_base` runs in the current checkout, as `worktree up`'s old fetch and config read did — propose, from the ORCA-69 proposal review's suggestion 2.
 - The explicit-refspec fetch lives in one helper, `fetch_origin_branch`, used by `pick_base` and `worktree up`'s ticket-branch fetch; `pick_base` hands back `base_branch` so `worktree up`'s no-base message reads no config again — orchestrator, from the PR #149 review's suggestions on the duplicated fetch and the repeated `baseBranch` read.
-- When setting `branch.<b>.remote`/`branch.<b>.merge` on a reused remote ticket branch fails, `worktree up` still succeeds and prints `WARNING: upstream not set; git push -u origin <b>` (case 12) — orchestrator, from the PR #149 review's suggestion on the untested upstream fallback.
+- When setting `branch.<b>.remote`/`branch.<b>.merge` on a reused remote ticket branch fails, `worktree up` still succeeds and prints `WARNING: upstream not set; git push -u origin <b>` (case 12). The warning is decided by reading `branch.<b>.merge` back after the writes, so it never prints while an upstream is set — orchestrator, from the PR #149 review's suggestion on the untested upstream fallback and its should-fix on case 12's fixture.
 
 ## Risks
 

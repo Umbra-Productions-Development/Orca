@@ -31,3 +31,5 @@
 - [x] 5.8 `fetch_origin_branch` helper for the explicit-refspec fetch, used by `pick_base` and `worktree up`; `pick_base` sets `base_branch` and the no-base message uses it (PR #149 review).
 - [x] 5.9 `docs/daily-use.md`: say the local-base fallback (`local; fetch failed`) can leak a stale base's commits (PR #149 review).
 - [x] 5.10 `tests/base.test.sh` case 12: the `WARNING: upstream not set` fallback on a reused remote ticket branch (`orca-lc test-lock on`, reason in commit body, `test-lock off`).
+- [x] 5.11 `worktree up`: warn `upstream not set` only when `branch.<b>.merge` is still unset after the writes; `fetch_origin_branch` takes `[-C dir] <branch>` in git's order (PR #149 review).
+- [x] 5.12 `tests/base.test.sh`: cases 10 and 12 share the outside-the-refspec fixture; case 12 asserts no `base` line and writes its `git` wrapper with a heredoc, real path quoted (PR #149 review; test-lock on/off, reason in commit body).
