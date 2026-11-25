@@ -5,7 +5,7 @@
 - `src` is `$ORCA_SRC`. `$(dirname "$0")` no longer works: when sourced under `bash -c … _`, `$0` is `_`.
 - `tmp` is `$TMPDIR`, and the file has no `mktemp -d` and no EXIT trap of its own; `run.sh` removes `$TMPDIR` after the file. The names the script creates under it (`probe-src`, `probe`, `elsewhere`, `other-orca`, `repo`, `home2`) do not clash with `lib.sh`'s `home` and `bin`.
 - `HOME` starts as `lib.sh`'s `$TMPDIR/home`; the nested-skill section still switches to `$TMPDIR/home2`.
-- `unset CLAUDE_CONFIG_DIR` stays at the top of the file, as `tests/init.test.sh` does, so `install.sh` never writes to a real config dir from the environment.
+- `unset CLAUDE_CONFIG_DIR XDG_STATE_HOME` stays at the top of the file, as `tests/init.test.sh` does for the config dir, so `install.sh` never writes to a real config dir or, since #116, its manifest to a real state dir from the environment. `run` and `run2` keep #116's `</dev/null`, so `install.sh` never prompts for dependencies.
 - `ok` becomes `ok() { [ "$1" = 0 ] || fail "$2"; }` (the `tests/leak-check.test.sh` pattern); the `fail=0` variable and the final `exit $fail` go. Call sites stay as they are, which keeps the diff to the header and the helpers.
 - The "skip link cases" line becomes `echo "  SKIP: ln -s copies here (no native symlinks); link cases skipped"`, matching `tests/worktree.test.sh`.
 - The header comment's `Run: tests/install-keep.sh` becomes `Run: tests/run.sh tests/install-keep.test.sh`.
@@ -23,6 +23,7 @@ Native Linux only. Before conversion, the script passed 20/20 there in about 1.7
 
 - Rename to `tests/install-keep.test.sh` and convert to `lib.sh` helpers; `tests/run.sh` is not edited — user (recommended, accepted).
 - `unset CLAUDE_CONFIG_DIR` stays in the test file, not `lib.sh` — user (recommended, accepted).
+- The converted file keeps #116's `unset XDG_STATE_HOME` and `</dev/null` on `run`/`run2` after the rebase onto `main` — PR #152 review, should fix at `tests/install-keep.test.sh:8`.
 - Output is only `FAIL:` lines like the rest of the suite, plus one `SKIP:` line where `ln -s` copies — user (recommended, accepted).
 - No spec delta — user (recommended, accepted).
 - `set -uo pipefail` dropped in the conversion — proposal review, suggestion 1.
