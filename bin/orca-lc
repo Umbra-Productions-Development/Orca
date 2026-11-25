@@ -670,13 +670,21 @@ ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.a
   | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
 agent_gone() { ! jq -e --arg n "$1" 'any(.[]; .name==$n)' <<<"$(ticket_agents "${1%%-*}")" >/dev/null; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
+agent_status() { herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status // empty'; }
+# <name> <status> <what to do>: dies unless the session is idle or done. Anything typed into a busy session lands in its work;
+# /exit and Enter typed into a permission or trust prompt can pick its highlighted option; and herdr's "unknown" does not prove it finished.
+ready_or_die() { case "$2" in
+  idle|done) ;;
+  blocked) die "$1 is blocked at a prompt; answer it in tab '${1#*-}', then rerun";;
+  working) die "$1 is working; $3";;
+  *) die "$1 is ${2:-without a status} in herdr, which does not show it finished; $3";;
+esac; }
 # <agent json>: true when role start opened the agent's tab (its label is the name's role part)
 role_tab_owned() { [ "$(herdr tab get "$(jq -r .tab <<<"$1")" 2>/dev/null | jq -r '.result.tab.label // empty')" = "$(jq -r '.name | sub("^[^-]*-"; "")' <<<"$1")" ]; }
 exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab
   local name tab i; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
   role_tab_owned "$1" || die "tab $tab of $name was not opened by role start; exit it yourself"
-  # /exit and Enter typed into a permission or trust prompt can pick its highlighted option, so a blocked session is left to the user.
-  [ "$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status')" = blocked ] && die "$name is blocked at a prompt; answer it in tab '${name#*-}', then rerun"
+  ready_or_die "$name" "$(agent_status "$name")" "rerun once it reports"
   herdr agent prompt "$name" "/exit" >/dev/null 2>&1
   # herdr's wait ends with agent_not_running once claude has gone, and the list can still carry the name for a moment, so poll.
   herdr agent wait "$name" --until unknown --timeout 10000 >/dev/null 2>&1
@@ -723,15 +731,12 @@ cmd_role() {
       # Every refusal, the handoff's own included, comes before /clear or a replace: a refused start never costs a session its context.
       local all ag; all=$(ticket_agents "$(ticket_slug "$t")"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
       if [ -n "$ag" ]; then
-        case "$(jq -r .status <<<"$ag")" in
-          working) die "$name is working; let it finish, or retire it (orca-lc role retire $t $r), then rerun";;
-          blocked) die "$name is blocked at a prompt; answer it in tab '$r', then rerun this command";;
-        esac
+        ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
       else
         local other=""; case " propose apply review " in *" $r "*) ;; *) # extra sessions replace, never stack
           other=$(jq -r '.[] | select(.name|test("-(propose|apply|review|orchestrator)$")|not) | .name' <<<"$all")
           [ -z "$other" ] || { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
-          [ -n "$other" ] && [ "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status' <<<"$all")" = blocked ] && die "$replace is blocked at a prompt; answer it in tab '${replace#*-}', then rerun"
+          [ -z "$other" ] || ready_or_die "$replace" "$(jq -r --arg n "$replace" '.[] | select(.name==$n) | .status // empty' <<<"$all")" "retire it once it reports (orca-lc role retire $t ${replace#*-} --wait), then rerun"
           [ -z "$other" ] || role_tab_owned "$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")" || die "the tab of $replace was not opened by role start; exit it yourself";;
         esac
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
@@ -760,10 +765,11 @@ cmd_role() {
       local t r name ag; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); name="$(ticket_slug "$t")-$r"
       ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$(ticket_agents "$(ticket_slug "$t")")")
       [ -n "$ag" ] || die "no live session named $name"
-      if [ "$(jq -r .status <<<"$ag")" = working ]; then
-        [ "${3:-}" = --wait ] || die "$name is working; retire it once it reports, or pass --wait"
-        herdr agent wait "$name" --until idle --until done --until blocked >/dev/null 2>&1 || die "herdr wait on $name failed"
-      fi
+      local st; st=$(jq -r '.status // empty' <<<"$ag")
+      case "$st" in idle|done|blocked) ;; *)  # working, unknown or anything else: only --wait goes on, until herdr shows where it stopped
+        [ "${3:-}" = --wait ] || ready_or_die "$name" "$st" "retire it once it reports, or pass --wait"
+        herdr agent wait "$name" --until idle --until done --until blocked >/dev/null 2>&1 || die "herdr wait on $name failed";;
+      esac
       exit_role_agent "$ag"; echo "retired $name";;
     *) usage "role start|owner|retire";;
   esac

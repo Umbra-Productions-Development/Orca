@@ -64,6 +64,8 @@ check 'a refused handoff leaves the reused session uncleared' 'grep -q "from ses
 other handoff consume "$hf" >/dev/null
 set_status abc1-review working; run role start ABC-1 reviewer
 check 'a working session refuses reuse' '[ "$(grep -c /clear "$H/log")" = 1 ] && grep -q "is working" "$H/out"'
+set_status abc1-review unknown; run role start ABC-1 review
+check 'a session herdr shows as unknown refuses reuse' '[ "$(grep -c /clear "$H/log")" = 1 ] && grep -q "abc1-review is unknown in herdr" "$H/out"'
 set_status abc1-review idle
 
 run role start ABC-1 walk
@@ -89,6 +91,9 @@ run role retire ABC-1 tour
 check 'retire exits the session and keeps its tab' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "prompt abc1-tour /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"tour\")" "$H/tabs" >/dev/null'
 set_status abc1-review working; run role retire ABC-1 review
 check 'retire refuses a working session without --wait' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "pass --wait" "$H/out"'
+set_status abc1-review unknown; run role retire ABC-1 review
+check 'retire refuses a session herdr shows as unknown without --wait' '[ "$(agents)" = "abc1-propose abc1-review" ] && grep -q "unknown in herdr.*pass --wait" "$H/out"'
+set_status abc1-review working
 run role retire ABC-1 review --wait
 check 'retire --wait waits for idle, then retires' '[ "$(agents)" = abc1-propose ] && grep -q "wait abc1-review idle" "$H/log" && grep -q "prompt abc1-review /exit" "$H/log"'
 exits=$(grep -c "prompt abc1-propose /exit" "$H/log"); set_status abc1-propose blocked; run role retire ABC-1 propose
