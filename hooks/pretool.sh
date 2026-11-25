@@ -90,6 +90,7 @@ tokenize() {
       '&') if [ "${s:i+1:1}" = '>' ]; then _tr; else _tw; _ts; np=0; fi;;
       '|') _tw; _ts; if [ "${s:i+1:1}" = '|' ]; then i=$((i+1)); np=0; else np=1; [ "${s:i+1:1}" = '&' ] && i=$((i+1)); fi;;
       ';'|'('|')') _tw; _ts; np=0;;
+      '$') tok+=$c; [ "${s:i+1:2}" = '((' ] && _tarith;;
       $'\n') _tw; _ts; np=0; [ ${#hds[@]} -gt 0 ] && { if [ -z "$raw" ]; then _tb; else hds=(); fi; };;
       *) tok+=$c;;
     esac; fi
@@ -168,6 +169,15 @@ _tdqb() {
       [ "$l" = "${h:1}" ] && break
     done
   done; dqh=()
+}
+# _tarith: at the $ of an unquoted $(( at $i, take the expansion to its matching )) into the word, so a <<
+# in it is a shift, not a heredoc; one holding a quote, \, backtick or newline is left to the main loop.
+_tarith() {
+  local j=$((i+3)) d=2
+  while [ "$j" -lt "$n" ] && [ "$d" -gt 0 ]; do
+    case "${s:j:1}" in '(') d=$((d+1));; ')') d=$((d-1));; [\'\"\`\\]|$'\n') return;; esac; j=$((j+1))
+  done
+  [ "$d" = 0 ] || return 0; tok+=${s:i+1:j-i-1}; i=$((j-1))
 }
 # _tansi: true when the quote at $i follows a $ that bash reads as $'..' or $"..": an odd run of unescaped $
 # (an even run is $$ pairs, the PID). An odd run of \ before the $ run escapes its first $.

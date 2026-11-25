@@ -18,7 +18,8 @@ fires 'cat f 2>err.log' "Read tool"; fires 'echo x 1>f' "Write tool"; fires 'rg 
 fires 'echo x >&f' "Write tool"; fires 'echo x >& f' "Write tool"; fires 'cat - f' "Read tool"; fires 'tail -n 5 app.log' "Read tool"; fires 'less app.log' "Read tool"; fires 'rg x f <<<"$y"' "Grep tool"
 
 quiet 'git log | grep x'; quiet 'git log | head -n 20'; quiet 'git log | grep -A 3 fix'; quiet 'git log | rg fix'
-quiet 'cmd | head -5'; quiet 'make > build.log'; quiet 'make | tee build.log'; quiet 'make 2>&1 | tee build.log'
+quiet 'cmd | head -5'; quiet 'make > build.log'; quiet 'make | tee build.log'; quiet 'make 2>&1 | tee build.log'; quiet 'make -j$((n<<1)) | tee build.log'; quiet 'make -j$((n << 1)) 2>&1 | tee build.log'
+fires $'echo $((1<<3))\ncat f' "Read tool"
 quiet 'echo hi > /dev/null'; quiet 'echo x >&2'; quiet 'echo x >&$fd'; quiet 'echo x >&-'; quiet 'echo x >& 2'; quiet 'echo x >&"$fd"'; quiet 'echo x >& "$fd"'; quiet $'cat >&$fd <<EOF\nhi\nEOF'; quiet 'cat <&3 | head -2'; fires 'echo x >&2x' "Write tool"; quiet 'ls 2>&1'; quiet 'ls -la'; quiet "awk '{print}' f"
 quiet 'find . -name x -exec rm {} \;'
 quiet 'echo x 2>err.log'
