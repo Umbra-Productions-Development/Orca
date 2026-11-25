@@ -189,6 +189,13 @@ run role retire ABC-1 propose; touch "$H/start-fails"; BODY="propose after a fai
 check 'a failed start keeps its handoff live and unsent' '[ "$(cat "$H/rc")" = 1 ] && [ "$(proposes | wc -l)" = 1 ] && ! grep -q "^sent" "$P"'
 rm -f "$H/start-fails"; BODY="propose after a failed start" run role start ABC-1 propose
 check 'its rerun starts the session and resumes the same handoff' '[ "$(sed -n "s/^handoff //p" "$H/out")" = "$P" ] && jq -e "any(.name==\"abc1-propose\")" "$H/agents" >/dev/null'
+# A different body on that rerun replaces the unsent handoff, whoever reruns: another session, or a shell with no session id.
+# Checked by content: in the same second the new handoff may take the archived one's file name.
+for who in other shell; do
+  run role retire ABC-1 propose; touch "$H/start-fails"; BODY="propose $who first" run role start ABC-1 propose; P=$(proposes)
+  rm -f "$H/start-fails"; BODY="propose $who second" HERDR_PANE_ID=$who run role start ABC-1 propose; N=$(sed -n "s/^handoff //p" "$H/out")
+  check "a different body after a failed start, from $who, replaces the unsent handoff" '[ "$(cat "$H/rc")" = 0 ] && [ "$(proposes)" = "$N" ] && grep -q "propose $who second" "$N" && ! grep -q "propose $who first" "$N" && grep -lq "propose $who first" "$main/.orca/handoffs/abc-1/archive/"propose-*.md'
+done
 run role retire ABC-1 review
 add_agent abc1-review2 tp1 p1
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review

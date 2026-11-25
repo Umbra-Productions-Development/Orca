@@ -850,6 +850,10 @@ cmd_role() {
       # Same body, unsent or sent to a session that is gone: resend it as is.
       # A different body is replaced by the write below; nobody is left to read an orphaned one.
       [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && resume="$L"
+      # An unsent or orphaned handoff role start wrote (it carries body-sha1) is replaced by any caller: after a failed
+      # start the rerun may come from another session or a plain shell, and cmd_handoff write would refuse either.
+      # One written by hand keeps cmd_handoff write's rule; a sent one (sentL) keeps the rules above.
+      local drop=""; [ -n "$L" ] && [ -z "$resume" ] && [ -z "$sentL" ] && [ -n "$(fm body-sha1 "$L")" ] && drop="$L"
       if [ -n "$ag" ]; then
         [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
@@ -883,7 +887,8 @@ cmd_role() {
         fi
       fi
       local f="$resume"
-      if [ -z "$f" ]; then f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"; fm_set body-sha1 "$H" "$f"; fi
+      if [ -z "$f" ]; then [ -z "$drop" ] || cmd_handoff consume "$drop" >/dev/null || die "could not archive $drop"
+        f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"; fm_set body-sha1 "$H" "$f"; fi
       # Actions. One that fails leaves the handoff live and unsent, so the rerun each message asks for resumes it.
       if [ -n "$clear" ]; then
         herdr agent prompt "$name" "/clear" >/dev/null 2>&1 || die "herdr refused /clear to $name"

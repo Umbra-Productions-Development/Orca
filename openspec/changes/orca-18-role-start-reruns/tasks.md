@@ -8,6 +8,7 @@
 - [x] 1.6 Owner line: `owner: <old> -> <new>` only on change.
 - [x] 1.7 Review fixes (design.md Decisions): `body-sha1` as a `git hash-object` blob id that dies when it cannot be computed; a live handoff stamped `sent-to` the live session counts as received with or without its ledger file; `(not read yet)` checks content as well as the path; `roleStartTimeoutMs` read only when a session is opened.
 - [x] 1.8 Rebased onto PR #84's two-phase `role start` (checks, then actions; `ready_or_die`, `is_core_role`, the stale-entry filter): a failed action keeps the handoff live and unsent for the rerun instead of archiving it (design.md Decisions).
+- [x] 1.9 A different body after a failed start replaces the unsent handoff role start wrote, from any caller (design.md step 7); `tests/role-sessions.test.sh` covers another session and a shell with no session id.
 
 ## 2. Config
 
