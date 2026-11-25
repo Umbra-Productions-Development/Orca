@@ -74,7 +74,7 @@ How they run (tasks.md 5.0-5.9 hold the exact commands and pass lines):
 - README states minimum Claude Code 2.1.318, the version verified live, not an older changelog-derived one — user (recommended, accepted in grilling).
 - One test file per hook, a `payload` helper in `tests/lib.sh`, and a matcher-migration case in `tests/install-config-dir.sh` — user (recommended, accepted in grilling).
 - Live checks run after merge against the stable install; the PR references #17 without closing it, and #17 closes once the checks pass — user (recommended, accepted on proposal review should-fix 1).
-- On a `fork` source, `session-start.sh` writes the identity only when the pane has none, so a background `/fork` cannot overwrite the foreground session's identity — user (recommended, accepted on proposal review suggestion 2).
+- On a `fork` source, `session-start.sh` writes the identity only when the pane has none, so a background `/fork` cannot overwrite the foreground session's identity — user (recommended, accepted on proposal review suggestion 2). Superseded by the later entry "On a `fork` source, `session-start.sh` never runs `orca-lc name --set`" (Fork identity fix, after live check 5.8).
 - skills/orca/SKILL.md's Stop sentence is reworded with docs/daily-use.md, since the line now reaches the user only — propose (proposal review suggestion 3).
 - The handoff live check names a handoff written by another session, and fork paths `/branch` and `/fork` both get checks — propose (proposal review suggestions 2 and 4).
 - `.openspec.yaml` with `skip_specs: true`, as `document-size-counting-opt-out` has, so `openspec validate` passes — propose (proposal review suggestion 5).
