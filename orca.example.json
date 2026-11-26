@@ -20,6 +20,11 @@
   "skipDefaultPasses": [],
   "envFiles": [".env"],
   "linkPaths": [],
+  "claude": { "mcp": {
+    "propose": { "mcpServers": {} },
+    "apply": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@0.0.84"] } } },
+    "review": { "mcpServers": { "playwright": { "command": "npx", "args": ["@playwright/mcp@0.0.84"] } } }
+  } },
   "envCommand": "",
   "ports": ["web", "db"],
   "portScheme": { "base": 3000, "slots": 100, "step": 10 },
