@@ -26,6 +26,7 @@ quiet 'echo x 2>err.log'
 quiet 'tail -f app.log'; quiet 'tail -F app.log'; quiet 'tail --follow=name app.log'; quiet 'less +F app.log'
 quiet 'cat -'; quiet 'git show x | cat -'; quiet 'grep pat -'
 quiet 'echo x > /dev/stderr'; quiet 'echo x >/dev/tty'; quiet 'printf x > /dev/stdout'
+quiet 'echo x | tee /dev/stderr'; quiet 'printf "%s" x | tee /dev/null'; fires 'echo x | tee /dev/null out.txt' "Write tool"
 quiet 'rg x <<<"$y"'; quiet $'rg x <<EOF\nbody\nEOF'; quiet 'grep x < f'; quiet 'cat < f'
 quiet $'git commit -F - <<EOF\nless noise in tail output\nhead notes.txt\nEOF'
 quiet $'git commit -F - <<EOF\nit\'s done\nhead notes.txt\nEOF'

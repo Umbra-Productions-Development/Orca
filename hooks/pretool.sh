@@ -381,8 +381,10 @@ VO_ag=" -A -B -C -m -G --file-search-regex --ignore --max-count "
 VO_sed=" -e -f -l --expression --file --line-length "
 # _cw <k>: segment k's command word, prefixes skipped.
 _cw() { local seg=() j=0; _split "${S_W[$1]}"; while [ $j -lt ${#seg[@]} ] && [[ "${seg[j]}" =~ $PFX ]]; do j=$((j+1)); done; echo "${seg[j]:-}"; }
+# _dev <path>: a device no write to counts as a file write (design.md Decisions).
+_dev() { case "$1" in /dev/null|/dev/stdout|/dev/stderr|/dev/tty) return 0;; esac; return 1; }
 # tool_scan: "<kind> <cmd>" for the first segment of the caller's list that reads (read), searches
-# (search), writes a new file (write) or changes one (edit) with a command a dedicated tool covers.
+# (search), lists (glob), writes a new file (write) or changes one (edit) with a command a dedicated tool covers.
 tool_scan() { local k o; for ((k=0; k<${#S_W[@]}; k++)); do o=$(tool_seg "$k"); [ -n "$o" ] && { echo "$o"; return; }; done; }
 tool_seg() {
   local k=$1 seg=() j=0 c vo="" fl=" " ops=() a x ch m e=0 p op t h in=0 rd=()
@@ -391,7 +393,7 @@ tool_seg() {
   c=${seg[j]:-}
   case "$c" in
     bash|sh) if [ "${seg[j+1]:-}" = -c ]; then local S_W S_P S_R S_H S_HEAD; _treset; tokenize "${seg[j+2]:-}"; tool_scan; fi; return;;
-    find) for x in "${seg[@]}"; do case "$x" in -exec|-execdir|-ok|-okdir|-delete) return;; esac; done; echo "search find"; return;;
+    find) for x in "${seg[@]}"; do case "$x" in -exec|-execdir|-ok|-okdir|-delete) return;; esac; done; echo "glob find"; return;;
     head|tail) vo=$VO_head;; grep|egrep|fgrep) vo=$VO_grep;; rg) vo=$VO_rg;; ag) vo=$VO_ag;; sed) vo=$VO_sed;;
     cat|less|more|bat|tee|echo|printf) ;;
     *) return;;
@@ -412,7 +414,7 @@ tool_seg() {
   for x in "${rd[@]}"; do case "${x%%"$GS"*}" in '<'|'<<'|'<<-'|'<<<') in=1;; esac; done
   case "$c" in cat|echo|printf)
     for x in "${rd[@]}"; do op=${x%%"$GS"*}; t=${x#*"$GS"}
-      case "$t" in /dev/null|/dev/stdout|/dev/stderr|/dev/tty|'&'*) continue;; esac
+      { _dev "$t" || [[ "$t" == '&'* ]]; } && continue
       case "$op" in '>'|'>|'|'&>') echo "write $c"; return;; '>>'|'&>>') echo "edit $c"; return;; esac
     done;;
   esac
@@ -431,7 +433,7 @@ tool_seg() {
       elif [ "$in" != 1 ]; then
         case "$c" in rg|ag) echo "search $c";; *) [[ "$fl" =~ \ (-r|-R|--recursive|--dereference-recursive)\  ]] && echo "search $c";; esac
       fi;;
-    tee) [ ${#ops[@]} -gt 0 ] || return; h=${S_HEAD[k]}
+    tee) m=""; for x in "${ops[@]}"; do _dev "$x" || m=f; done; [ "$m" = f ] || return; h=${S_HEAD[k]}
       if [ "${S_H[h]}" = 1 ] || [[ "$(_cw "$h")" =~ ^(cat|echo|printf)$ ]]; then
         if [[ "$fl" =~ \ (-a|--append)\  ]]; then echo "edit tee"; else echo "write tee"; fi
       fi;;
@@ -489,7 +491,7 @@ case "$tool" in
     ta_off="Set toolAdvice: false in .orca/config.json to silence this."
     case "$ta_kind" in
       read) advise "Bash \`$ta_cmd\` reads a file: the Read tool covers it (line-numbered, no output cap). $ta_off";;
-      search) advise "Bash \`$ta_cmd\` searches files: the Grep tool (Glob for find) covers it. $ta_off";;
+      search) advise "Bash \`$ta_cmd\` searches files: the Grep tool covers it. $ta_off";;
       glob) advise "Bash \`$ta_cmd\` lists files: the Glob tool covers it. $ta_off";;
       write) advise "Bash \`$ta_cmd\` writes a file: the Write tool covers it. $ta_off";;
       edit) advise "Bash \`$ta_cmd\` changes a file: the Edit tool covers it. $ta_off";;
