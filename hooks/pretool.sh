@@ -92,7 +92,7 @@ sleep_rule() { local flat masked raw after f loop wake="End the turn instead: it
     loop="For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
     case $f in */tasks/*.output) block "sleep before reading a background task's output. $wake. $loop";; esac
     bg_writes "$f" "$2" && block "sleep before reading $f, which a background command of this session writes. $wake. $loop"
-  done < <(grep -oE "[^[:space:];|&<>\"'=]+(/tasks/[^[:space:];|&<>\"'=]+\.output|\.(log|out|txt)\b)" <<<"$raw" | sort -u)
+  done < <(grep -oE "[^[:space:];|&<>\"'=()]+" <<<"$raw" | grep -E '/tasks/[^/]+\.output$|\.(log|out|txt)$' | sort -u)
   grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
   grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
   return 0; }

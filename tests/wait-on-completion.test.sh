@@ -44,6 +44,8 @@ check 0 'gh pr view 83; sleep 2; echo ok'
 check 0 'echo "sleep 1"; tail /tmp/x/build.log; sleep 2; echo ok'
 check 0 'gh pr view 83; for i in 1 2; do echo $i; done; sleep 2; echo ok'
 check 0 'for i in 1 2; do gh pr view 8; done; sleep 2; echo ok'
+# A rotated log is another file than the one the background command writes.
+check 0 'sleep 5; cat /tmp/x/build.log.1'
 # A glob is read as written, not expanded against the repo the hook runs in.
 touch "$repo/build.log"; check 0 'sleep 1; tail *.log'; rm "$repo/build.log"
 # A loop elsewhere in the command, or one with no condition on the file, is still a wait on a command that completes.
