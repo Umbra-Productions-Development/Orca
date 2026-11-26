@@ -677,8 +677,9 @@ canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) e
 is_core_role() { case "$(canon_role "$1")" in propose|apply|review) return 0;; esac; return 1; }
 ticket_slug() { tkey "${1//-/}"; }
 # herdr keeps an entry with agent null for about half a second after its process ends; that entry is not a live session.
-ticket_agents() { herdr agent list 2>/dev/null | jq -c --arg p "$1-" '[.result.agents[] | select((has("agent") and .agent == null) | not)
-  | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id} | select(.name|startswith($p))]'; }
+live_agents() { herdr agent list 2>/dev/null | jq -c '[.result.agents[] | select((has("agent") and .agent == null) | not)]'; }
+ticket_agents() { live_agents | jq -c --arg p "$1-" '[.[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id}
+  | select(.name|startswith($p))]'; }
 agent_gone() { ! jq -e --arg n "$1" 'any(.[]; .name==$n)' <<<"$(ticket_agents "${1%%-*}")" >/dev/null; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
 agent_status() { herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status // empty'; }
@@ -708,7 +709,7 @@ role_tab_pane() {
   local tabs busy
   tabs=$(herdr tab list --workspace "$1" 2>/dev/null | jq -c --arg l "$2" '[.result.tabs[] | select(.label==$l) | .tab_id]')
   [ "${tabs:-[]}" != "[]" ] || return 0
-  busy=$(herdr agent list 2>/dev/null | jq -c '[.result.agents[] | select((has("agent") and .agent == null) | not) | .pane_id]')
+  busy=$(live_agents | jq -c '[.[].pane_id]')
   # For each labelled tab in order: its first pane, kept only when no agent runs in it; the first one left wins.
   herdr pane list --workspace "$1" 2>/dev/null | jq -r --argjson tabs "$tabs" --argjson busy "${busy:-[]}" '
     .result.panes as $panes
