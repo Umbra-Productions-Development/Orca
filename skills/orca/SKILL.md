@@ -120,7 +120,7 @@ Each default pass and `orca-verifier` end with a `## Findings` list, one entry p
 2. Check each against the code; drop any claim the code does not show.
 3. Merge: two findings are one when they point at the same file with overlapping or adjacent line ranges and share a root cause. The merged finding cites every source and takes the highest suggested tier.
 4. Tier each, starting from its suggested tier:
-   - **Blocker**: fixed before merge; a `Keeping it` answer does not close it. A failing gate is always a Blocker, and so is a `reviewChecks` hit the entry calls blocking.
+   - **Blocker**: fixed before merge; a `Keeping it` answer does not close it. A failing gate, or one the verifier reports `not run` (the review then has no gate run), is always a Blocker, and so is a `reviewChecks` hit the entry calls blocking.
    - **Should fix**: fixed in this PR, or answered `Keeping it: <reason>`.
    - **Suggestion**: optional.
 
