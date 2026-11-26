@@ -21,6 +21,7 @@ case "$1 $2" in
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
   "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
                  [ -f "$H/times-out" ] && grep -q -- --timeout <<<"$*" && exit 1   # a bounded wait that runs out
+                 [ -f "$H/exits-mid-wait" ] && { put agents --arg n "$3" 'map(select(.name!=$n))'; exit 1; }   # agent_not_running
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
                  [ "$st" = working ] && [ -f "$H/goes-blocked" ] && grep -qw blocked <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="blocked" else . end)'; exit 0; }
                  [ "$st" = unknown ] && [ -f "$H/unknown-settles" ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
@@ -122,6 +123,9 @@ rm -f "$H/goes-blocked"; set_status abc1-propose idle
 set_status abc1-propose working; touch "$H/times-out"; run role retire ABC-1 propose --wait
 check 'retire --wait gives up on a session that never settles' 'grep -q "abc1-propose did not settle within" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
 rm -f "$H/times-out"; set_status abc1-propose idle
+add_agent abc1-brief tbrief; add_tab tbrief brief; set_status abc1-brief working; touch "$H/exits-mid-wait"; run role retire ABC-1 brief --wait
+check 'retire --wait on a session that exits during the wait says so, not timeout' 'grep -q "abc1-brief exited during the wait" "$H/out" && ! grep -q "within an hour" "$H/out"'
+rm -f "$H/exits-mid-wait"
 run role retire ABC-1 propose --now
 check 'retire refuses an unknown argument' 'grep -q "^orca-lc: role retire <ticket> <role> \[--wait\]" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
 add_agent abc1-orchestrator torch2; add_tab torch2 orchestrator; run role retire ABC-1 orchestrator

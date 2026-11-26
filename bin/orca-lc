@@ -817,8 +817,11 @@ cmd_role() {
       case "$st" in idle|done|blocked) ;; *)  # working, unknown or anything else: only --wait goes on, until herdr shows where it stopped
         [ "${3:-}" = --wait ] || ready_or_die "$name" "$st" "retire it once it reports, or pass --wait"
         # Bounded like every other wait here: an hour covers a long apply round.
-        herdr agent wait "$name" --until idle --until done --until blocked --timeout 3600000 >/dev/null 2>&1 \
-          || die "$name did not settle within an hour; retire it once it reports";;
+        # herdr's wait also fails with agent_not_running when the session goes away meanwhile: nothing is left to retire.
+        if ! herdr agent wait "$name" --until idle --until done --until blocked --timeout 3600000 >/dev/null 2>&1; then
+          agent_gone "$name" && { echo "$name exited during the wait"; return 0; }
+          die "$name did not settle within an hour; retire it once it reports"
+        fi;;
       esac
       exit_role_agent "$ag"; echo "retired $name";;
     *) usage "role start|owner|retire";;
