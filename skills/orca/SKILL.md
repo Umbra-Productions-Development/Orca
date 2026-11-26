@@ -37,7 +37,7 @@ Two channels, one header. Every cross-session message opens with `[orca from <se
 
 ## Roles
 
-A ticket's herdr workspace holds one tab per session:
+A ticket's herdr workspace holds one tab per session. In Claude Code, apply and review run by default as subagents of the orchestrator with no tab (see Apply and review as subagents); their tabs below are for driving them by hand:
 
 | Tab | Agent | Started by |
 |---|---|---|
@@ -61,7 +61,7 @@ A role is defined by its domain; the Owns lines below are examples, not the whol
 The tracker is the one `orca-lc config tracker` names. When it prints nothing, ask the user where tickets live before writing to any.
 
 ### orchestrator
-Owns: the user's entry point; the stack, seeded database, and migrations before apply starts; starting each session and writing its handoff; routing findings and decisions; relaying edge notices; PRs and tracker writes; extra sessions for work no role owns.
+Owns: the user's entry point; the stack, seeded database, and migrations before apply starts; starting each session, or dispatching the apply and review subagents, and writing its handoff; routing findings and decisions; relaying edge notices; PRs and tracker writes; extra sessions for work no role owns.
 Never: explores, writes specs or code, or reviews; plans before propose reports; or answers propose's open questions unless the user delegates them. A handoff it writes names the work and who to report to, never "check their work".
 
 ### propose
