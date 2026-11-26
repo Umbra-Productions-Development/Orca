@@ -66,7 +66,7 @@ Each change configures or enforces something the runtime or a tool already provi
 `sleep` stays available. `hooks/pretool.sh` blocks a foreground `Bash` call only when it holds a `sleep` and one of these, each of which has an event that wakes the session:
 
 - It reads a background task's output: a Claude Code task file (`…/tasks/<id>.output`), or a file that a `run_in_background` command of this session writes, found in the session transcript.
-- It checks a peer: `herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox`.
+- It checks a peer: `herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox read`.
 - It polls CI: `gh pr view|checks`, `gh run view|list`.
 
 The block message names the alternative: end the turn (this holds inside a subagent), `herdr agent wait <peer> --until idle --timeout <ms>`, or `gh pr checks <n> --watch` with `run_in_background: true`. Every other `sleep` passes with no block and no advice, whatever its length: a bare `sleep N`, a `sleep; echo done`, a short sleep in a loop that checks something real. There is no bypass. If bare sleeps still cost too much after the re-measure, blocking them is reconsidered.

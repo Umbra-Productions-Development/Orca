@@ -11,7 +11,7 @@
 A foreground `Bash` call (no `run_in_background: true`) whose command holds `sleep <n>` outside quotes is blocked when what runs after the sleep:
 
 1. names a Claude Code task output (`…/tasks/<id>.output`), or a `.log`, `.out` or `.txt` file that a `run_in_background` command of this session names in the transcript;
-2. runs `herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox` or `orca-lc inbox read` (`orca-lc inbox send` passes);
+2. runs `herdr agent get|list|read`, `orca-lc peers` or `orca-lc inbox read` (`orca-lc inbox send` passes);
 3. runs `gh pr view|checks` or `gh run view|list`.
 
 What counts as running after the sleep:
