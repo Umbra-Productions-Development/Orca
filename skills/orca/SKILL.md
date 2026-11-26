@@ -28,7 +28,7 @@ A background command, a subagent, or a peer's `orca-lc notify` wakes the session
 - CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
 - `orca-lc gate`: run it in the foreground with a tool timeout above `gateTimeoutMin` (see Gate above); it returns as soon as the gate ends.
 
-A hook blocks `sleep` in the first three cases. Every other `sleep` passes.
+A hook blocks a `sleep` followed by a read of a background task's output (its task file, or a `.log`, `.out` or `.txt` file a background command writes), a peer check (`herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox read`) or a CI poll (`gh pr view|checks`, `gh run view|list`). Every other `sleep` passes, a bare one included.
 
 ## Test files
 
