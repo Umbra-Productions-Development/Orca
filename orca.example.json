@@ -30,5 +30,6 @@
   "stackTool": "auto",
   "discoveriesDir": "discoveries",
   "handoffArchiveDays": 7,
-  "minFreeMemMb": 3000
+  "minFreeMemMb": 3000,
+  "roleStartTimeoutMs": 60000
 }
