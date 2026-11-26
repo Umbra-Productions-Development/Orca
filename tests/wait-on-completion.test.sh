@@ -41,6 +41,12 @@ check 2 'sleep .5; gh pr view 8'
 check 0 'git commit -m "docs: sleep 30 before gh pr view"'
 check 0 "git commit -m \"the server's 'sleep 2; gh pr view 8' wait\""
 check 0 'gh pr view 83; sleep 2; echo ok'
+# Neither is a heredoc body or a comment.
+check 0 $'cat > notes.md <<EOF\nsleep 30; gh pr view 8\nEOF'
+check 0 $'cat > notes.md <<-\'EOF\'\n\tsleep 30; gh pr view 8\n\tEOF\necho ok'
+check 0 'sleep 2 # then gh pr view'
+check 2 $'cat > notes.md <<EOF\nnotes\nEOF\nsleep 30; gh pr view 8'
+check 2 'echo ${#x}; sleep 2; gh pr view 8'
 check 0 'echo "sleep 1"; tail /tmp/x/build.log; sleep 2; echo ok'
 check 0 'gh pr view 83; for i in 1 2; do echo $i; done; sleep 2; echo ok'
 check 0 'for i in 1 2; do gh pr view 8; done; sleep 2; echo ok'

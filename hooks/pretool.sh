@@ -53,14 +53,28 @@ absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/$
 SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
 # What may stand before a loop keyword: the start, a separator or brace (a newline is flattened to ';'), or then/do/else.
 LOOP_AT='(^|[;&|({][[:space:]]*|[;&|({[:space:]](then|do|else)[[:space:]]+)'
-# mask <text>: the text with each quoted string, quotes included, replaced by as many x's, so a commit message
-# naming a sleep or a check is not one, and an offset in the mask is the same offset in the text. Inside one kind
-# of quote the other kind is plain text ("the server's log").
+# mask_heredocs <text>: each heredoc body line replaced by as many x's; the line holding `<<` and the delimiter
+# stay. Runs before mask, since an apostrophe in a body is no quote.
+mask_heredocs() { local line end="" o="" pad re='(^|[^<])<<-?[[:space:]]*["'\'']?([[:alpha:]_][[:alnum:]_]*)'
+  while IFS= read -r line || [ -n "$line" ]; do
+    if [ -n "$end" ]; then
+      if [ "${line#"${line%%[!$'\t']*}"}" = "$end" ]; then end=""; else printf -v pad '%*s' "${#line}" ''; line=${pad// /x}; fi
+    elif [[ $line =~ $re ]]; then end=${BASH_REMATCH[2]}; fi
+    o+=$line$'\n'
+  done <<<"$1"
+  printf '%s' "$o"; }
+# mask <text>: the text with each quoted string (quotes included) and each comment (a # starting a word, to the end
+# of its line) replaced by as many x's, so a commit message naming a sleep or a check is not one, and an offset in
+# the mask is the same offset in the text. Inside one kind of quote the other kind is plain text ("the server's
+# log"); inside a quote a # is plain text, and inside a comment a quote is.
 mask() { local s=$1 o="" pre q body pad
-  while pre=${s%%[\"\']*}; [ "$pre" != "$s" ]; do
-    q=${s:${#pre}:1}; s=${s:${#pre}+1}
-    if [[ $s == *"$q"* ]]; then body=$q${s%%"$q"*}$q; s=${s#*"$q"}; else body=$q$s; s=""; fi
-    printf -v pad '%*s' "${#body}" ''; o+=$pre${pad// /x}
+  while pre=${s%%[\"\'#]*}; [ "$pre" != "$s" ]; do
+    q=${s:${#pre}:1}; s=${s:${#pre}+1}; o+=$pre
+    if [ "$q" = "#" ]; then
+      [[ -z $o || ${o: -1} == [[:space:]\;\&\|\(] ]] || { o+=$q; continue; }
+      body=$q${s%%$'\n'*}; s=${s:${#body}-1}
+    elif [[ $s == *"$q"* ]]; then body=$q${s%%"$q"*}$q; s=${s#*"$q"}; else body=$q$s; s=""; fi
+    printf -v pad '%*s' "${#body}" ''; o+=${pad// /x}
   done
   printf '%s\n' "$o$s"; }
 # after_done <text>: what follows the last 'done', or the whole text when there is none.
@@ -88,7 +102,7 @@ bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
 # (a path may be quoted); peer and CI checks read it masked.
 sleep_rule() { local flat masked raw after f loop wake="End the turn instead: its completion wakes this session, inside a subagent too"
-  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask "$flat")
+  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask_heredocs "$1"); masked=$(mask "$masked" | tr '\n' ';')
   grep -qE "$SLEEP" <<<"$masked" || return 0
   raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
   # A task output file is always a background task's; any other file counts when a background command names it.
