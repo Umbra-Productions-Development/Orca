@@ -67,7 +67,15 @@ By default the orchestrator does not open a tab for apply. It writes the handoff
 orca-lc handoff write ABC-12 apply   # prints the file; the orchestrator writes the scope below the role's rules
 ```
 
-runs `orca-lc role owner ABC-12 --set apply` (`role start` records the owner itself; a dispatch does not), and prompts it `read handoff <file> and work it`. Before dispatching review, and apply again for the findings, it sets the owner to that role the same way. One subagent per job, and never two in the same worktree at once: apply, review, and apply again for the findings run strictly one after the other. A subagent that needs the user ends its report with a first line `BLOCKED: <question>`; the orchestrator asks the user and continues the same subagent with `SendMessage`. After a crash the orchestrator tries `SendMessage` to the old subagent, and otherwise dispatches a new one with the same handoff plus "continue from `git log`". Subagents do not show on the herdr board. `orca-lc role start ABC-12 apply` still starts apply in its own tab, to drive it by hand. This is Claude Code only for now.
+runs `orca-lc role owner ABC-12 --set apply`, and prompts it `read handoff <file> and work it`.
+
+- Before each dispatch, the orchestrator records the owner with `orca-lc role owner <ticket> --set apply|review`. `role start` records the owner itself; a dispatch does not.
+- One subagent per job, and never two in the same worktree at once: apply, review, and apply again for the findings run strictly one after the other.
+- A subagent that needs the user ends its report with a first line `BLOCKED: <question>`. The orchestrator asks the user and continues the same subagent with `SendMessage`.
+- After a crash, the orchestrator tries `SendMessage` to the old subagent. When that is refused, it dispatches a new one with the same handoff plus "continue from `git log`".
+- Subagents do not show on the herdr board.
+- `orca-lc role start ABC-12 apply` still starts apply in its own tab, to drive it by hand.
+- Subagents are Claude Code only for now.
 
 Ownership moves forward: only the owner edits the tree, because every session of a ticket shares one index and HEAD.
 
