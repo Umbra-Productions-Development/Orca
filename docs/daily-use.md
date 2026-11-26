@@ -11,7 +11,7 @@ Two checkouts of Orca:
 | `Orca` | `main` and feature branches | Developing Orca |
 | `Orca-stable` (a `git worktree` of the same clone) | `stable` | The install everyday work runs on |
 
-`install.sh` runs from `Orca-stable` only. It links `orca-lc`, the hooks, the skills and the agent from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: `git pull` on `stable` in `Orca-stable`, then `./install.sh` again. On Git Bash without Developer Mode, install copies instead of linking and says so; there the rerun after every pull is what updates the copies. An install made from another Orca checkout stops install and changes nothing; run `./install.sh --force` from `Orca-stable` to move it there. To remove Orca: `./install.sh --uninstall` from `Orca-stable`; it lists every path it leaves in place and exits 1 when it leaves any.
+`install.sh` runs from `Orca-stable` only. It links `orca-lc`, the hooks, the skills and the agents from wherever it runs, so switching branches in the development checkout never changes the tools that ongoing work depends on. To take a new release: `git pull` on `stable` in `Orca-stable`, then `./install.sh` again. On Git Bash without Developer Mode, install copies instead of linking and says so; there the rerun after every pull is what updates the copies. An install made from another Orca checkout stops install and changes nothing; run `./install.sh --force` from `Orca-stable` to move it there. To remove Orca: `./install.sh --uninstall` from `Orca-stable`; it lists every path it leaves in place and exits 1 when it leaves any.
 
 ```bash
 git -C Orca worktree add --track -b stable ../Orca-stable origin/stable
@@ -42,7 +42,7 @@ Open Claude Code in the project's main checkout, in a herdr tab labelled `orches
 orca-lc worktree up ABC-12 --stack
 ```
 
-That cuts a branch from the remote base into its own worktree next to the main checkout, opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
+That cuts a branch from the fetched `origin/<baseBranch>` into its own worktree next to the main checkout and prints `base <ref> (<label>)` for the base it used (an existing ticket branch, local or on origin, is reused instead), opens a herdr workspace for it, links `.orca` back to the main checkout, writes the ticket's ports into the worktree's `.env.local`, and runs `stackUp` and `migrateCommand`. Every ticket gets its own ports, so several tickets run side by side without clashing.
 
 The orchestrator never explores, writes specs or code, or reviews. It routes.
 
@@ -67,11 +67,29 @@ Propose reads the ticket, explores the code, grills the user on the decisions th
 
 ### 3. Apply
 
-The orchestrator starts `apply` the same way. Ownership moves forward: only the owner edits the tree, because every session of a ticket shares one index and HEAD.
+By default the orchestrator does not open a tab for apply. It writes the handoff and dispatches the `orca-apply` agent as a background subagent of its own Claude Code session:
+
+```bash
+orca-lc handoff write ABC-12 apply   # prints the file; the orchestrator writes the scope below the role's rules
+```
+
+Then it prompts the subagent `read handoff <file> and work it`.
+
+- Before each dispatch, the orchestrator records the owner with `orca-lc role owner <ticket> --set apply|review`. `role start` records the owner itself; a dispatch does not.
+- A subagent cannot start agents. `orca-apply` reports its agent-typed `applyChecks` entries and the `orca-verifier` as `skipped: needs an agent`, and the orchestrator dispatches them after its report.
+- One subagent per job, and never two in the same worktree at once: apply, review, and apply again for the findings run strictly one after the other.
+- A subagent that needs the user ends its report with a first line `BLOCKED: <question>`. The orchestrator asks the user and continues the same subagent with `SendMessage`.
+- After a crash, the orchestrator tries `SendMessage` to the old subagent. When that is refused, it writes a fresh handoff with the same scope, because the first subagent's read archived the old one, and dispatches a new subagent with it plus "continue from `git log`".
+- Subagents do not show on the herdr board, and a subagent's report needs no `orca-lc role retire`: it has no session to exit, and its report ends it.
+- `orca-lc role start ABC-12 apply` still starts apply in its own tab, to drive it by hand.
+- Subagents are Claude Code only for now.
+
+Ownership moves forward: only the owner edits the tree, because every session of a ticket shares one index and HEAD.
 
 Apply implements `tasks.md`, commit by commit. While it works:
 
 - `orca-lc test-affected` runs only the tests the diff reaches: the fast inner loop.
+- `orca-lc test-affected` and `orca-lc evidence` measure against `origin/<baseBranch>`, fetched first, so a stale local base branch does not leak its missing commits into the diff. With no `origin/<baseBranch>` at all they fall back to the local base branch, labelled `local; fetch failed`, and a stale one does leak; `evidence <base>` uses the base you give it as is, and the evidence file's header names the base and merge base it used.
 - Editing a test file is blocked. When a test is genuinely wrong, run `orca-lc test-lock on` in the worktree that holds the test, change it, say why in the commit body, `orca-lc test-lock off`.
 - Before the gate it runs every entry in `applyChecks`.
 - `orca-lc gate` runs the full gate and marks the exact tree. When the tree already carries a fresh mark it skips and says so; `--force` reruns it. Any later edit, or a change to `.orca/config.json`, `.env` or a leak-check denylist, makes the mark stale; a change in what `envCommand` prints does not, so rerun with `--force` after one. The gate runs as a child of `orca-lc gate`, which returns its exit status as soon as it ends, however it ends; inside herdr a split pane follows its log (`.git/orca-gate.log`), closing on success. A gate still running after `gateTimeoutMin` is stopped with `ORCA_GATE_TIMEOUT` (exit 124), and `0` sets no limit; this needs `timeout` or `gtimeout` (Homebrew coreutils on macOS) on PATH, and without either the limit is not enforced. With `leakCheck: true` it then scans the commits no remote has for denylisted terms; a hit fails the gate and leaves no mark.
@@ -82,9 +100,9 @@ Apply implements `tasks.md`, commit by commit. While it works:
 
 ### 4. Review
 
-The orchestrator starts `review`. Review runs `orca-lc evidence` (blast radius and affected tests of the diff), then the three default passes, `orca-complexity` (needless complexity), `orca-spec` (the diff against the openspec change, or the ticket's acceptance criteria) and `orca-standards` (the diff against `standardsFile`), each of which a project can turn off in `skipDefaultPasses`, then any extra `reviewPasses` and the `reviewChecks`. Paths matching `reviewExcludes` are left out of all of these. Last it dispatches the `orca-verifier` agent from the ticket's worktree: a clean-context pass that runs the gate, the review's only gate run (it skips when apply's mark is still fresh for the tree), and reads the whole diff against `tasks.md`, never reporting an excluded path as an unasked change.
+Once apply has reported, the orchestrator dispatches the `orca-review` agent the same way, with a handoff from `orca-lc handoff write ABC-12 review` (or `orca-lc role start ABC-12 review` for a tab). Review runs `orca-lc evidence` (blast radius and affected tests of the diff), then the three default passes, `orca-complexity` (needless complexity), `orca-spec` (the diff against the openspec change, or the ticket's acceptance criteria) and `orca-standards` (the diff against `standardsFile`), each of which a project can turn off in `skipDefaultPasses`, then any extra `reviewPasses` and the `reviewChecks`. Paths matching `reviewExcludes` are left out of all of these. Last comes the `orca-verifier` agent, from the ticket's worktree: a clean-context pass that runs the gate, the review's only gate run (it skips when apply's mark is still fresh for the tree), and reads the whole diff against `tasks.md`, never reporting an excluded path as an unasked change. A subagent cannot start agents, so the `orca-review` subagent runs the skill entries itself and reports the agent ones (the default passes, agent-typed `reviewPasses` and `reviewChecks`, the verifier) as `skipped: needs an agent`. The orchestrator dispatches those and continues review with their reports with `SendMessage`; a review run in its own tab dispatches them itself.
 
-Review then reconciles: it drops any claim the code does not show, merges findings at the same place with the same root cause, and tiers each as **Blocker** (a failing gate always is), **Should fix** or **Suggestion**. The result goes to `<gitdir>/orca-findings.md`, headed with the reviewed sha and base and a table of every pass and check with its result, and to the orchestrator. Review never fixes what it finds.
+Review then reconciles: it drops any claim the code does not show, merges findings at the same place with the same root cause, and tiers each as **Blocker** (a failing gate always is, and so is one the verifier reports `not run`), **Should fix** or **Suggestion**. The result goes to `<gitdir>/orca-findings.md`, headed with the reviewed sha and base and a table of every pass and check with its result, and to the orchestrator. Review never fixes what it finds.
 
 Apply fixes the findings. When the user approves, the review is posted to the PR as one GitHub review with one inline comment per finding, opening with its tier: APPROVE when nothing is Blocker or Should fix, otherwise COMMENT. The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …`; a Blocker is closed only by a fix.
 
