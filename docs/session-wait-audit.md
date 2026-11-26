@@ -77,7 +77,7 @@ The same rules, plus: run `orca-lc gate` in the foreground with a tool timeout a
 
 ### P3. Skip a gate whose marker is fresh
 
-`orca-lc gate` prints `orca-lc: gate fresh for this tree, skipped (--force reruns it)` and `ORCA_GATE_PASS` when the marker matches the tree. The verifier gets the skip with no change of its own. `tree_sig` now hashes untracked files' contents, not only their names, and is computed from the repository root, so a skip never covers content the gate did not see and the result does not depend on the working directory.
+`orca-lc gate` prints `orca-lc: gate fresh for this tree, skipped (--force reruns it)` and `ORCA_GATE_PASS` when the marker matches the tree. The verifier gets the skip with no change of its own. `tree_sig` now hashes untracked files' contents, not only their names, and is computed from the repository root, along with `.orca/config.json`, `.env` and the leak-check denylists, so a skip covers no file the gate did not see (what `envCommand` prints is outside it) and the result does not depend on the working directory.
 
 ### P4. Re-measure
 

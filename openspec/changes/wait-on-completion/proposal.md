@@ -5,7 +5,7 @@ Sessions sit idle while the result they wait for is already queued. Claude Code 
 ## What Changes
 
 - `hooks/pretool.sh`: block a foreground `sleep` only when the command then reads a background task's output, checks a peer, or polls CI. The message names the wait that wakes the session instead. Every other `sleep` passes.
-- `bin/orca-lc`: `gate` skips when the marker is fresh; `--force` reruns it. `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json` and `.env`, so a change to the gate command or the environment makes the marker stale.
+- `bin/orca-lc`: `gate` skips when the marker is fresh; `--force` reruns it. `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json`, `.env` and both leak-check denylists, so a change to the gate command, the environment or a denylist makes the marker stale. What `envCommand` prints is outside it.
 - `skills/orca/SKILL.md`: a "Waiting" section, and one sentence on the skip in "Gate".
 - `README.md`: the skip and the sleep block in "What it enforces".
 - `docs/daily-use.md`: the gate skip, `--force` and what makes the mark stale; the verifier's gate run skips on a fresh mark.

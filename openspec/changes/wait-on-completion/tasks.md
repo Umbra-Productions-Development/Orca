@@ -5,7 +5,7 @@
 ## 2. Gate
 
 - [x] 2.1 `bin/orca-lc`: `gate` skips on a fresh marker, `--force` reruns.
-- [x] 2.2 `bin/orca-lc`: `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json` and `.env`.
+- [x] 2.2 `bin/orca-lc`: `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json`, `.env` and both leak-check denylists.
 
 ## 3. Docs
 
@@ -16,6 +16,6 @@
 
 ## 4. Check
 
-- [x] 4.1 `tests/wait-on-completion.test.sh` and `tests/gate-fresh.test.sh` (new cases for unhashable untracked entries, a retargeted symlink, a changed gate command and `.env`) pass; `tests/pretool-merge.test.sh` still passes.
+- [x] 4.1 `tests/wait-on-completion.test.sh` and `tests/gate-fresh.test.sh` (new cases for unhashable untracked entries, a retargeted symlink, a changed gate command, `.env` and denylist) pass; `tests/pretool-merge.test.sh` still passes.
 - [x] 4.2 Run the hook in the local test site: the peer and CI shapes block, `sleep; echo done` passes. The skip is covered by the test only, because the test site's gate already fails for reasons unrelated to this change.
 - [ ] 4.3 Re-measure one week after landing.

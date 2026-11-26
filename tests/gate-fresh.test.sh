@@ -45,3 +45,10 @@ out=$(cd "$r" && orca-lc gate 2>&1); assert_contains "$out" ORCA_GATE_FAIL "chan
 echo '{"project":"proj","gate":"true"}' > "$r/.orca/config.json"; (cd "$r" && orca-lc gate >/dev/null 2>&1)
 echo X=1 > "$r/.env"
 assert_eq "$(fresh "$r")" 1 ".env changed: fresh"
+
+# Both denylists change what the leak check scans for, so a change to either makes the marker stale.
+export XDG_CONFIG_HOME="$HOME/.config"
+(cd "$r" && orca-lc gate >/dev/null 2>&1); echo term > "$r/.orca/denylist"
+assert_eq "$(fresh "$r")" 1 "project denylist changed after the gate: stale"
+(cd "$r" && orca-lc gate >/dev/null 2>&1); mkdir -p "$XDG_CONFIG_HOME/orca"; echo term > "$XDG_CONFIG_HOME/orca/denylist"
+assert_eq "$(fresh "$r")" 1 "global denylist changed after the gate: stale"

@@ -76,9 +76,10 @@ lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock -w 10 9 || die 
   echo $$ >"$d/pid"; trap 'rm -rf "'"$d"'"' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
 # The gate's inputs: HEAD, the diff, every untracked file (a symlink by its target; a directory or nested
-# repo by its name only), the config and .env, both often gitignored and both able to change the gate.
+# repo by its name only), the config, .env and both leak-check denylists, all often untracked and all able to
+# change the gate's result. What envCommand prints is not in it: tree_sig never runs commands.
 tree_sig() { ( cd "$(git rev-parse --show-toplevel)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD
-  cat .orca/config.json .env 2>/dev/null
+  cat .orca/config.json .env .orca/denylist "$(leak_global)" 2>/dev/null
   git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
     printf '%s\n' "$f"; if [ -L "$f" ]; then readlink -- "$f"; elif [ -f "$f" ]; then git hash-object -- "$f"; fi; done
   } | sha1sum | cut -c1-12)" ); }
