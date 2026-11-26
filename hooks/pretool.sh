@@ -81,8 +81,9 @@ mask() { local s=$1 o="" pre q body pad
 after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
 # from_sleep <text> <mask>: the text from its first unquoted sleep to the end; or, when that sleep sits in a loop
 # still open before it, from the loop keyword, since the loop's check runs again after the sleep. The nearest loop
-# keyword wins, so a sleep in an outer loop after a closed inner one reads from the sleep.
-from_sleep() { local pre l; [[ $2 =~ $SLEEP ]] || return 0; pre=${2%%"${BASH_REMATCH[0]}"*}
+# keyword wins, so a sleep in an outer loop after a closed inner one reads from the sleep. The caller has checked
+# that the mask holds a sleep.
+from_sleep() { local pre l; [[ $2 =~ $SLEEP ]]; pre=${2%%"${BASH_REMATCH[0]}"*}
   l=$(sed -nE "s/.*${LOOP_AT}((while|until|for)[[:space:]])/\\3/p" <<<"$pre")
   [ "$(after_done "$l")" = "$l" ] || l=""
   printf '%s\n' "${1:$(( ${#pre} - ${#l} ))}"; }
@@ -96,7 +97,8 @@ readiness_exempt() { local s=$2 rest="" m c re="${LOOP_AT}(until|while)[[:space:
   done
   rest+=$s
   [ "$rest" != "$2" ] && ! grep -oE "$SLEEP.*" <<<"$rest" | grep -qF -- "$1"; }
-# bg_writes <file> <transcript>: a run_in_background command of this session names the file.
+# bg_writes <file> <transcript>: a run_in_background command of this session names the file. The grep only cuts a
+# long transcript down to the lines naming the file before jq parses them; jq makes the decision.
 bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
 # sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
