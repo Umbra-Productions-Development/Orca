@@ -19,6 +19,10 @@ A ticket gets one terminal tab per session, managed through herdr.
 
 Ownership moves forward only: propose, then apply, then review until merge. Only the owner edits the tree.
 
+`orca-lc role start <ticket> <role> [--as <name>] [--replace <name>] [--new] < body` opens a role's session, writes its handoff and sends the first prompt, each once: rerunning it with the same body finishes what is missing or prints `already sent: <handoff>`. It refuses when the role's live session already received a handoff; `--new` clears an idle one and gives it the new handoff. `--as <name>` writes the handoff as that session, taking over another one's unread handoff; `--replace <name>` exits a live extra session before starting a new one. A session stuck at a startup prompt is reported with herdr's error, the tab, the pane and its last lines.
+
+`orca-lc role retire <ticket> <role> [--wait]` exits a role's session and keeps its tab, so the next `role start` for that role runs in the same tab and `claude --resume` there lists the earlier sessions. It refuses a working session, or one herdr shows as `unknown`, unless `--wait` is given, which waits up to an hour for it to go idle first. It refuses a session blocked at a prompt, since `/exit` and Enter typed there could answer the prompt.
+
 ## What it enforces
 
 - **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree, and skips when that tree already passed (`--force` reruns it). `git push` is refused without a fresh marker; `git merge` is always refused.
@@ -107,7 +111,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 
 ## Configuration
 
-`.orca/config.json`, one per repository, never committed. `orca-lc init` writes it, proposing each value from the repository, and a rerun edits it. `orca.example.json` is the reference for every key.
+`.orca/config.json`, one per repository, never committed. Its `.gitignore` line is `.orca`, with no trailing slash: `.orca/` matches directories only and misses the `.orca` symlink in each worktree. `orca-lc init` writes it, proposing each value from the repository, and a rerun edits it. `orca.example.json` is the reference for every key.
 
 | Key | What |
 |---|---|
@@ -120,6 +124,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock. Matched against the edited file's absolute physical path (links resolved), so anchor it to a directory such as `[/\\]tests[/\\]`, not to the repo root (`^tests/` never matches) |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |
+| `toolAdvice` | Advise when Bash reads, searches or writes files the dedicated tools cover, once per session per kind. Default `true`; `false` turns it off |
 | `ticketPattern` | Regex for ticket ids in paths and branch names |
 | `tracker` | Where tickets live; sessions ask the user when it is empty |
 | `roles` | Map of tab labels to role names |
@@ -140,6 +145,8 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `prShareLimit` | Size under which small changes may share one PR. Absent: no size counting; changes share a PR only when the proposal groups them |
 | `discoveriesDir` | Directory under `sharedDir` holding discoveries. Default `discoveries` |
 | `handoffArchiveDays` | Days before consumed handoffs are archived |
+| `minFreeMemMb` | Available memory, in MB, under which `role start` refuses to open a new session; reuse and `--replace` skip it, and so does any system without `/proc/meminfo` (macOS). Default `3000` |
+| `roleStartTimeoutMs` | How long, in ms, `role start` lets `herdr agent start` wait for a new session to reach its prompt. Default `60000`, capped at herdr's `300000` |
 
 Check entries (`reviewPasses`, `applyChecks`, `reviewChecks`): a skill name, an agent name, or `{"do": "<instruction>"}`. Any object entry may add `"when": "<regex>"` to run only when a path matches: a review path (the diff's paths minus `reviewExcludes`) for `reviewPasses` and `reviewChecks`, any path in the diff for `applyChecks`.
 

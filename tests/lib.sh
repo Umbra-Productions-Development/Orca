@@ -35,8 +35,9 @@ new_repo() {
   echo "$d/repo"
 }
 
-# hook_json <tool> <cwd> <command> -> a PreToolUse payload for a Bash call
-hook_json() { jq -n --arg t "$1" --arg c "$2" --arg x "$3" '{tool_name:$t, cwd:$c, tool_input:{command:$x}}'; }
+# hook_json <tool> <cwd> <command> [session_id] -> a PreToolUse payload for a Bash call; session_id only when given non-empty
+hook_json() { jq -n --arg t "$1" --arg c "$2" --arg x "$3" --arg s "${4-}" \
+  '{tool_name:$t, cwd:$c, tool_input:{command:$x}} + (if $s == "" then {} else {session_id:$s} end)'; }
 
 # payload <event> <cwd> [jq-object…] -> a documented hook input for the event (code.claude.com/docs/en/hooks):
 # the common fields plus the event's own, with each extra argument (a jq object expression, which may read
