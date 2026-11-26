@@ -130,7 +130,7 @@ assert_contains "$(cat "$s/log")" "-i k -o BatchMode=yes" "ssh origin: GIT_SSH_C
 assert_contains "$(cat "$s/log")" "-p 2 -o BatchMode=yes" "ssh origin: core.sshCommand not kept or BatchMode missing"
 # a GIT_SSH program alone is left as is: it may not take ssh's -o
 : > "$s/log"; git -C "$r" config --unset core.sshCommand
-(unset GIT_SSH_COMMAND; GIT_SSH="$s/ssh" evidence "$r" >/dev/null)
+(unset GIT_SSH_COMMAND GIT_SSH_VARIANT; GIT_SSH="$s/ssh" evidence "$r" >/dev/null)
 assert_not_contains "$(cat "$s/log")" "BatchMode" "ssh origin: BatchMode added to a GIT_SSH program"
 [ -s "$s/log" ] || fail "ssh origin: GIT_SSH program not run"
 # plink and the simple variant take no -o: by program name, by ssh.variant, by GIT_SSH_VARIANT
