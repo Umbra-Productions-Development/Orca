@@ -3,7 +3,8 @@ hook="$ORCA_SRC/hooks/post-read.sh"
 r=$(new_repo); cd "$r" || exit 1
 HERDR_PANE_ID=pane-w CLAUDE_SESSION_ID=writer orca-lc name --set >/dev/null
 write() { HERDR_PANE_ID=pane-w orca-lc handoff write "$1" apply; }
-read_as() { F=$1 payload PostToolUse "$r" '{tool_input: {file_path: $ENV.F}}' "{session_id: \"$2\"}" | HERDR_PANE_ID=pane-r bash "$hook"; }
+# read_as <file> <session_id> [agent_id]: a Read by that session, or by its subagent when agent_id is given
+read_as() { F=$1 payload PostToolUse "$r" '{tool_input: {file_path: $ENV.F}}' "{session_id: \"$2\"${3:+, agent_id: \"$3\"}}" | HERDR_PANE_ID=pane-r bash "$hook"; }
 
 f=$(write ABC-1)
 [ -f "$f" ] || fail "handoff written at $f"
@@ -26,8 +27,7 @@ assert_eq "$out" "" "writer's own handoff: nothing printed"
 [ -f "$f" ] || fail "writer's own handoff: not archived"
 
 f=$(write ABC-3)
-F=$f payload PostToolUse "$r" '{tool_input: {file_path: $ENV.F}}' '{session_id: "writer", agent_id: "sub-1"}' \
-  | HERDR_PANE_ID=pane-r bash "$hook" >/dev/null
+read_as "$f" writer sub-1 >/dev/null
 [ ! -e "$f" ] || fail "writer's subagent: handoff consumed"
 
 out=$(read_as "$r/README" reader)
