@@ -58,6 +58,7 @@ jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"n
 check 0 'until grep -q ready server.log; do sleep 1; done'
 check 0 'until grep -q ready "server.log"; do sleep 1; done'
 check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
+check 2 'sleep 240; tail server.log; until grep -q ready server.log; do sleep 1; done'
 check 2 'sleep 3; tail server.log'
 assert_contains "$out" "until grep -q" "the block names the readiness loop"
 # A server started in the background without a redirect writes to its task output file instead.

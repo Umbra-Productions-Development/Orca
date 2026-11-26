@@ -73,10 +73,15 @@ from_sleep() { local pre l; [[ $2 =~ $SLEEP ]] || return 0; pre=${2%%"${BASH_REM
   [ "$(after_done "$l")" = "$l" ] || l=""
   printf '%s\n' "${1:$(( ${#pre} - ${#l} ))}"; }
 # readiness_exempt <file> <flat>: a loop whose until/while condition greps the file (a server's readiness line)
-# waits on output, not on completion, since a server never completes. Not when a sleep after the last 'done'
-# reads the file again. Both read the command as written, so a quoted path counts.
-readiness_exempt() { grep -oE "${LOOP_AT}(until|while)[[:space:]]+[^;]*" <<<"$2" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
-  && ! grep -oE "$SLEEP.*" <<<"$(after_done "$2")" | grep -qF -- "$1"; }
+# waits on output, not on completion, since a server never completes. Not when, with such loops taken out, a sleep
+# still comes before a read of the file, before the loop or after it. Reads the command as written, so a quoted path counts.
+readiness_exempt() { local s=$2 rest="" m c re="${LOOP_AT}(until|while)[[:space:]]+([^;]*);[[:space:]]*do([^[:alnum:]_]|$)"
+  while [[ $s =~ $re ]]; do
+    m=${BASH_REMATCH[0]}; c=${BASH_REMATCH[4]}; rest+=${s%%"$m"*}; s=${s#*"$m"}
+    if [[ $c =~ (^|[[:space:]])grep[[:space:]] && $c == *"$1"* ]]; then s=${s#*done}; else rest+=$m; fi
+  done
+  rest+=$s
+  [ "$rest" != "$2" ] && ! grep -oE "$SLEEP.*" <<<"$rest" | grep -qF -- "$1"; }
 # bg_writes <file> <transcript>: a run_in_background command of this session names the file.
 bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
 # sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
