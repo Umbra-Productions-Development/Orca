@@ -73,7 +73,7 @@ The block message names the alternative: end the turn (this holds inside a subag
 
 ### P2. A "Waiting" section in the `orca` skill
 
-The same rules, plus: run `orca-lc gate` in the foreground with `timeout: 600000` (the Bash tool's ceiling unless `BASH_MAX_TIMEOUT_MS` raises it), because the gate commonly takes longer than the default 120 s.
+The same rules, plus: run `orca-lc gate` in the foreground with a tool timeout above `gateTimeoutMin`, because the gate commonly takes longer than the default 120 s.
 
 ### P3. Skip a gate whose marker is fresh
 

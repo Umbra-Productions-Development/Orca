@@ -13,9 +13,10 @@ Orca's four hooks were written against an earlier Claude Code (issue #17). Check
 
 - `hooks/stop.sh`: report undone work as one JSON object `{"systemMessage": "orca-lc: before calling this done: …"}` on stdout, exit 0. Still never blocks or continues the turn.
 - `hooks/post-read.sh`: report a consumed handoff as `{"hookSpecificOutput": {"hookEventName": "PostToolUse", "additionalContext": "orca-lc: handoff consumed and archived at …"}}`.
-- `hooks/session-start.sh`: drop the dead `agent_id` check. On `source: "fork"`, write the identity (`orca-lc name --set`) only when the pane has none yet, so a background `/fork` copy that inherits `HERDR_PANE_ID` cannot overwrite the foreground session's identity; context is printed either way.
+- `hooks/session-start.sh`: drop the dead `agent_id` check. On `source: "fork"`, never write the identity or rename the herdr pane (superseding the first version, which wrote it when the pane had none); context is printed either way. See the follow-up line below.
 - `install.sh`: register SessionStart with matcher `startup|resume|clear|compact|fork`; on rerun, rewrite the matcher of a group holding Orca's session-start hook only when it still equals the old default `startup|resume|clear|compact`. Any other matcher is kept, as #56 decided.
 - README: minimum Claude Code version 2.1.318 under Requirements. docs/daily-use.md and skills/orca/SKILL.md: say the Stop hook's line is shown to the user, not to Claude.
+- Follow-up from live check 5.8: on `source: "fork"`, `hooks/session-start.sh` never writes identity or renames the herdr pane, since a `/fork` copy runs in another checkout with the pane's environment (design.md "Fork identity fix").
 - Tests: a `payload` helper in `tests/lib.sh` building documented hook inputs; new `tests/hook-session-start.test.sh`, `tests/hook-stop.test.sh`, `tests/hook-post-read.test.sh`, `tests/pretool-edit-lock.test.sh`; a matcher-migration case in `tests/install-config-dir.sh`.
 
 ## Impact

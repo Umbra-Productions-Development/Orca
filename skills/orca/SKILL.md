@@ -11,7 +11,9 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 ## Gate
 
-`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. When the marker is already fresh, the gate skips and says so; `--force` reruns it. Inside herdr the gate runs in a split pane that closes on success and stays open on failure; with no pane it runs inline.
+`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. When the marker is already fresh, the gate skips and says so; `--force` reruns it. `orca-lc gate` returns the gate's own exit status as soon as the gate ends, however it ends; inside herdr a split pane only follows its log, closing on success and staying open on failure. A gate still running after `gateTimeoutMin` (30 minutes when unset) is stopped with `ORCA_GATE_TIMEOUT`, exit 124, when `timeout` or `gtimeout` is on PATH; without either the limit is not enforced.
+
+Run `orca-lc gate` in the foreground with a tool timeout above `gateTimeoutMin`; never in the background, never polled. In Claude Code that takes `BASH_MAX_TIMEOUT_MS` in the user's settings `env` at least that high (`2400000` for a 30-minute gate), or the call is moved to the background.
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
@@ -24,7 +26,7 @@ A background command, a subagent, or a peer's `orca-lc notify` wakes the session
 - Your own background command or subagent: end the turn. Its completion wakes you, inside a subagent too.
 - A peer: end the turn; its `orca-lc notify` wakes you. To block until it changes state: `herdr agent wait <peer> --until idle --timeout <ms>`.
 - CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
-- `orca-lc gate`: run it in the foreground with `timeout: 600000`, the Bash tool's ceiling unless `BASH_MAX_TIMEOUT_MS` raises it. It blocks until the gate ends, which commonly takes longer than the default 120 s. A gate pane waits up to 20 minutes, so a gate past the timeout ends the Bash call first; the gate keeps running in its pane, and once the pane shows `ORCA_GATE_PASS`, `orca-lc gate-fresh` exits 0.
+- `orca-lc gate`: run it in the foreground with a tool timeout above `gateTimeoutMin` (see Gate above); it returns as soon as the gate ends.
 
 A hook blocks `sleep` in the first three cases. Every other `sleep` passes.
 

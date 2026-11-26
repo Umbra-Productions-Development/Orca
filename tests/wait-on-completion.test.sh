@@ -66,18 +66,11 @@ gate sub && expect_runs 1 'fresh marker skips from a subdirectory'
 gate . --force && expect_runs 2 '--force reruns'
 echo x >"$repo/sub/new.txt"; gate . && expect_runs 3 'an edit makes the marker stale'
 
-# Inside herdr the gate runs in a split pane. The stub runs the pane's command at once and reads back its output.
-cat >"$TMPDIR/bin/herdr" <<'STUB'
-#!/usr/bin/env bash
-case "$1 $2" in
-  "pane split") echo '{"result":{"pane":{"pane_id":"p1"}}}';;
-  "pane run") bash -c "$4" >"$TMPDIR/pane.out" 2>&1;;
-  "pane read") cat "$TMPDIR/pane.out";;
-esac
-STUB
-chmod +x "$TMPDIR/bin/herdr"
+# Inside herdr a fresh marker skips before any pane opens; a stale tree runs the gate while the pane follows its log.
+export HERDR_STUB; HERDR_STUB=$(mktemp -d); export PATH="$ORCA_SRC/tests/stub:$PATH"
 hgate() { (cd "$repo" && HERDR_ENV=1 orca-lc gate 2>&1); }
 out=$(hgate); assert_contains "$out" "skipped" "fresh marker skips before opening a pane"; expect_runs 3 'pane path skips on a fresh marker'
+[ ! -s "$HERDR_STUB/calls" ] || fail "a fresh marker opened a pane"
 echo y >"$repo/sub/new.txt"; out=$(hgate)
 assert_contains "$out" "gate PASS, pane closed" "pane gate passes"; expect_runs 4 'pane path runs on a stale tree'
 echo '{"project":"proj","gate":"false"}' >"$repo/.orca/config.json"; out=$(hgate); assert_status $? 1 "failing pane gate exits 1"

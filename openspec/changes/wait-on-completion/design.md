@@ -25,7 +25,7 @@ Anything else passes with no message. The file match goes through the transcript
 
 ## The gate skip
 
-`cmd_gate` parses `--inline` and `--force`, changes to the repository root, and returns 0 with `ORCA_GATE_PASS` when the marker is fresh and `--force` is absent. The herdr pane path runs `orca-lc gate --inline --force`, since freshness was already checked before the split.
+`cmd_gate` parses `--inline` and `--force`, changes to the repository root, and returns 0 with `ORCA_GATE_PASS` when the marker is fresh and `--force` is absent.
 
 `tree_sig` runs from the repository root. It adds `.orca/config.json` and `.env`, both often gitignored, so a change to the gate command or the environment makes the marker stale. Each untracked entry adds its name, then a regular file its blob hash and a symlink its target; a directory or nested repo adds its name only, so one entry git cannot hash no longer stops the rest. Before this, editing an untracked file kept the marker fresh, and `git ls-files --others` run from a subdirectory listed only that subdirectory.
 
@@ -38,7 +38,7 @@ Anything else passes with no message. The file match goes through the transcript
 - Unmatched sleeps get no block and no advice — user (recommended, accepted).
 - No bypass comment — user (recommended, accepted).
 - Same rule in subagents, after the test above showed a subagent woken by its own background command — user (recommended, accepted).
-- A "Waiting" section in the `orca` skill, including the gate's `timeout: 600000` — user (recommended, accepted).
+- A "Waiting" section in the `orca` skill, including how to run the gate in the foreground — user (recommended, accepted).
 - `orca-lc gate` skips on a fresh marker; `--force` reruns; the verifier keeps calling the gate and gets the skip — user (recommended, accepted).
 - Re-measure by hand one week after landing; no audit subcommand — user (recommended, accepted).
 - Gate duration is out of scope; it becomes an Orca GitHub issue stating the problem only, with no ticket in any client project — user.

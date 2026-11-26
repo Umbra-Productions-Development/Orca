@@ -4,7 +4,7 @@
 
 ## 2. Gate
 
-- [x] 2.1 `bin/orca-lc`: `gate` skips on a fresh marker, `--force` reruns, the pane path passes `--force`.
+- [x] 2.1 `bin/orca-lc`: `gate` skips on a fresh marker, `--force` reruns.
 - [x] 2.2 `bin/orca-lc`: `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json` and `.env`.
 
 ## 3. Docs
