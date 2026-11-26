@@ -751,6 +751,7 @@ cmd_role() {
       # other (live extras, when this start opens one) and old (the extra --replace exits).
       all=$(ticket_agents "$slug"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
       if [ -n "$ag" ]; then
+        [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
       else
         if ! is_core_role "$r"; then # extra sessions replace, never stack

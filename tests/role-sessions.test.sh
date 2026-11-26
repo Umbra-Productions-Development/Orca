@@ -77,6 +77,8 @@ run role start ABC-1 walk --replace abc1-gone
 check '--replace of a session that is not live refuses' '[ "$(agents)" = abc1-review ] && grep -q "abc1-gone is not a live extra session" "$H/out"'
 run role start ABC-1 walk
 check 'an extra session opens' '[ "$(agents)" = "abc1-review abc1-walk" ]'
+clears=$(grep -c /clear "$H/log"); run role start ABC-1 walk --replace abc1-gone
+check '--replace refuses when the role it starts is live and would be reused' 'grep -q "abc1-walk is live and is reused; rerun without --replace" "$H/out" && [ "$(grep -c /clear "$H/log")" = "$clears" ]'
 run role start ABC-1 tour
 check 'a second extra refuses while one is live' '[ "$(agents)" = "abc1-review abc1-walk" ] && grep -q "extra session is live" "$H/out"'
 run role start ABC-1 tour --replace abc1-walk
