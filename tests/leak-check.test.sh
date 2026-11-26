@@ -214,7 +214,7 @@ cat > "$stub/herdr" <<STUB
 echo "\$*" >> "$TMPDIR/herdr.log"
 case "\$1 \$2" in
   "workspace list") echo '{"result":{"workspaces":[{"workspace_id":"w1","worktree":{"checkout_path":"$TMPDIR/ORCA-9"}}]}}';;
-  "agent list") echo '{"result":{"agents":[{"name":"orca9-apply"}]}}';;
+  "agent list") echo '{"result":{"agents":[{"name":"orca9-apply","agent_status":"idle"}]}}';;
   "agent get") echo '{"result":{"agent":{"agent_status":"idle"}}}';;
   *) echo '{}';;
 esac
