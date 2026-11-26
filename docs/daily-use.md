@@ -78,7 +78,7 @@ Then it prompts the subagent `read handoff <file> and work it`.
 - One subagent per job, and never two in the same worktree at once: apply, review, and apply again for the findings run strictly one after the other.
 - A subagent that needs the user ends its report with a first line `BLOCKED: <question>`. The orchestrator asks the user and continues the same subagent with `SendMessage`.
 - After a crash, the orchestrator tries `SendMessage` to the old subagent. When that is refused, it writes a fresh handoff with the same scope, because the first subagent's read archived the old one, and dispatches a new subagent with it plus "continue from `git log`".
-- Subagents do not show on the herdr board.
+- Subagents do not show on the herdr board, and a subagent's report needs no `orca-lc role retire`: it has no session to exit, and its report ends it.
 - `orca-lc role start ABC-12 apply` still starts apply in its own tab, to drive it by hand.
 - Subagents are Claude Code only for now.
 
