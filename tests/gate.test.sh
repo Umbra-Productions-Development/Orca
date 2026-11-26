@@ -42,6 +42,9 @@ assert_contains "$out" ORCA_GATE_FAIL
 r=$(cfgr 'echo fine'); out=$(HERDR_ENV=1 HERDR_STUB_CLOSE_FAIL=1 gate "$r"); assert_status $? 0
 assert_contains "$out" ORCA_GATE_PASS
 
+# gateTimeoutMin 0 turns the limit off: a killed gate is a failure, not a timeout.
+r=$(cfgr 'kill -9 $$' '"gateTimeoutMin":0'); out=$(gate "$r" --inline); rc=$?
+[ "$rc" != 124 ] || fail "gateTimeoutMin 0 reported a killed gate as a timeout"; assert_contains "$out" ORCA_GATE_FAIL
 # A gate exiting 124 on its own, well before gateTimeoutMin, is a failure, not a timeout.
 r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
 assert_contains "$out" ORCA_GATE_FAIL
