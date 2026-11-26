@@ -124,6 +124,9 @@ check 'retire --wait gives up on a session that never settles' 'grep -q "abc1-pr
 rm -f "$H/times-out"; set_status abc1-propose idle
 run role retire ABC-1 propose --now
 check 'retire refuses an unknown argument' 'grep -q "^orca-lc: role retire <ticket> <role> \[--wait\]" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+add_agent abc1-orchestrator torch2; add_tab torch2 orchestrator; run role retire ABC-1 orchestrator
+check 'retire refuses an orchestrator' 'grep -q "orchestrators are never retired" "$H/out" && ! grep -q "prompt abc1-orchestrator /exit" "$H/log"'
+edit agents 'map(select(.name != "abc1-orchestrator"))'
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
 set_status abc1-review unknown; touch "$H/unknown-settles"; run role retire ABC-1 review --wait

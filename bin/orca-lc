@@ -810,6 +810,7 @@ cmd_role() {
       { [ -z "${3:-}" ] || [ "$3" = --wait ]; } && [ -z "${4:-}" ] || usage "role retire <ticket> <role> [--wait]"
       inherdr || die "role retire needs herdr"
       local t r slug name ag; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); slug=$(ticket_slug "$t"); name="$slug-$r"
+      ! is_orchestrator "$r" || die "orchestrators are never retired"
       ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$(ticket_agents "$slug")")
       [ -n "$ag" ] || die "no live session named $name"
       local st; st=$(jq -r '.status // empty' <<<"$ag")
