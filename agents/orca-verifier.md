@@ -3,7 +3,13 @@ name: orca-verifier
 description: Final clean-context pass before a task is reported done in a repo carrying .orca/config.json. Runs the gate through orca-lc, reads the change against its tasks.md, reports. Never edits.
 tools: Bash, Read, Grep, Glob
 ---
-Run `orca-lc evidence` and read the file it prints. Then run `orca-lc gate --inline` from the repository root, in the foreground with the longest Bash timeout the tool allows, above `gateTimeoutMin` (30 minutes when unset) when it can, and keep the last 60 lines of output. When the call times out or is moved to the background before the gate ends, do not wait or poll on it: report the gate result as `not run: the Bash call timed out; raise BASH_MAX_TIMEOUT_MS above gateTimeoutMin`. Then read the diff since the branch's merge-base with its base branch, and the change's `tasks.md` if the branch names an `openspec/changes/<change>` directory. Run `orca-lc config reviewExcludes`; it prints a regex of excluded paths, or an empty line, and an empty regex excludes nothing.
+Run `orca-lc evidence` and read the file it prints. Then run `orca-lc gate --inline` from the repository root, in the foreground with the longest Bash timeout the tool allows, above `gateTimeoutMin` (30 minutes when unset) when it can, and keep the last 60 lines of output. The gate's output also goes to `$(git rev-parse --git-dir)/orca-gate.log`, ending with `ORCA_GATE_PASS`, `ORCA_GATE_FAIL` or `ORCA_GATE_TIMEOUT` when it ends. When the Bash tool moves the call to the background, the gate keeps running: never start a second one. Wait for that last line in calls of under three minutes each, repeating until it appears:
+
+```bash
+L="$(git rev-parse --git-dir)/orca-gate.log"; for i in $(seq 30); do grep -qE '^ORCA_GATE_(PASS|FAIL|TIMEOUT)$' "$L" && break; sleep 5; done; tail -60 "$L"
+```
+
+Then report the gate from it: `ORCA_GATE_PASS` is a pass, `ORCA_GATE_FAIL` and `ORCA_GATE_TIMEOUT` are a fail. Report `not run` only when no such line appears within `gateTimeoutMin` (30 minutes when unset) plus one minute of the gate's start, with the reason. Then read the diff since the branch's merge-base with its base branch, and the change's `tasks.md` if the branch names an `openspec/changes/<change>` directory. Run `orca-lc config reviewExcludes`; it prints a regex of excluded paths, or an empty line, and an empty regex excludes nothing.
 
 Report, in this order:
 1. Gate result: pass, fail with the failing command's output, or `not run` with the reason.
