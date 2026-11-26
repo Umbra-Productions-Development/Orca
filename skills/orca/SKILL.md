@@ -155,8 +155,8 @@ An empty tier reads `none`. The verdict is APPROVE when Blocker and Should fix a
 
 `reviewPasses`, `applyChecks` and `reviewChecks` take the same entries:
 
-- A name with a colon or no matching agent type is a skill, dispatched as a `general-purpose` agent told to invoke it. Words after the name are the skill's arguments.
-- A name matching an agent type is dispatched as that agent.
+- A name with a colon or no matching agent type is a skill, dispatched as a `general-purpose` agent told to invoke it. Words after the name are the skill's arguments. An `orca-apply` or `orca-review` subagent, which cannot dispatch agents, invokes it itself with the Skill tool.
+- A name matching an agent type is dispatched as that agent. A subagent reports it as `skipped: needs an agent` for the orchestrator (see Apply and review as subagents).
 - `{"do": "<instruction>"}` is carried out by the session itself, as written.
 - Any entry written as an object may add `"when": "<regex>"`: it runs only when a path matches. For `reviewPasses` and `reviewChecks` that is a review path (the diff's paths minus `reviewExcludes`, see Code review); for `applyChecks` it is any path in the diff.
 
