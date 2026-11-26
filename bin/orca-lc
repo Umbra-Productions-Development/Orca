@@ -141,6 +141,7 @@ run_gate() {
   if [ -n "$t" ]; then "$t" --kill-after=30s "${min}m" bash -c "$1" </dev/null & else bash -c "$1" </dev/null & fi; pid=$!
   set +m
   # That group is out of reach of a signal sent to ours (Ctrl-C, a tool killing the call): forward it there.
+  # This covers signals to orca-lc's process group: one to its pid alone ends the main shell, not this tee-pipeline subshell.
   # wait returns early on a trapped signal, so wait again until the gate is gone. stderr is dropped there: a gate
   # killed by a signal would otherwise get bash's job-status line ("Killed ... timeout ...") in its output.
   trap 'kill -TERM -- "-$pid" 2>/dev/null' INT TERM HUP
