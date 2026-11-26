@@ -724,7 +724,8 @@ t_fail_installer() {
   assert_contains "$err" "install.sh: fix-b: 'npm i -g fix-b' failed with exit 3"
   assert_eq "$(cat "$d/calls" 2>/dev/null)" "npm i -g fix-a"$'\n'"npm i -g fix-b" "installer calls"
   assert_eq "$(printf '%s\n' "$out" | tail -n2 | head -n1 | cut -c1-25)" "recommended tools present"
-  assert_contains "$(printf '%s\n' "$out" | tail -n1)" "per project:"
+  assert_contains "$(printf '%s\n' "$out" | tail -n1)" "per project: run orca-lc init in the repository"
+  assert_not_contains "$(printf '%s\n' "$out" | tail -n1)" "orca.example.json" "closing line names orca.example.json"
   [ -f "$M" ] || fail "no manifest"; }
 one t_fail_installer copy
 
