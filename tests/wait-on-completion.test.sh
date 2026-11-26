@@ -58,6 +58,10 @@ check 0 'until grep -q ready "server.log"; do sleep 1; done'
 check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
 check 2 'sleep 3; tail server.log'
 assert_contains "$out" "until grep -q" "the block names the readiness loop"
+# A server started in the background without a redirect writes to its task output file instead.
+check 0 'until grep -q ready /tmp/claude-1000/p/s/tasks/abc.output; do sleep 1; done'
+check 2 'sleep 3; cat /tmp/claude-1000/p/s/tasks/abc.output'
+assert_contains "$out" "until grep -q" "the task-output block names the readiness loop"
 
 gate() { (cd "$repo/$1" && orca-lc gate --inline ${2:-} >/dev/null 2>&1); }
 runs() { wc -l <"$repo/gate-runs.txt" 2>/dev/null || echo 0; }

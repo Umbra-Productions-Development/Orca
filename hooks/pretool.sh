@@ -82,15 +82,17 @@ bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.
 # sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
 # (a path may be quoted); peer and CI checks read it masked.
-sleep_rule() { local flat masked raw after f wake="End the turn instead: its completion wakes this session, inside a subagent too"
+sleep_rule() { local flat masked raw after f loop wake="End the turn instead: its completion wakes this session, inside a subagent too"
   flat=$(tr '\n' ';' <<<"$1"); masked=$(mask "$flat")
   grep -qE "$SLEEP" <<<"$masked" || return 0
   raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
-  grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
+  # A task output file is always a background task's; any other file counts when a background command names it.
   while IFS= read -r f; do
-    [ -n "$f" ] && ! readiness_exempt "$f" "$flat" && bg_writes "$f" "$2" \
-      && block "sleep before reading $f, which a background command of this session writes. $wake. For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
-  done < <(grep -oE "[^[:space:];|&<>\"'=]+\.(log|out|txt)\b" <<<"$raw" | sort -u)
+    readiness_exempt "$f" "$flat" && continue
+    loop="For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
+    case $f in */tasks/*.output) block "sleep before reading a background task's output. $wake. $loop";; esac
+    bg_writes "$f" "$2" && block "sleep before reading $f, which a background command of this session writes. $wake. $loop"
+  done < <(grep -oE "[^[:space:];|&<>\"'=]+(/tasks/[^[:space:];|&<>\"'=]+\.output|\.(log|out|txt)\b)" <<<"$raw" | sort -u)
   grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b|orca-lc\s+inbox\s*($|[;&|)])' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
   grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
   return 0; }
