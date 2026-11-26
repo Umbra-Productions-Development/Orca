@@ -51,6 +51,8 @@ absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/$
 
 # The sleep rule.
 SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
+# What may stand before a loop keyword: the start, a separator or brace (a newline is flattened to ';'), or then/do/else.
+LOOP_AT='(^|[;&|({][[:space:]]*|[;&|({[:space:]](then|do|else)[[:space:]]+)'
 # mask <text>: the text with each quoted string, quotes included, replaced by as many x's, so a commit message
 # naming a sleep or a check is not one, and an offset in the mask is the same offset in the text. Inside one kind
 # of quote the other kind is plain text ("the server's log").
@@ -67,13 +69,13 @@ after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
 # still open before it, from the loop keyword, since the loop's check runs again after the sleep. The nearest loop
 # keyword wins, so a sleep in an outer loop after a closed inner one reads from the sleep.
 from_sleep() { local pre l; [[ $2 =~ $SLEEP ]] || return 0; pre=${2%%"${BASH_REMATCH[0]}"*}
-  l=$(sed -nE 's/.*(^|[;&|(][[:space:]]*)((while|until|for)[[:space:]])/\2/p' <<<"$pre")
+  l=$(sed -nE "s/.*${LOOP_AT}((while|until|for)[[:space:]])/\\3/p" <<<"$pre")
   [ "$(after_done "$l")" = "$l" ] || l=""
   printf '%s\n' "${1:$(( ${#pre} - ${#l} ))}"; }
 # readiness_exempt <file> <flat>: a loop whose until/while condition greps the file (a server's readiness line)
 # waits on output, not on completion, since a server never completes. Not when a sleep after the last 'done'
 # reads the file again. Both read the command as written, so a quoted path counts.
-readiness_exempt() { grep -oE '(^|[;&|(][[:space:]]*)(until|while)[[:space:]]+[^;]*' <<<"$2" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
+readiness_exempt() { grep -oE "${LOOP_AT}(until|while)[[:space:]]+[^;]*" <<<"$2" | grep -E '(^|[[:space:]])grep[[:space:]]' | grep -qF -- "$1" \
   && ! grep -oE "$SLEEP.*" <<<"$(after_done "$2")" | grep -qF -- "$1"; }
 # bg_writes <file> <transcript>: a run_in_background command of this session names the file.
 bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
@@ -81,7 +83,7 @@ bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
 # (a path may be quoted); peer and CI checks read it masked.
 sleep_rule() { local flat masked raw after f wake="End the turn instead: its completion wakes this session, inside a subagent too"
-  flat=$(tr '\n' ' ' <<<"$1"); masked=$(mask "$flat")
+  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask "$flat")
   grep -qE "$SLEEP" <<<"$masked" || return 0
   raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
   grep -qE '/tasks/[^[:space:]]+\.output' <<<"$raw" && block "sleep before reading a background task's output. $wake"
