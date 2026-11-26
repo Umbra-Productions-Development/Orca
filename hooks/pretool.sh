@@ -204,7 +204,8 @@ _tansi() {
 _ts() {
   rop=""
   if [ ${#w[@]} -gt 0 ]; then local k=${#S_W[@]} IFS=$US
-    S_W+=("${w[*]}"); IFS=$RS; S_R+=("${r[*]}"); S_P+=("$np"); S_H+=("$hd")
+    # ${r[*]-}: r is empty for a segment with no redirect, and unbound under set -u before bash 4.4
+    S_W+=("${w[*]}"); IFS=$RS; S_R+=("${r[*]-}"); S_P+=("$np"); S_H+=("$hd")
     if [ "$np" = 1 ] && [ "$k" -gt 0 ]; then S_HEAD+=("${S_HEAD[k-1]}"); else S_HEAD+=("$k"); fi
   fi; w=(); r=(); hd=0
 }
@@ -303,7 +304,7 @@ git_seg() {
   else echo "$v $d"; fi
 }
 
-# main_targets <verb> <command> [dir]: origin/main's reading (38a39ea git_targets/git_seg), kept verbatim but
+# main_targets <verb> <command> [dir]: origin/main's reading (its git_targets/git_seg), kept verbatim but
 # for the names, and run in the caller's locale as on main (its [A-Za-z] ranges follow it). Push and commit
 # detection take the union of its targets and git_targets', so the new reading can only add to what main
 # gates. It reads heredoc bodies and # as commands, as main did. It prints the directory each
@@ -458,8 +459,10 @@ case "$tool" in
     _treset; S_AMB=0; tokenize "$cmd"
     tg=$({ new_targets "push commit" "$cmd"; main_union commit "$cmd"; } | awk '!x[$0]++')
     gate_push "$tg"
-    t=$(sed -n 's/^commit //p' <<<"$tg" | head -1)
-    if [ -n "$t" ] && [ -n "$(orca_root "$t")" ]; then
+    # the first commit target in an Orca repo, from either reading: one the new reading alone finds
+    # elsewhere never hides the one main reports
+    t=""; while IFS= read -r ct; do [ -n "$(orca_root "$ct")" ] && { t=$ct; break; }; done < <(sed -n 's/^commit //p' <<<"$tg")
+    if [ -n "$t" ]; then
       # Ticket from the committed tree (its path and branch), not the identity: that falls back to the project name.
       r=$(orca-lc name 2>/dev/null | jq -r '.role // ""'); tk=$(cd "$t" && orca-lc ticket 2>/dev/null)
       case "$r" in ""|session|orchestrator) ;; *) [ -n "$tk" ] && advise "Once this commit lands, report it: orca-lc notify $tk --role orchestrator \"<sha> <subject>\"";; esac

@@ -13,5 +13,8 @@ assert_contains "$(hook "$d/wt" 'git commit -m x')" "orca-lc notify abc-12 --rol
 assert_contains "$(hook "$d/wt" $'cat > notes <<EOF\ngit commit -m x\nEOF')" "orca-lc notify abc-12 --role orchestrator" "a heredoc body line is a commit, as on main"
 assert_contains "$(hook "$r" "git -C $d/wt commit -am x")" "orca-lc notify abc-12 --role orchestrator" "ticket from the -C target"
 assert_eq "$(hook "$d/wt" "cd $r && git commit -m x")" "" "cd into a tree without a ticket: no advice"
+# a commit only the new reading finds, outside any Orca repo, does not hide the one main reports (#9, PR #144 review)
+mkdir "$d/plain"
+assert_contains "$(hook "$d/wt" "bash -c \$'git -C ../plain commit -m x'; git commit -m y")" "orca-lc notify abc-12 --role orchestrator" "main's commit target is still reported"
 unset ORCA_ROLE; s=$(new_repo); git -C "$s" checkout -q -b feat/abc-13
 assert_eq "$(hook "$s" 'git commit -m x')" "" "a plain session gets no advice"
