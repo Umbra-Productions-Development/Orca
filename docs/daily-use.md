@@ -71,7 +71,7 @@ By default the orchestrator does not open a tab for apply. It writes the handoff
 orca-lc handoff write ABC-12 apply   # prints the file; the orchestrator writes the scope below the role's rules
 ```
 
-runs `orca-lc role owner ABC-12 --set apply`, and prompts it `read handoff <file> and work it`.
+Then it prompts the subagent `read handoff <file> and work it`.
 
 - Before each dispatch, the orchestrator records the owner with `orca-lc role owner <ticket> --set apply|review`. `role start` records the owner itself; a dispatch does not.
 - A subagent cannot start agents. `orca-apply` reports its agent-typed `applyChecks` entries and the `orca-verifier` as `skipped: needs an agent`, and the orchestrator dispatches them after its report.
