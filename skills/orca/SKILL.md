@@ -17,7 +17,7 @@ Run `orca-lc gate` in the foreground, never in the background, and never sleep o
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
-Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
+Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. An `orca-apply` subagent cannot dispatch it: it reports `orca-verifier` as `skipped: needs an agent`, and the orchestrator dispatches it after the report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
 
 ## Test files
 
@@ -80,7 +80,7 @@ In Claude Code, the orchestrator runs apply and review by default as background 
 - Before each dispatch, record the owner: `orca-lc role owner <ticket> --set apply|review`. The subagent is the owner while it works.
 - Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
 - A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
-- A subagent cannot dispatch agents. `orca-apply` reports its `applyChecks` agent entries as `skipped: needs an agent`, for the orchestrator to dispatch after the report. `orca-review` does the same with every agent the Code review runs, the default passes and `orca-verifier` included: it reports them before reconciling, the orchestrator dispatches them from the ticket's worktree with the inputs the report names, then continues the same review subagent with `SendMessage` carrying their reports, and review reconciles and writes the findings file.
+- A subagent cannot dispatch agents. `orca-apply` reports its `applyChecks` agent entries and `orca-verifier` as `skipped: needs an agent`, for the orchestrator to dispatch after the report. `orca-review` does the same with every agent the Code review runs, the default passes and `orca-verifier` included: it reports them before reconciling, the orchestrator dispatches them from the ticket's worktree with the inputs the report names, then continues the same review subagent with `SendMessage` carrying their reports, and review reconciles and writes the findings file.
 - After a crash, `SendMessage` the old subagent; when that is refused, dispatch a new one with the same handoff and the prompt `read handoff <file> and work it; continue from git log`.
 
 Subagents do not appear on the herdr board and have no tab. `orca-lc role start <ticket> apply|review` stays the way to drive a role by hand in its own session.

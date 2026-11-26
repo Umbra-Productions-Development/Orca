@@ -1,6 +1,6 @@
 ---
 name: orca-apply
-description: Apply role of an Orca ticket, run as a background subagent of the orchestrator in a repo carrying .orca/config.json. Works the handoff named in its prompt, commits task by task, runs applyChecks and the gate, reports. Dispatches no agents.
+description: Apply role of an Orca ticket, run as a background subagent of the orchestrator in a repo carrying .orca/config.json. Works the handoff named in its prompt, commits task by task, runs applyChecks and the gate, reports the verifier for the orchestrator to dispatch. Dispatches no agents.
 background: true
 model: inherit
 tools: Bash, Read, Edit, Write, Grep, Glob, Skill, mcp__playwright__*
@@ -17,6 +17,7 @@ Read the handoff file named in the prompt with the Read tool, which archives it 
 - Implement `tasks.md` one task at a time, one commit per task, ticking the task in the same commit.
 - Before the gate, run every entry in `applyChecks` from `.orca/config.json` as the skill's Checks section says. Invoke a skill entry with the Skill tool. You cannot dispatch agents: an entry naming an agent type is `skipped: needs an agent` in the report, for the orchestrator to run. Fix each thing a check raises, or state in the commit body why it stays.
 - Run `orca-lc gate` as the skill's Gate section says, including its Bash timeout rule. A commit after the gate makes it stale; run it again.
+- The `orca-verifier` the skill dispatches before a task is reported done is an agent too: report it as `skipped: needs an agent`, for the orchestrator to dispatch after your report.
 
 When you need the user (a decision the handoff and proposal leave open, a proposal problem, a missing environment), stop and end with a report whose first line is `BLOCKED: <question>`. The orchestrator asks the user and continues you with the answer.
 
@@ -27,3 +28,4 @@ End with a report, in this order:
 2. Decisions taken that the handoff did not settle, and notes for the orchestrator (problems that predate the change).
 3. `applyChecks`: each entry with its result, or `skipped` and the reason.
 4. Gate result: pass or fail, with the failing command's last output if it failed.
+5. `orca-verifier`: `skipped: needs an agent`.
