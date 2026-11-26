@@ -786,7 +786,7 @@ cmd_role() {
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
           start_failed "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
-        [ "$(agent_status "$name")" != blocked ] || ( ready_or_die "$name" blocked "" ) || start_failed
+        [ "$(agent_status "$name")" != blocked ] || start_failed "$name is blocked at a prompt; answer it in tab '$r', then rerun"
       fi
       ! is_core_role "$r" || cmd_role owner "$t" --set "$r" >/dev/null
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
