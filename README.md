@@ -106,7 +106,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 
 ## Configuration
 
-`.orca/config.json`, one per repository, never committed. `orca-lc init` writes it, proposing each value from the repository, and a rerun edits it. `orca.example.json` is the reference for every key.
+`.orca/config.json`, one per repository, never committed. Its `.gitignore` line is `.orca`, with no trailing slash: `.orca/` matches directories only and misses the `.orca` symlink in each worktree. `orca-lc init` writes it, proposing each value from the repository, and a rerun edits it. `orca.example.json` is the reference for every key.
 
 | Key | What |
 |---|---|
