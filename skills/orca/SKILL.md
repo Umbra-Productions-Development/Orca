@@ -85,7 +85,7 @@ In Claude Code, the orchestrator runs apply and review by default as background 
 - Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
 - A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
 - A subagent cannot dispatch agents. `orca-apply` reports its `applyChecks` agent entries and `orca-verifier` as `skipped: needs an agent`, for the orchestrator to dispatch after the report. `orca-review` does the same with every agent the Code review runs, the default passes and `orca-verifier` included: it reports them before reconciling, the orchestrator dispatches them from the ticket's worktree with the inputs the report names, then continues the same review subagent with `SendMessage` carrying their reports, and review reconciles and writes the findings file.
-- After a crash, `SendMessage` the old subagent; when that is refused, dispatch a new one with the same handoff and the prompt `read handoff <file> and work it; continue from git log`.
+- After a crash, `SendMessage` the old subagent. When that is refused, write a fresh handoff with `orca-lc handoff write` carrying the same scope, since the first subagent's Read archived the old one, and dispatch a new subagent with the prompt `read handoff <file> and work it; continue from git log`.
 
 Subagents do not appear on the herdr board and have no tab. `orca-lc role start <ticket> apply|review` stays the way to drive a role by hand in its own session.
 
