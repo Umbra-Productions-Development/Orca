@@ -675,24 +675,28 @@ owner_file() { echo "$(shared)/owners/$(tkey "$1")"; }
 # Prefix or -suffix only, so preview and reapply stay extra sessions.
 canon_role() { case "$1" in review*|*-review) echo review;; propos*|*-propose) echo propose;; apply*|*-apply) echo apply;; *) echo "$1";; esac; }
 is_core_role() { case "$(canon_role "$1")" in propose|apply|review) return 0;; esac; return 1; }
+is_orchestrator() { case "$1" in orchestrator*) return 0;; esac; return 1; }
 ticket_slug() { tkey "${1//-/}"; }
 # herdr keeps an entry with agent null for about half a second after its process ends; that entry is not a live session.
 live_agents() { herdr agent list 2>/dev/null | jq -c '[.result.agents[] | select((has("agent") and .agent == null) | not)]'; }
 ticket_agents() { live_agents | jq -c --arg p "$1-" '[.[] | {name:(.agent_name // .name // ""), status:.agent_status, tab:.tab_id}
   | select(.name|startswith($p))]'; }
+# <name>, ticket agents json on stdin: that agent's entry, empty when none.
+agent_named() { jq -c --arg n "$1" '[.[] | select(.name==$n)][0] // empty'; }
 agent_gone() { ! jq -e --arg n "$1" 'any(.[]; .name==$n)' <<<"$(ticket_agents "${1%%-*}")" >/dev/null; }
 mem_free_mb() { awk '/^MemAvailable:/{print int($2/1024)}' "${ORCA_MEMINFO:-/proc/meminfo}" 2>/dev/null; }
 agent_status() { herdr agent get "$1" 2>/dev/null | jq -r '.result.agent.agent_status // .result.agent_status // empty'; }
 # <name> <status> <what to do>: dies unless the session is idle or done. Anything typed into a busy session lands in its work;
 # /exit and Enter typed into a permission or trust prompt can pick its highlighted option; and herdr's "unknown" does not prove it finished.
+blocked_msg() { echo "$1 is blocked at a prompt; answer it in tab '${1#*-}', then rerun"; }
 ready_or_die() { case "$2" in
   idle|done) ;;
-  blocked) die "$1 is blocked at a prompt; answer it in tab '${1#*-}', then rerun";;
+  blocked) die "$(blocked_msg "$1")";;
   working) die "$1 is working; $3";;
   *) die "$1 is ${2:-without a status} in herdr, which does not show it finished; $3";;
 esac; }
 # <agent json>: true when role start opened the agent's tab (its label is the name's role part)
-role_tab_owned() { [ "$(herdr tab get "$(jq -r .tab <<<"$1")" 2>/dev/null | jq -r '.result.tab.label // empty')" = "$(jq -r '.name | sub("^[^-]*-"; "")' <<<"$1")" ]; }
+role_tab_owned() { local n; n=$(jq -r .name <<<"$1"); [ "$(herdr tab get "$(jq -r .tab <<<"$1")" 2>/dev/null | jq -r '.result.tab.label // empty')" = "${n#*-}" ]; }
 exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) and keep its tab, only when role start opened that tab
   local name tab i; name=$(jq -r .name <<<"$1"); tab=$(jq -r .tab <<<"$1")
   role_tab_owned "$1" || die "tab $tab of $name was not opened by role start; exit it yourself"
@@ -703,7 +707,6 @@ exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) an
   for i in 1 2 3 4 5 6 7 8 9 10; do agent_gone "$name" && return 0; sleep 0.5; done
   die "$name did not exit after /exit; close it in tab '${name#*-}'"
 }
-is_orchestrator() { case "$1" in orchestrator*) return 0;; esac; return 1; }
 # <ticket agents json>: the roles of idle or done sessions that role retire <ticket> <role> would exit, comma-separated.
 # Left out: orchestrators (never retired), names retire's folding would point elsewhere (review2 folds to review),
 # and sessions in a tab role start did not open (retire refuses those).
@@ -761,17 +764,17 @@ cmd_role() {
       # Two phases. Checks: every refusal, the handoff's own included. Actions: /clear, or the replace and the new session.
       # A refused start therefore never costs a session its context. The checks set ag (the session to reuse),
       # other (live extras, when this start opens one) and old (the extra --replace exits).
-      all=$(ticket_agents "$slug"); ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$all")
+      all=$(ticket_agents "$slug"); ag=$(agent_named "$name" <<<"$all")
       if [ -n "$ag" ]; then
         [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
       else
         if ! is_core_role "$r"; then # extra sessions replace, never stack
           # A session is an extra unless its name past the ticket folds into a core role (review2 too) or is an orchestrator's.
-          other=$(jq -r '.[].name' <<<"$all" | while read -r n; do is_core_role "${n#*-}" || case "${n#*-}" in orchestrator*) ;; *) echo "$n";; esac; done)
+          other=$(jq -r '.[].name' <<<"$all" | while read -r n; do is_core_role "${n#*-}" || is_orchestrator "${n#*-}" || echo "$n"; done)
           if [ -n "$other" ]; then
             { [ -n "$replace" ] && grep -qxF -- "$replace" <<<"$other"; } || die "an extra session is live on $t: $(echo $other). Rerun with --replace <name> to exit it first"
-            old=$(jq -c --arg n "$replace" '.[] | select(.name==$n)' <<<"$all")
+            old=$(agent_named "$replace" <<<"$all")
             ready_or_die "$replace" "$(jq -r '.status // empty' <<<"$old")" "retire it once it reports (orca-lc role retire $t ${replace#*-} --wait), then rerun"
             role_tab_owned "$old" || die "the tab of $replace was not opened by role start; exit it yourself"
           fi
@@ -800,7 +803,7 @@ cmd_role() {
         if ! herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 >/dev/null 2>&1; then
           start_failed "$name did not reach its prompt in pane $pane; a startup prompt (folder trust) is likely waiting. Answer it in tab '$r', then rerun this command"
         fi
-        [ "$(agent_status "$name")" != blocked ] || start_failed "$name is blocked at a prompt; answer it in tab '$r', then rerun"
+        [ "$(agent_status "$name")" != blocked ] || start_failed "$(blocked_msg "$name")"
       fi
       ! is_core_role "$r" || cmd_role owner "$t" --set "$r" >/dev/null
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
@@ -811,7 +814,7 @@ cmd_role() {
       inherdr || die "role retire needs herdr"
       local t r slug name ag; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); slug=$(ticket_slug "$t"); name="$slug-$r"
       ! is_orchestrator "$r" || die "orchestrators are never retired"
-      ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$(ticket_agents "$slug")")
+      ag=$(ticket_agents "$slug" | agent_named "$name")
       [ -n "$ag" ] || die "no live session named $name"
       local st; st=$(jq -r '.status // empty' <<<"$ag")
       # blocked goes on, and --wait stops on it, only for exit_role_agent's ready_or_die to refuse it with its prompt message.
