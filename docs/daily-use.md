@@ -55,7 +55,7 @@ Report to the orchestrator.
 EOF
 ```
 
-`role start` opens a `propose` tab in the ticket's workspace, starts a named Claude session there (`abc12-propose`), writes the handoff (the text above plus the role's own rules, taken from the skill), records propose as the ticket's owner, and sends the first prompt.
+`role start` opens a `propose` tab in the ticket's workspace, starts a named Claude session there (`abc12-propose`), writes the handoff (the text above plus the role's own rules, taken from the skill), records propose as the ticket's owner, and sends the first prompt. A role listed under `claude.mcp` starts with only the MCP servers given there, plus Claude Code's built-in integrations such as `claude-in-chrome`; a role with no entry, a session `role start` reuses, and a session opened by hand get Claude Code's usual set.
 
 Each role has one live session. When `abc12-propose` is live and already received a handoff, `role start` refuses and names that handoff; `--new` sends the idle session `/clear` and the new handoff instead of opening a second process. It always refuses while the session is working, blocked at a prompt, or in any other state but idle or done (herdr's `unknown` does not show a session finished). Role names fold by prefix or suffix: `review2`, `reviewer` and `code-review` all start the `review` role. Any other name is an extra session; only one is live per ticket, and `--replace <name>` exits the current one first. A new session is refused when available memory is under `minFreeMemMb` (default 3000). Where free memory cannot be read (no `/proc/meminfo`, as on macOS), the check is skipped.
 
