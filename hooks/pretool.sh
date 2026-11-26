@@ -56,15 +56,30 @@ SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
 # What may stand before a loop keyword: the start, a separator or brace (a newline is flattened to ';'), or then/do/else.
 LOOP_AT='(^|[;&|({][[:space:]]*|[;&|({[:space:]](then|do|else)[[:space:]]+)'
 # mask_heredocs <text>: each heredoc body line replaced by as many x's; the line holding `<<` and the delimiter
-# stay. Runs before mask, since an apostrophe in a body is no quote.
-mask_heredocs() { local line end="" o="" pad re='(^|[^<])<<-?[[:space:]]*["'\'']?([[:alpha:]_][[:alnum:]_]*)'
-  while IFS= read -r line || [ -n "$line" ]; do
-    if [ -n "$end" ]; then
-      if [ "${line#"${line%%[!$'\t']*}"}" = "$end" ]; then end=""; else printf -v pad '%*s' "${#line}" ''; line=${pad// /x}; fi
-    elif [[ $line =~ $re ]]; then end=${BASH_REMATCH[2]}; fi
-    o+=$line$'\n'
-  done <<<"$1"
-  printf '%s' "$o"; }
+# stay. A `<<` starts a heredoc only where mask leaves it (not in quotes or a comment) and outside (( )), where it
+# is a shift. A quoted delimiter is read whole. Each body is masked before mask reads what follows it, since an
+# apostrophe in a body is no quote.
+mask_heredocs() { local t=$1 p=0 m a k end rest o s line pad
+  local op='(^|[^<])<<-?[[:space:]]*[^[:space:]<;&|()]' ar='\(\(([^)]|\)[^)])*\)\)'
+  local dl="^<<-?[[:space:]]*('([^']*)'|\"([^\"]*)\"|([^[:space:];&|<>()]+))"
+  while :; do
+    m=$(mask "$t"); m=${m:p}
+    while [[ $m =~ $ar ]]; do a=${BASH_REMATCH[0]}; printf -v pad '%*s' "${#a}" ''; m=${m/"$a"/${pad// /x}}; done
+    [[ $m =~ $op ]] || break
+    a=${m%%"${BASH_REMATCH[0]}"*}; k=$(( p + ${#a} + ${#BASH_REMATCH[1]} ))
+    [[ ${t:k} =~ $dl ]] || break
+    end=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]//\\/}
+    rest=${t:k}; [[ $rest == *$'\n'* ]] || break
+    a=${rest%%$'\n'*}; o=${t:0:k+${#a}+1}; s=${t:${#o}}
+    while [ -n "$s" ]; do
+      line=${s%%$'\n'*}; s=${s:${#line}}
+      if [ "${line#"${line%%[!$'\t']*}"}" = "$end" ]; then o+=$line; break; fi
+      printf -v pad '%*s' "${#line}" ''; o+=${pad// /x}
+      [ -n "$s" ] && { o+=$'\n'; s=${s:1}; }
+    done
+    t=$o$s; p=${#o}
+  done
+  printf '%s' "$t"; }
 # mask <text>: the text with each quoted string (quotes included) and each comment (a # starting a word, to the end
 # of its line) replaced by as many x's, so a commit message naming a sleep or a check is not one, and an offset in
 # the mask is the same offset in the text. Inside one kind of quote the other kind is plain text ("the server's
