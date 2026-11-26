@@ -42,7 +42,8 @@ case "$1 $2" in
   "agent prompt") [ -f "$H/prompt-fails" ] && [ "$4" != /clear ] && exit 1
                   echo "prompt $3 $4" >>"$H/log"; [ "$4" = /exit ] && [ "$3" != abc1-stuck ] && put agents --arg n "$3" 'map(if .name==$n then .agent=null | .agent_status="idle" else . end)'
                   [ "$4" = /clear ] && put agents --arg n "$3" --arg s "$(newsid)" 'map(if .name==$n then .agent_status="done" | .pending=$s else . end)'; :;;
-  "agent start") [ -f "$H/start-fails" ] && { echo '{"error":{"code":"agent_start_timeout","message":"agent did not become ready"}}'; exit 1; }
+  "agent start") printf '%s\n' "${@:3}" >"$H/start.args"
+                 [ -f "$H/start-fails" ] && { echo '{"error":{"code":"agent_start_timeout","message":"agent did not become ready"}}'; exit 1; }
                  st=idle; [ -f "$H/starts-blocked" ] && st=blocked
                  put agents --arg n "$3" --arg p "$7" --arg c "$wt" --arg s "$(newsid)" --arg st "$st" '. + [{name:$n, agent_status:$st, pane_id:$p, tab_id:("t"+$p), cwd:$c, agent_session:{value:$s}}]'; echo "start $3 timeout $9" >>"$H/log";;
   "tab create") echo "tab create $*" >>"$H/log"; n=$(( $(jq length "$H/tabs") + 1 )); l=$(sed -nE 's/.*--label ([^ ]+).*/\1/p' <<<"$*")
@@ -325,3 +326,38 @@ rm "$H/starts-blocked"; set_status abc1-apply idle
 BODY="apply job J" run role start ABC-1 apply; p0=$(prompts); clears=$(grep -c /clear "$H/log")
 BODY="apply job K" HERDR_PANE_ID=other run role start ABC-1 apply --new; K=$(sent_path)
 check '--new from another session replaces a sent, unread handoff' '[ "$(cat "$H/rc")" = 0 ] && [ -n "$K" ] && [ "$(live_apply)" = "$K" ] && grep -qx "apply job K" "$K" && [ "$(fmv sent-to "$K")" = "$(apsid)" ] && [ "$(find "$hd/archive" -name "apply-*" -exec grep -lx "apply job J" {} + | wc -l)" = 1 ] && [ "$(prompts)" = $((p0+1)) ] && [ "$(grep -c /clear "$H/log")" = $((clears+1)) ]'
+
+# ---- claude.mcp.<role> (#104): a new session gets the role's whole MCP set after --, as --strict-mcp-config --mcp-config <json>.
+# A role without an entry gets nothing after --; a malformed entry refuses before the handoff is written or a session opens.
+printf 'MemAvailable:   8192000 kB\n' >"$H/meminfo"
+mcpcfg() { jq "$@" "$H/cfg" >"$cfgf"; }   # mcpcfg <jq args>: the saved config with that change
+mcpargs() { sed -n '/^--$/,$p' "$H/start.args" | tail -n +2 | paste -sd' '; }   # the arguments agent start got after --
+mcpstart() { gone_apply; rm -f "$H/start.args"; run role start ABC-1 apply; }
+mcpcfg '.claude.mcp.apply = {mcpServers: {pw: {command: "npx", args: ["a b"]}}}'; mcpstart
+check 'an entry reaches agent start whole, after --' '[ "$(cat "$H/rc")" = 0 ] && [ "$(mcpargs)" = '"'"'--strict-mcp-config --mcp-config {"mcpServers":{"pw":{"command":"npx","args":["a b"]}}}'"'"' ]'
+mcpcfg '.claude.mcp.apply = {mcpServers: {}}'; mcpstart
+check 'an empty mcpServers entry still gets the strict flags' '[ "$(cat "$H/rc")" = 0 ] && [ "$(mcpargs)" = '"'"'--strict-mcp-config --mcp-config {"mcpServers":{}}'"'"' ]'
+mcpcfg '.claude.mcp.review = {mcpServers: {}}'; mcpstart
+check 'a role without an entry gets nothing after --' '[ "$(cat "$H/rc")" = 0 ] && ! grep -qx -- -- "$H/start.args"'
+: >"$cfgf"; mcpstart
+check 'an empty config.json starts with nothing after --' '[ "$(cat "$H/rc")" = 0 ] && ! grep -qx -- -- "$H/start.args"'
+# mcprefused <description> <message>: role start exited 1 printing <message>, with no session started and no handoff written.
+mcprefused() { local msg="$2"; check "$1" '[ "$(cat "$H/rc")" = 1 ] && grep -qF "$msg" "$H/out" && [ ! -e "$H/start.args" ] && [ "$(live_apply)" = "$A0" ] && ! grep -q "jq: error" "$H/out"'; }
+for v in '["pw"]' null false '{"command":"npx"}'; do
+  mcpcfg --argjson v "$v" '.claude.mcp.apply = $v'; A0=$(live_apply); mcpstart
+  mcprefused "an apply entry of $v is refused" "claude.mcp.apply in .orca/config.json needs an mcpServers object"; done
+mcpcfg '.claude.mcp.other = ["pw"]'; mcpstart
+check 'only the started role entry is checked' '[ "$(cat "$H/rc")" = 0 ] && ! grep -qx -- -- "$H/start.args"'
+mcpcfg '.claude.mcp = ["pw"]'; A0=$(live_apply); mcpstart
+mcprefused 'a claude.mcp that is not an object is refused' "claude.mcp in .orca/config.json must be an object keyed by role, not array"
+# A config jq cannot read, or a claude that is not an object, is refused with jq's own error.
+for c in '{"claude":"x"}' '{"project":'; do
+  printf '%s' "$c" >"$cfgf"; A0=$(live_apply); mcpstart
+  check "config $c is refused with jq's own error" '[ "$(cat "$H/rc")" = 1 ] && grep -q "cannot read claude.mcp from .*: jq: " "$H/out" && ! grep -q "must be an object keyed by role" "$H/out" && [ ! -e "$H/start.args" ] && [ "$(live_apply)" = "$A0" ]'; done
+# A failed start names the entry as a possible cause only when the role has one.
+touch "$H/start-fails"
+mcpcfg '.claude.mcp.apply = {mcpServers: {}}'; mcpstart
+check 'a failed start with an entry names it as a possible cause' '[ "$(cat "$H/rc")" = 1 ] && grep -q "^Claude Code may also have refused the claude.mcp.apply entry in .orca/config.json.$" "$H/out" && grep -q "Answer it there, then rerun" "$H/out"'
+cp "$H/cfg" "$cfgf"; mcpstart
+check 'a failed start without an entry does not mention claude.mcp' '[ "$(cat "$H/rc")" = 1 ] && ! grep -q "claude.mcp" "$H/out"'
+rm "$H/start-fails"
