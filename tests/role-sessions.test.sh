@@ -319,3 +319,9 @@ check 'an agent that starts blocked exits 1 after one agent start, sending no pr
 check 'an agent that starts blocked is reported with the pane it was started in, its lines, and no herdr error' '[ -n "$ap" ] && grep -qF "abc1-apply is waiting at a prompt in tab '"'"'apply'"'"' (pane $ap):" "$H/out" && grep -q "^  | .*Do you trust" "$H/out" && grep -q "^  | .*Enter to confirm" "$H/out" && grep -q "Answer it there, then rerun" "$H/out" && ! grep -q "herdr:" "$H/out"'
 check 'an agent that starts blocked leaves its one handoff unstamped' '[ "$(live_apply | wc -l)" = 1 ] && [ -z "$(fmv sent "$J")" ] && [ -z "$(fmv sent-to "$J")" ]'
 rm "$H/starts-blocked"; set_status abc1-apply idle
+
+# A sent, unread handoff and a rerun with --new from another session (the orchestrator after its own /clear or a restart):
+# --new alone replaces it, with no --as.
+BODY="apply job J" run role start ABC-1 apply; p0=$(prompts); clears=$(grep -c /clear "$H/log")
+BODY="apply job K" HERDR_PANE_ID=other run role start ABC-1 apply --new; K=$(sent_path)
+check '--new from another session replaces a sent, unread handoff' '[ "$(cat "$H/rc")" = 0 ] && [ -n "$K" ] && [ "$(live_apply)" = "$K" ] && grep -qx "apply job K" "$K" && [ "$(fmv sent-to "$K")" = "$(apsid)" ] && [ "$(find "$hd/archive" -name "apply-*" -exec grep -lx "apply job J" {} + | wc -l)" = 1 ] && [ "$(prompts)" = $((p0+1)) ] && [ "$(grep -c /clear "$H/log")" = $((clears+1)) ]'

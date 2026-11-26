@@ -852,8 +852,9 @@ cmd_role() {
       [ -n "$L" ] && [ "$(fm body-sha1 "$L")" = "$H" ] && resume="$L"
       # An unsent or orphaned handoff role start wrote (it carries body-sha1) is replaced by any caller: after a failed
       # start the rerun may come from another session or a plain shell, and cmd_handoff write would refuse either.
-      # One written by hand keeps cmd_handoff write's rule; a sent one (sentL) keeps the rules above.
-      local drop=""; [ -n "$L" ] && [ -z "$resume" ] && [ -z "$sentL" ] && [ -n "$(fm body-sha1 "$L")" ] && drop="$L"
+      # One written by hand keeps cmd_handoff write's rule; a sent one (sentL) keeps the rules above, and --new
+      # replaces it the same way: the orchestrator may have a new session id since it sent it.
+      local drop=""; [ -n "$L" ] && [ -z "$resume" ] && { [ -z "$sentL" ] || [ -n "$new" ]; } && [ -n "$(fm body-sha1 "$L")" ] && drop="$L"
       if [ -n "$ag" ]; then
         [ -z "$replace" ] || die "$name is live and is reused; rerun without --replace"
         ready_or_die "$name" "$(jq -r '.status // empty' <<<"$ag")" "let it finish, or retire it (orca-lc role retire $t $r --wait), then rerun"
