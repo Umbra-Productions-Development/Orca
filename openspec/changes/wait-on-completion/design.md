@@ -25,7 +25,9 @@ Anything else passes with no message. The file match goes through the transcript
 
 ## The gate skip
 
-`cmd_gate` parses `--inline` and `--force`, changes to the repository root, and returns 0 with `ORCA_GATE_PASS` when the marker is fresh and `--force` is absent.
+`cmd_gate` parses `--inline` and `--force`, changes to the repository root, and returns 0 with `ORCA_GATE_PASS` when the marker is fresh and `--force` is absent, before any herdr pane opens.
+
+`run_gate` (from #106) takes two follow-ups. A `gateTimeoutMin` of `0` or less runs the gate without `timeout`, so a 124 or 137 is the gate's own status: before, the elapsed-time check always held with a zero limit, and a gate killed by KILL printed `ORCA_GATE_TIMEOUT`. The comment on the trap says forwarding covers signals to orca-lc's process group: `run_gate` runs in the subshell of `cmd_gate`'s `tee` pipeline, so a signal to orca-lc's pid alone ends the main shell and leaves the gate running.
 
 `tree_sig` runs from the repository root. It adds `.orca/config.json`, `.env`, `.orca/denylist` and the global denylist, all often untracked, so a change to the gate command, the environment or a denylist makes the marker stale. What `envCommand` prints is outside the signature, since `tree_sig` runs no commands; a change there needs `--force`. Each untracked entry adds its name, then a regular file its blob hash and a symlink its target; a directory or nested repo adds its name only, so one entry git cannot hash no longer stops the rest. Before this, editing an untracked file kept the marker fresh, and `git ls-files --others` run from a subdirectory listed only that subdirectory.
 
