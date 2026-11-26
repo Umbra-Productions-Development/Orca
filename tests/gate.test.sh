@@ -5,11 +5,12 @@ cfgr() { new_repo "{\"project\":\"proj\",\"gate\":$(jq -Rn --arg g "$1" '$g')${2
 r=$(cfgr 'echo hi'); out=$(gate "$r"); assert_status $? 0
 assert_contains "$out" hi; assert_contains "$out" ORCA_GATE_PASS
 (cd "$r" && orca-lc gate-fresh) || fail "pass leaves no fresh marker"
-assert_contains "$(cat "$r/.git/orca-gate.log")" ORCA_GATE_PASS
+assert_eq "$(tail -1 "$r/.git/orca-gate.log")" ORCA_GATE_PASS "log ends with the result line: a backgrounded gate is waited on through it"
 
 r=$(cfgr 'exit 3'); touch "$r/.git/orca-gate-ok"; out=$(gate "$r"); assert_status $? 3
 assert_contains "$out" ORCA_GATE_FAIL
 [ -e "$r/.git/orca-gate-ok" ] && fail "fail leaves the marker"
+assert_eq "$(tail -1 "$r/.git/orca-gate.log")" ORCA_GATE_FAIL "log ends with the fail line"
 
 # A gate killed outright still returns at once, non-zero.
 r=$(cfgr 'kill -9 $$'); s=$SECONDS; out=$(gate "$r"); rc=$?
@@ -21,6 +22,7 @@ assert_not_contains "$out" Killed
 # A hung gate is cut at gateTimeoutMin (fractional minutes allowed).
 r=$(cfgr 'while :; do sleep 1; done' '"gateTimeoutMin":0.02'); out=$(gate "$r"); assert_status $? 124
 assert_contains "$out" ORCA_GATE_TIMEOUT
+assert_eq "$(tail -1 "$r/.git/orca-gate.log")" ORCA_GATE_TIMEOUT "log ends with the timeout line"
 
 # Inside herdr the pane only follows the log; the result still comes from the gate process.
 export HERDR_STUB; HERDR_STUB=$(mktemp -d); export PATH="$ORCA_SRC/tests/stub:$PATH"
