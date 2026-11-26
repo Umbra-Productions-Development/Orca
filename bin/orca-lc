@@ -703,6 +703,18 @@ exit_role_agent() { # <agent json>: exit claude (/exit is Claude Code syntax) an
   for i in 1 2 3 4 5 6 7 8 9 10; do agent_gone "$name" && return 0; sleep 0.5; done
   die "$name did not exit after /exit; close it in tab '${name#*-}'"
 }
+is_orchestrator() { case "$1" in orchestrator*) return 0;; esac; return 1; }
+# <ticket agents json>: the roles of idle or done sessions that role retire <ticket> <role> would exit, comma-separated.
+# Left out: orchestrators (never retired), names retire's folding would point elsewhere (review2 folds to review),
+# and sessions in a tab role start did not open (retire refuses those).
+retirable_idle() {
+  local ag n out=""
+  while read -r ag; do
+    n=$(jq -r .name <<<"$ag"); n=${n#*-}
+    ! is_orchestrator "$n" && [ "$(canon_role "$n")" = "$n" ] && role_tab_owned "$ag" && out="${out:+$out, }$n"
+  done < <(jq -c '.[] | select(.status=="idle" or .status=="done")' <<<"$1")
+  echo "$out"
+}
 # <workspace> <label>: first pane of a tab role start opened with that label (kept after retire), empty when none.
 # A pane another agent still runs in (a deduped <ticket>-<role>2, one started by hand) is skipped, so no start is typed into it.
 role_tab_pane() {
@@ -768,10 +780,10 @@ cmd_role() {
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # The guard stands aside when free memory is unknown (no /proc/meminfo, as on macOS) and on --replace,
         # which exits one session for each one it opens.
-        # Listed by the role retire takes; orchestrators are never retired.
-        local idle; idle=$(jq -r '[.[] | select(.status=="idle" or .status=="done") | .name | sub("^[^-]*-"; "")
-          | select(startswith("orchestrator") | not)] | join(", ")' <<<"$all")
-        [ -z "$old" ] && [ -n "$free" ] && [ "$free" -lt "$min" ] && die "only $free MB of memory available, under minFreeMemMb $min. $( [ -n "$idle" ] && echo "Idle sessions on $t to retire (orca-lc role retire $t <role>): $idle" || echo "No session on $t is idle; retire one once it reports")"
+        if [ -z "$old" ] && [ -n "$free" ] && [ "$free" -lt "$min" ]; then
+          local idle; idle=$(retirable_idle "$all")
+          die "only $free MB of memory available, under minFreeMemMb $min. $( [ -n "$idle" ] && echo "Idle sessions on $t to retire (orca-lc role retire $t <role>): $idle" || echo "No session on $t is idle; retire one once it reports")"
+        fi
       fi
       local f; f=$(cmd_handoff write "$t" "$r" ${as:+--as "$as"}) || exit 1; printf '%s\n' "$body" >> "$f"
       # Actions. One that fails archives the handoff just written, so no session is left a handoff nobody reads,

@@ -85,10 +85,11 @@ run role start ABC-1 tour --replace abc1-walk
 check '--replace exits the extra, keeps its tab, opens the new one' '[ "$(agents)" = "abc1-review abc1-tour" ] && grep -q "prompt abc1-walk /exit" "$H/log" && ! grep -q "^close" "$H/log" && jq -e "any(.label==\"walk\")" "$H/tabs" >/dev/null'
 
 printf 'MemAvailable:   1024000 kB\n' >"$H/meminfo"
-add_agent abc1-orchestrator torch; run role start ABC-1 propose
-check 'low memory refuses a new session and lists idle ones' '[ "$(agents)" = "abc1-orchestrator abc1-review abc1-tour" ] && grep -q "under minFreeMemMb 3000.*review" "$H/out"'
-check 'the idle list names the roles retire takes, never an orchestrator' 'grep -q "retire ABC-1 <role>): review, tour$" "$H/out"'
-edit agents 'map(select(.name != "abc1-orchestrator"))'
+add_agent abc1-orchestrator torch; add_agent abc1-review2 tr2; add_tab tr2 review2; add_agent abc1-hand thand; add_tab thand scratch
+run role start ABC-1 propose
+check 'low memory refuses a new session and lists idle ones' '[ "$(agents)" = "abc1-hand abc1-orchestrator abc1-review abc1-review2 abc1-tour" ] && grep -q "under minFreeMemMb 3000.*review" "$H/out"'
+check 'the idle list names only sessions retire can act on: no orchestrator, deduped name or foreign tab' 'grep -q "retire ABC-1 <role>): review, tour$" "$H/out"'
+edit agents 'map(select(.name | IN("abc1-orchestrator", "abc1-review2", "abc1-hand") | not))'
 run role start ABC-1 review
 check 'low memory still allows reuse' 'grep -q "^handoff " "$H/out"'
 run role start ABC-1 walk --replace abc1-tour
