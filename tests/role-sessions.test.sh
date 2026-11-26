@@ -20,6 +20,7 @@ case "$1 $2" in
   "agent list") jq '{result:{agents:.}}' "$H/agents"; put agents 'map(select((has("agent") and .agent == null and (.keep | not)) | not))';;   # a stale entry lasts one list, as on herdr 0.9.5 (keep: until the test drops it)
   "agent get") jq --arg n "$3" '{result:{agent:(.[] | select(.name==$n))}}' "$H/agents";;
   "agent wait") echo "wait $3 $5" >>"$H/log"   # a working agent finishes as idle; otherwise its state must be one asked for
+                 [ -f "$H/times-out" ] && grep -q -- --timeout <<<"$*" && exit 1   # a bounded wait that runs out
                  u=$(sed -nE 's/--until ([a-z]+)/\1/gp' <<<"${*:4}"); st=$(jq -r --arg n "$3" '.[] | select(.name==$n) | .agent_status' "$H/agents")
                  [ "$st" = working ] && [ -f "$H/goes-blocked" ] && grep -qw blocked <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="blocked" else . end)'; exit 0; }
                  [ "$st" = unknown ] && [ -f "$H/unknown-settles" ] && grep -qw idle <<<"$u" && { put agents --arg n "$3" 'map(if .name==$n then .agent_status="idle" else . end)'; exit 0; }
@@ -115,6 +116,11 @@ check 'retire refuses a blocked session and types nothing into its prompt' 'grep
 set_status abc1-propose working; touch "$H/goes-blocked"; run role retire ABC-1 propose --wait
 check 'retire --wait stops when the session turns blocked' 'grep -q "abc1-propose is blocked at a prompt" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
 rm -f "$H/goes-blocked"; set_status abc1-propose idle
+set_status abc1-propose working; touch "$H/times-out"; run role retire ABC-1 propose --wait
+check 'retire --wait gives up on a session that never settles' 'grep -q "abc1-propose did not settle within" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
+rm -f "$H/times-out"; set_status abc1-propose idle
+run role retire ABC-1 propose --now
+check 'retire refuses an unknown argument' 'grep -q "^orca-lc: role retire <ticket> <role> \[--wait\]" "$H/out" && [ "$(grep -c "prompt abc1-propose /exit" "$H/log")" = "$exits" ]'
 tabs=$(jq length "$H/tabs"); run role start ABC-1 review
 check 'start reuses the kept tab of a retired role' '[ "$(agents)" = "abc1-propose abc1-review" ] && [ "$(jq length "$H/tabs")" = "$tabs" ] && [ "$(jq -r ".[] | select(.name==\"abc1-review\") | .pane_id" "$H/agents")" = p1 ]'
 set_status abc1-review unknown; touch "$H/unknown-settles"; run role retire ABC-1 review --wait

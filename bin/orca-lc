@@ -792,14 +792,18 @@ cmd_role() {
       cmd_notify "$name" "You are the $r session for $t. Run: orca-lc handoff read $t $r, then work it. Report commits and decisions to the orchestrator (orca-lc notify $t --role orchestrator)."
       echo "handoff $f";;
     retire)
-      need ticket "${1:-}"; need role "${2:-}"; inherdr || die "role retire needs herdr"
+      need ticket "${1:-}"; need role "${2:-}"
+      { [ -z "${3:-}" ] || [ "$3" = --wait ]; } && [ -z "${4:-}" ] || usage "role retire <ticket> <role> [--wait]"
+      inherdr || die "role retire needs herdr"
       local t r slug name ag; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); slug=$(ticket_slug "$t"); name="$slug-$r"
       ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$(ticket_agents "$slug")")
       [ -n "$ag" ] || die "no live session named $name"
       local st; st=$(jq -r '.status // empty' <<<"$ag")
       case "$st" in idle|done|blocked) ;; *)  # working, unknown or anything else: only --wait goes on, until herdr shows where it stopped
         [ "${3:-}" = --wait ] || ready_or_die "$name" "$st" "retire it once it reports, or pass --wait"
-        herdr agent wait "$name" --until idle --until done --until blocked >/dev/null 2>&1 || die "herdr wait on $name failed";;
+        # Bounded like every other wait here: an hour covers a long apply round.
+        herdr agent wait "$name" --until idle --until done --until blocked --timeout 3600000 >/dev/null 2>&1 \
+          || die "$name did not settle within an hour; retire it once it reports";;
       esac
       exit_role_agent "$ag"; echo "retired $name";;
     *) usage "role start|owner|retire";;

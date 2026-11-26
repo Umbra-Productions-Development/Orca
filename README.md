@@ -19,7 +19,7 @@ A ticket gets one terminal tab per session, managed through herdr.
 
 Ownership moves forward only: propose, then apply, then review until merge. Only the owner edits the tree.
 
-`orca-lc role retire <ticket> <role> [--wait]` exits a role's session and keeps its tab, so the next `role start` for that role runs in the same tab and `claude --resume` there lists the earlier sessions. It refuses a working session, or one herdr shows as `unknown`, unless `--wait` is given, which waits for it to go idle first. It refuses a session blocked at a prompt, since `/exit` and Enter typed there could answer the prompt.
+`orca-lc role retire <ticket> <role> [--wait]` exits a role's session and keeps its tab, so the next `role start` for that role runs in the same tab and `claude --resume` there lists the earlier sessions. It refuses a working session, or one herdr shows as `unknown`, unless `--wait` is given, which waits up to an hour for it to go idle first. It refuses a session blocked at a prompt, since `/exit` and Enter typed there could answer the prompt.
 
 ## What it enforces
 
