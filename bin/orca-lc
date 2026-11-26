@@ -893,7 +893,6 @@ cmd_role() {
       local t r dir ws name to H; t=$(echo "$1" | tr '[:lower:]' '[:upper:]'); r=$(canon_role "$2"); dir=$(wt_dir "$t")
       ! is_core_role "$r" || [ -z "$replace" ] || die "--replace is for extra sessions; $r reuses its own session"
       [ -d "$dir" ] || die "no worktree at $dir (orca-lc worktree up $t)"
-      local mcp; mcp=$(role_mcp "$r") || exit 1
       ws=$(wt_ws "$dir"); [ -n "$ws" ] || die "no herdr workspace for $dir (orca-lc worktree up $t)"
       local slug all ag other="" old=""; slug=$(ticket_slug "$t"); name="$slug-$r"
       # git is always there; sha1sum is not (macOS ships shasum). An empty hash would match every ledger, so it dies.
@@ -951,6 +950,7 @@ cmd_role() {
         fi
         # Read only when a session is to be opened: a bad value never blocks an already-sent rerun or a --new reuse.
         to=$(role_start_timeout) || exit 1
+        local mcp; mcp=$(role_mcp "$r") || exit 1
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # The guard stands aside when free memory is unknown (no /proc/meminfo, as on macOS) and on --replace,
         # which exits one session for each one it opens.

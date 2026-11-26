@@ -361,3 +361,8 @@ check 'a failed start with an entry names it as a possible cause' '[ "$(cat "$H/
 cp "$H/cfg" "$cfgf"; mcpstart
 check 'a failed start without an entry does not mention claude.mcp' '[ "$(cat "$H/rc")" = 1 ] && ! grep -q "claude.mcp" "$H/out"'
 rm "$H/start-fails"
+# A reused session keeps the MCP set it started with, so its entry is not read: a malformed one does not block the reuse.
+cp "$H/cfg" "$cfgf"; mcpstart; mcpcfg '.claude.mcp.apply = null'; clears=$(grep -c /clear "$H/log"); rm -f "$H/start.args"
+run role start ABC-1 apply --new
+check 'a malformed entry does not block reusing a live session' '[ "$(cat "$H/rc")" = 0 ] && [ "$(grep -c /clear "$H/log")" = $((clears+1)) ] && [ ! -e "$H/start.args" ]'
+cp "$H/cfg" "$cfgf"
