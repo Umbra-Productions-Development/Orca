@@ -7,9 +7,9 @@ echo 'gate-runs.txt' >"$repo/.gitignore"; git -C "$repo" add -A; git -C "$repo" 
 tp="$TMPDIR/transcript.jsonl"
 jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"make > /tmp/x/build.log 2>&1", run_in_background:true}}]}}' >"$tp"
 
-check() { # check <expected exit> <command> [run_in_background]
-  jq -n --arg c "$2" --arg d "$repo" --arg t "$tp" --argjson bg "${3:-false}" \
-    '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:$c, run_in_background:$bg}}' | bash "$ORCA_SRC/hooks/pretool.sh" >/dev/null 2>&1
+check() { # check <expected exit> <command> [run_in_background]; the hook's message is left in $out
+  out=$(jq -n --arg c "$2" --arg d "$repo" --arg t "$tp" --argjson bg "${3:-false}" \
+    '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:$c, run_in_background:$bg}}' | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1 >/dev/null)
   assert_status $? "$1" "want exit $1: $2"
 }
 
@@ -57,7 +57,6 @@ check 0 'until grep -q ready server.log; do sleep 1; done'
 check 0 'until grep -q ready "server.log"; do sleep 1; done'
 check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
 check 2 'sleep 3; tail server.log'
-out=$(jq -n --arg d "$repo" --arg t "$tp" '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:"sleep 3; tail server.log"}}' | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1)
 assert_contains "$out" "until grep -q" "the block names the readiness loop"
 
 gate() { (cd "$repo/$1" && orca-lc gate --inline ${2:-} >/dev/null 2>&1); }
@@ -70,12 +69,7 @@ gate sub && expect_runs 1 'fresh marker skips from a subdirectory'
 gate . --force && expect_runs 2 '--force reruns'
 echo x >"$repo/sub/new.txt"; gate . && expect_runs 3 'an edit makes the marker stale'
 
-# Inside herdr a fresh marker skips before any pane opens; a stale tree runs the gate while the pane follows its log.
+# Inside herdr a fresh marker skips before any pane opens. The pane path itself is covered in gate.test.sh.
 export HERDR_STUB; HERDR_STUB=$(mktemp -d); export PATH="$ORCA_SRC/tests/stub:$PATH"
-hgate() { (cd "$repo" && HERDR_ENV=1 orca-lc gate 2>&1); }
-out=$(hgate); assert_contains "$out" "skipped" "fresh marker skips before opening a pane"; expect_runs 3 'pane path skips on a fresh marker'
-[ ! -s "$HERDR_STUB/calls" ] || fail "a fresh marker opened a pane"
-echo y >"$repo/sub/new.txt"; out=$(hgate)
-assert_contains "$out" "gate PASS, pane closed" "pane gate passes"; expect_runs 4 'pane path runs on a stale tree'
-echo '{"project":"proj","gate":"false"}' >"$repo/.orca/config.json"; out=$(hgate); assert_status $? 1 "failing pane gate exits 1"
-assert_contains "$out" "pane p1 left open" "failing pane gate leaves the pane open"
+out=$(cd "$repo" && HERDR_ENV=1 orca-lc gate 2>&1); assert_contains "$out" "skipped" "fresh marker skips before opening a pane"
+expect_runs 3 'pane path skips on a fresh marker'; [ ! -s "$HERDR_STUB/calls" ] || fail "a fresh marker opened a pane"
