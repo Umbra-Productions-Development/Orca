@@ -814,6 +814,7 @@ cmd_role() {
       ag=$(jq -c --arg n "$name" '[.[] | select(.name==$n)][0] // empty' <<<"$(ticket_agents "$slug")")
       [ -n "$ag" ] || die "no live session named $name"
       local st; st=$(jq -r '.status // empty' <<<"$ag")
+      # blocked goes on, and --wait stops on it, only for exit_role_agent's ready_or_die to refuse it with its prompt message.
       case "$st" in idle|done|blocked) ;; *)  # working, unknown or anything else: only --wait goes on, until herdr shows where it stopped
         [ "${3:-}" = --wait ] || ready_or_die "$name" "$st" "retire it once it reports, or pass --wait"
         # Bounded like every other wait here: an hour covers a long apply round.
