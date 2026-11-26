@@ -72,6 +72,8 @@ set_status abc1-review unknown; run role start ABC-1 review
 check 'a session herdr shows as unknown refuses reuse' '[ "$(grep -c /clear "$H/log")" = 1 ] && grep -q "abc1-review is unknown in herdr" "$H/out"'
 set_status abc1-review idle
 
+run role start ABC-1 walk --replace abc1-gone
+check '--replace of a session that is not live refuses' '[ "$(agents)" = abc1-review ] && grep -q "abc1-gone is not a live extra session" "$H/out"'
 run role start ABC-1 walk
 check 'an extra session opens' '[ "$(agents)" = "abc1-review abc1-walk" ]'
 run role start ABC-1 tour

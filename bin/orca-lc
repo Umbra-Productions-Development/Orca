@@ -761,6 +761,7 @@ cmd_role() {
             ready_or_die "$replace" "$(jq -r '.status // empty' <<<"$old")" "retire it once it reports (orca-lc role retire $t ${replace#*-} --wait), then rerun"
             role_tab_owned "$old" || die "the tab of $replace was not opened by role start; exit it yourself"
           fi
+          [ -z "$replace" ] || [ -n "$old" ] || die "$replace is not a live extra session on $t; rerun without --replace"
         fi
         local min free; min=$(cfg '.minFreeMemMb' 3000); free=$(mem_free_mb)
         # The guard stands aside when free memory is unknown (no /proc/meminfo, as on macOS) and on --replace,
