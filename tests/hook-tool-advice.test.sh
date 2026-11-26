@@ -8,7 +8,7 @@ quiet() { local o; o=$(run "$1"); assert_eq "$o" "0 " "'$1' should be quiet, got
 
 fires 'cat file' "Read tool"; fires 'head -n 5 f' "Read tool"; fires 'sed -n 1,5p f' "Read tool"
 fires 'grep -r pattern dir' "Grep tool"; fires 'grep pat f' "Grep tool"; fires 'grep -A 3 fix f' "Grep tool"
-fires 'rg pat' "Grep tool"; fires "find . -name '*.md'" "Glob"
+fires 'rg pat' "Grep tool"; fires "find . -name '*.md'" "Glob tool"
 fires $'cat > file <<EOF\nbody\nEOF' "Write tool"; fires 'echo x > f' "Write tool"; fires 'echo x >> f' "Edit tool"
 fires $'cat <<EOF | tee f\nbody\nEOF' "Write tool"; fires 'sed -i s/a/b/ f' "Edit tool"
 fires 'cd sub && cat f' "Read tool"; fires 'bash -c "cat f"' "Read tool"; fires 'cat f | grep x' "Read tool"

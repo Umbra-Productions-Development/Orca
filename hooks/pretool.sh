@@ -410,10 +410,11 @@ tool_seg() {
   done
   # Stdin: piped in, a - operand, or a <, <<, <<- or <<< redirect on the segment.
   x=${S_R[k]}; while [ -n "$x" ]; do rd+=("${x%%"$RS"*}"); [[ "$x" == *"$RS"* ]] && x=${x#*"$RS"} || x=""; done
+  # ${rd[@]+…}: an empty array is unbound under set -u before bash 4.4
   [ "${S_P[k]}" = 1 ] && in=1
-  for x in "${rd[@]}"; do case "${x%%"$GS"*}" in '<'|'<<'|'<<-'|'<<<') in=1;; esac; done
+  for x in ${rd[@]+"${rd[@]}"}; do case "${x%%"$GS"*}" in '<'|'<<'|'<<-'|'<<<') in=1;; esac; done
   case "$c" in cat|echo|printf)
-    for x in "${rd[@]}"; do op=${x%%"$GS"*}; t=${x#*"$GS"}
+    for x in ${rd[@]+"${rd[@]}"}; do op=${x%%"$GS"*}; t=${x#*"$GS"}
       { _dev "$t" || [[ "$t" == '&'* ]]; } && continue
       case "$op" in '>'|'>|'|'&>') echo "write $c"; return;; '>>'|'&>>') echo "edit $c"; return;; esac
     done;;
@@ -433,7 +434,7 @@ tool_seg() {
       elif [ "$in" != 1 ]; then
         case "$c" in rg|ag) echo "search $c";; *) [[ "$fl" =~ \ (-r|-R|--recursive|--dereference-recursive)\  ]] && echo "search $c";; esac
       fi;;
-    tee) m=""; for x in "${ops[@]}"; do _dev "$x" || m=f; done; [ "$m" = f ] || return; h=${S_HEAD[k]}
+    tee) [ ${#ops[@]} -gt 0 ] || return; m=""; for x in "${ops[@]}"; do _dev "$x" || m=f; done; [ "$m" = f ] || return; h=${S_HEAD[k]}
       if [ "${S_H[h]}" = 1 ] || [[ "$(_cw "$h")" =~ ^(cat|echo|printf)$ ]]; then
         if [[ "$fl" =~ \ (-a|--append)\  ]]; then echo "edit tee"; else echo "write tee"; fi
       fi;;

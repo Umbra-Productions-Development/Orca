@@ -27,7 +27,7 @@ assert_eq "$(hook "$r" 'a=${b:-x #}; git push' | tail -1)" 2 "# in an assignment
 assert_eq "$(hook "$r" 'echo `echo #`; git push' | tail -1)" 2 "# inside backticks is no comment"
 assert_eq "$(hook "$r" $'echo $[ 1 # ]\n>out git push' | tail -1)" 2 "# inside \$[ ] is no comment"
 assert_eq "$(hook "$r" $'echo $[(1+(2))]; ((x<<y))\ngit push' | tail -1)" 2 "a )) inside \$[ ] ends no (( )): the next-line push is gated"
-# no heredoc or comment hides a push (#9 review round 2)
+# no heredoc or comment hides a push (#9, PR #144 review)
 assert_eq "$(hook "$r" $'echo ${x/<<EOF/}\ngit push' | tail -1)" 2 "<< inside \${ } hides nothing"
 assert_eq "$(hook "$r" $'echo `echo <<EOF`\ngit push' | tail -1)" 2 "<< inside backticks hides nothing"
 assert_eq "$(hook "$r" $'(( (1+(2)) <<x ))\ngit push' | tail -1)" 2 "an inner )) leaves (( )) open: the next-line push is gated"
@@ -42,7 +42,7 @@ assert_eq "$(hook "$r" $'cat > notes <<EOF\ngit push origin main' | tail -1)" 2 
 assert_eq "$(hook "$r" $'echo $(cat <<EOF\nit\'s\nEOF)\ngit push' | tail -1)" 2 "a quote in a heredoc body in \$( ) hides nothing"
 assert_eq "$(hook "$r" $'echo `cat <<EOF\na"b\nEOF`\ngit push' | tail -1)" 2 "a quote in a heredoc body in backticks hides nothing"
 assert_eq "$(hook "$r" $'echo "$(echo "it\'s")"\ngit push' | tail -1)" 2 "a quote nested in \"\$( )\" hides nothing"
-# a # glued to a ) is no comment; any word after << is a heredoc delimiter (#9 review round 3)
+# a # glued to a ) is no comment; any word after << is a heredoc delimiter (#9, PR #144 review)
 assert_eq "$(hook "$r" 'echo $(echo a)#b; git push' | tail -1)" 2 "# after \$( ) is no comment"
 assert_eq "$(hook "$r" 'echo $((1))#b; git push' | tail -1)" 2 "# after \$(( )) is no comment"
 assert_eq "$(hook "$r" 'echo $(echo a)#b && git push' | tail -1)" 2 "# after \$( ) before && is no comment"
@@ -53,13 +53,13 @@ assert_eq "$(hook "$r" $'cat << -EOF\nx <<Y\n-EOF\ngit push\nY' | tail -1)" 2 "-
 assert_eq "$(hook "$r" $'cat <<1\nx <<Y\n1\ngit push\nY' | tail -1)" 2 "1 is a heredoc delimiter"
 assert_eq "$(hook "$r" $'cat <<$x\nx <<Y\n$x\ngit push\nY' | tail -1)" 2 "\$x is a heredoc delimiter"
 assert_eq "$(hook "$r" $'cat <<1\ngit push\n1' | tail -1)" 2 "a body line after <<1 is gated, as on main"
-# cd carries through an ambiguous parse: no false block (#9 review round 3)
+# cd carries through an ambiguous parse: no false block (#9, PR #144 review)
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ngit push' | tail -1)" 0 "cd carries through an ambiguous parse"
 assert_eq "$(hook "$r" $'cd ../fresh && x=$(cat <<EOF\nhi\nEOF\n)\ngit push' | tail -1)" 0 "cd carries past a heredoc in \$( )"
 assert_eq "$(hook "$r" $'cd ../fresh\necho ${x/ #/}\ncd ../stale\ngit push' | tail -1)" 2 "a later cd to a stale tree still gates"
 assert_eq "$(hook "$r" $'cat <<EOF\ncd ../fresh\nEOF\necho ${x/ #/}\ngit push' | tail -1)" 2 "a cd in a heredoc body moves no push"
 assert_eq "$(hook "$r" $'cat <<EOF\ncd ../fresh\nEOF\necho $(echo a)#b; git push' | tail -1)" 2 "a cd in a heredoc body moves no push after # after )"
-# << where bash reads no heredoc or another delimiter; # mid-word after a dup or inside [[ ]] (#9 review round 4)
+# << where bash reads no heredoc or another delimiter; # mid-word after a dup or inside [[ ]] (#9, PR #144 review)
 assert_eq "$(hook "$r" $'a[1<<2]=3\ngit push\n2]=3' | tail -1)" 2 "<< in an array subscript is no heredoc"
 assert_eq "$(hook "$r" $'[[ a =~ (<<E) ]]\ngit push\nE' | tail -1)" 2 "<< in a [[ =~ ]] group is no heredoc"
 assert_eq "$(hook "$r" $'cat <<$\'E\'\nhi\nE\ngit push\n$E' | tail -1)" 2 "<<\$'E' ends on E"
@@ -74,7 +74,7 @@ assert_eq "$(hook "$r" '[[ a =~ (#) ]]; git push' | tail -1)" 2 "# in a [[ =~ ]]
 assert_eq "$(hook "$r" '[[ a =~ ( #) ]]; git push' | tail -1)" 2 "# after a blank in [[ =~ ( ) ]] is no comment"
 assert_eq "$(hook "$r" '[[ a == @(#|a) ]]; git push' | tail -1)" 2 "# in an @( ) extglob is no comment"
 assert_eq "$(hook "$r" '[[ a == !(#) ]]; git push' | tail -1)" 2 "# in a !( ) extglob is no comment"
-# [[ after a keyword (#9 round-5 verify)
+# [[ after a keyword (#9, PR #144 review)
 assert_eq "$(hook "$r" 'if true; then [[ a =~ ( #) ]]; git push; fi' | tail -1)" 2 "# in [[ ]] after then is no comment"
 assert_eq "$(hook "$r" '! [[ a =~ ( #) ]]; git push' | tail -1)" 2 "# in [[ ]] after ! is no comment"
 assert_eq "$(hook "$r" 'time [[ a =~ ( #) ]]; git push' | tail -1)" 2 "# in [[ ]] after time is no comment"
@@ -85,7 +85,7 @@ assert_eq "$(hook "$r" $'while [[ a =~ (<<E) ]]; do break; done\ngit push\nE' | 
 assert_eq "$(hook "$r" $'! [[ a =~ (<<E) ]]\ngit push\nE' | tail -1)" 2 "<< in [[ ]] after ! is no heredoc"
 assert_eq "$(hook "$r" $'time [[ a =~ (<<E) ]]\ngit push\nE' | tail -1)" 2 "<< in [[ ]] after time is no heredoc"
 assert_eq "$(hook "$r" $'{ [[ a =~ (<<E) ]]; }\ngit push\nE' | tail -1)" 2 "<< in [[ ]] after { is no heredoc"
-# nested quotes in dquotes, two dollars or an escaped backslash before a quote, ]] in a [[ ( ) group (#9 review round 5)
+# nested quotes in dquotes, two dollars or an escaped backslash before a quote, ]] in a [[ ( ) group (#9, PR #144 review)
 assert_eq "$(hook "$r" 'printf "%s\n" "$(git log --format="%s #%h" -1)"; git push' | tail -1)" 2 "a dquote in a command substitution inside dquotes hides no comment"
 assert_eq "$(hook "$r" 'echo "$(echo " #")"; git push' | tail -1)" 2 "# quoted inside a command substitution in dquotes is no comment"
 assert_eq "$(hook "$r" 'echo "${x:-" #"}"; git push' | tail -1)" 2 "# quoted inside a parameter expansion in dquotes is no comment"
@@ -97,7 +97,7 @@ assert_eq "$(hook "$r" $'echo \\\\$\'a\\\'b\'; git push' | tail -1)" 2 "an escap
 assert_eq "$(hook "$r" '[[ a =~ ( ]] #) ]]; git push' | tail -1)" 2 "]] in a [[ ( ) group ends nothing"
 assert_eq "$(hook "$r" '[[ a == @( ]] #|a) ]]; git push' | tail -1)" 2 "]] in an @( ) extglob ends nothing"
 assert_eq "$(hook "$r" $'[[ a =~ ( ]] <<E) ]]\ngit push\nE' | tail -1)" 2 "]] in a [[ ( ) group leaves << no heredoc"
-# a substitution in dquotes holding what the tokenizer does not model (#9 round-6 verify)
+# a substitution in dquotes holding what the tokenizer does not model (#9, PR #144 review)
 assert_eq "$(hook "$r" 'echo "$(echo \) " #")"; git push' | tail -1)" 2 "an escaped paren in a command substitution in dquotes hides nothing"
 assert_eq "$(hook "$r" $'echo "$(echo \')\' " #")"; git push' | tail -1)" 2 "a quoted paren in a command substitution in dquotes hides nothing"
 assert_eq "$(hook "$r" 'echo "$(case a in a) echo " #";; esac)"; git push' | tail -1)" 2 "a case pattern in a command substitution in dquotes hides nothing"
@@ -115,7 +115,7 @@ assert_eq "$(hook "$r" 'echo "$(echo `date`) b" # git push' | tail -1)" 0 "a bac
 assert_eq "$(hook "$r" $'echo "$( (true)# ) " <<\'E)"\'\ngit push\nE)"' | tail -1)" 2 "a comment after a paren in a command substitution in dquotes hides nothing"
 assert_eq "$(hook "$r" 'echo "$(echo ${#x} a#b) " # git push' | tail -1)" 0 "a # inside a word in a dquoted command substitution leaves a later comment a comment"
 assert_eq "$(hook "$r" $'git commit -m "$(cat <<\'EOF\'\nit\'s "x" (1) fix)\ngit push later\nEOF\n)"' | tail -1)" 0 "a heredoc body in a dquoted command substitution stays skipped"
-# << in arithmetic inside "..", a heredoc ending on E) or E` in "..", a delimiter word opening a substitution (#9 review round 6)
+# << in arithmetic inside "..", a heredoc ending on E) or E` in "..", a delimiter word opening a substitution (#9, PR #144 review)
 assert_eq "$(hook "$r" $'echo "$((1<<x))\n"\ngit push\nx\n"' | tail -1)" 2 "<< in \$(( )) in dquotes hides nothing"
 assert_eq "$(hook "$r" $'echo "$( ((x<<y))\n)"\ngit push\ny\n)"' | tail -1)" 2 "<< in (( )) in a command substitution in dquotes hides nothing"
 assert_eq "$(hook "$r" $'echo "$(echo $((1<<y)))\n"\ngit push\ny\n"' | tail -1)" 2 "<< in \$(( )) in a command substitution in dquotes hides nothing"
