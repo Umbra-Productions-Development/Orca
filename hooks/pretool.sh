@@ -51,6 +51,122 @@ textpath() {
 }
 absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/${2#"~/"}";; *) echo "$1/$2";; esac; }
 
+# The sleep rule.
+SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
+# What may stand before a loop keyword: the start, a separator or brace (a newline is flattened to ';'), or then/do/else.
+LOOP_AT='(^|[;&|({][[:space:]]*|[;&|({[:space:]](then|do|else)[[:space:]]+)'
+# mask <text>: the text with each quoted string (quotes included), each comment (a # starting a word, to the end of
+# its line) and each heredoc body replaced by x's, one per character, so a commit message naming a sleep or a check
+# is not one, and an offset in the mask is the same offset in the text. One pass that nests the way bash reads:
+# inside "..", $( ) and backticks are code again, so a heredoc there has a body and a quote in that body does not
+# end the outer string, though all of it stays masked. Inside one kind of quote the other kind is plain text ("the
+# server's log"). A << in quotes, in a comment or in (( )) is no heredoc; a delimiter is its word with the quoting
+# removed. st is the stack of open frames: S '..', A $'..', D "..", C $( ), P ( ), B backticks, R (( )), ( a
+# parenthesis in (( )). Masked spans [ms, me) are byte offsets.
+mask() { local LC_ALL=C; local s=$1 n=${#1} i=0 c st="" q=0 ms=() me=() hd=() o="" p=0 k seg pad
+  while ((i < n)); do c=${s:i:1}
+    case ${st: -1} in
+      S) [ "$c" = "'" ] && _mpop;;
+      A) case $c in '\') i=$((i+1));; "'") _mpop;; esac;;
+      D) case $c in '\') i=$((i+1));; '"') _mpop;; '`') st+=B;; '$') _mdollar;; esac;;
+      R|'(') case $c in '(') st+='(';; ')') if [ "${st: -1}" = '(' ]; then st=${st%?}
+               elif [ "${s:i+1:1}" = ')' ]; then i=$((i+1)); st=${st%?}; fi;; esac;;
+      *) case $c in
+        "'") _mpush S;;
+        '"') _mpush D;;
+        '\') i=$((i+1));;
+        '$') if [ "${s:i+1:1}" = "'" ]; then i=$((i+1)); _mpush A; else _mdollar; fi;;
+        '`') if [ "${st: -1}" = B ]; then st=${st%?}; else st+=B; fi;;
+        '(') if [ "${s:i+1:1}" = '(' ]; then i=$((i+1)); st+=R; else st+=P; fi;;
+        ')') [[ ${st: -1} == [CP] ]] && st=${st%?};;
+        '#') if ((i == 0)) || [[ ${s:i-1:1} == [[:space:]\;\&\|\(] ]]; then
+               seg=${s:i}; seg=${seg%%$'\n'*}; ((q)) || { ms+=("$i"); me+=($((i+${#seg}))); }; i=$((i+${#seg}-1)); fi;;
+        '<') if [ "${s:i+1:1}" = '<' ]; then if [ "${s:i+2:1}" = '<' ]; then i=$((i+2)); else _mheredoc; fi; fi;;
+        $'\n') ((${#hd[@]})) && _mbodies;;
+      esac;;
+    esac
+    i=$((i+1))
+  done
+  ((q)) && me+=("$n")
+  for k in "${!ms[@]}"; do
+    # One x per character: a UTF-8 continuation byte adds none.
+    o+=${s:p:ms[k]-p}; seg=${s:ms[k]:me[k]-ms[k]}; seg=${seg//[$'\x80'-$'\xbf']/}
+    printf -v pad '%*s' "${#seg}" ''; o+=${pad// /x}; p=${me[k]}
+  done
+  printf '%s\n' "$o${s:p}"; }
+# mask's helpers, on its locals: open or close a quote frame (a masked span runs while any is open); read what
+# follows a $ (( ( or $(( opens a frame); read a heredoc's operator and delimiter at $i into hd; mask the bodies of
+# the pending heredocs after the newline at $i.
+_mpush() { ((q)) || ms+=("$i"); q=$((q+1)); st+=$1; }
+_mpop() { st=${st%?}; q=$((q-1)); ((q)) || me+=($((i+1))); }
+_mdollar() { if [ "${s:i+1:2}" = '((' ]; then i=$((i+2)); st+=R; elif [ "${s:i+1:1}" = '(' ]; then i=$((i+1)); st+=C; fi; }
+_mheredoc() { local j=$((i+2)) t=0 w="" x
+  [ "${s:j:1}" = - ] && { t=1; j=$((j+1)); }
+  while [[ ${s:j:1} == [[:blank:]] ]]; do j=$((j+1)); done
+  while ((j < n)); do x=${s:j:1}
+    case $x in
+      [[:space:]\;\&\|\<\>\(\)]) break;;
+      \\) j=$((j+1)); w+=${s:j:1};;
+      \') x=${s:j+1}; x=${x%%\'*}; w+=$x; j=$((j+${#x}+1));;
+      \") x=${s:j+1}; x=${x%%\"*}; w+=$x; j=$((j+${#x}+1));;
+      \$) if [ "${s:j+1:1}" = "'" ]; then j=$((j+1)); continue; fi; w+=$x;;
+      *) w+=$x;;
+    esac; j=$((j+1))
+  done
+  [ -n "$w" ] && hd+=("$t$w"); i=$((j-1)); }
+_mbodies() { local h b=$((i+1)) e l
+  for h in "${hd[@]}"; do e=$b
+    while ((e < n)); do l=${s:e}; l=${l%%$'\n'*}
+      [ "${h:0:1}" = 1 ] && l=${l#"${l%%[!$'\t']*}"}
+      [ "$l" = "${h:1}" ] && break
+      l=${s:e}; l=${l%%$'\n'*}; e=$((e+${#l}+1))
+    done
+    ((q || e == b)) || { ms+=("$b"); me+=($((e < n ? e : n))); }
+    l=${s:e}; l=${l%%$'\n'*}; b=$((e+${#l}+1))
+  done
+  hd=(); i=$((b-2)); }
+# after_done <text>: what follows the last 'done', or the whole text when there is none.
+after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
+# from_sleep <text> <mask>: the text from its first unquoted sleep to the end; or, when that sleep sits in a loop
+# still open before it, from the loop keyword, since the loop's check runs again after the sleep. The nearest loop
+# keyword wins, so a sleep in an outer loop after a closed inner one reads from the sleep. The caller has checked
+# that the mask holds a sleep.
+from_sleep() { local pre l; [[ $2 =~ $SLEEP ]]; pre=${2%%"${BASH_REMATCH[0]}"*}
+  l=$(sed -nE "s/.*${LOOP_AT}((while|until|for)[[:space:]])/\\3/p" <<<"$pre")
+  [ "$(after_done "$l")" = "$l" ] || l=""
+  printf '%s\n' "${1:$(( ${#pre} - ${#l} ))}"; }
+# readiness_exempt <file> <flat>: a loop whose until/while condition greps the file (a server's readiness line)
+# waits on output, not on completion, since a server never completes. Not when, with such loops taken out, a sleep
+# still comes before a read of the file, before the loop or after it. Reads the command as written, so a quoted path counts.
+readiness_exempt() { local s=$2 rest="" m c re="${LOOP_AT}(until|while)[[:space:]]+([^;]*);[[:space:]]*do([^[:alnum:]_]|$)"
+  while [[ $s =~ $re ]]; do
+    m=${BASH_REMATCH[0]}; c=${BASH_REMATCH[4]}; rest+=${s%%"$m"*}; s=${s#*"$m"}
+    if [[ $c =~ (^|[[:space:]])grep[[:space:]] && $c == *"$1"* ]]; then s=${s#*done}; else rest+=$m; fi
+  done
+  rest+=$s
+  [ "$rest" != "$2" ] && ! grep -oE "$SLEEP.*" <<<"$rest" | grep -qF -- "$1"; }
+# bg_writes <file> <transcript>: a run_in_background command of this session names the file. The grep only cuts a
+# long transcript down to the lines naming the file before jq parses them; jq makes the decision.
+bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .input.run_in_background==true and ((.input.command // "") | contains($f)))' >/dev/null 2>&1; }
+# sleep_rule <command> <transcript>: block a foreground sleep whose answer is already on its way; the runtime
+# wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
+# (a path may be quoted); peer and CI checks read it masked.
+sleep_rule() { local flat masked raw after f loop wake="End the turn instead: its completion wakes this session, inside a subagent too"
+  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask "$1" | tr '\n' ';')
+  grep -qE "$SLEEP" <<<"$masked" || return 0
+  raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
+  # A task output file is always a background task's; any other file counts when a background command names it.
+  # A backtick ends a file name, and so do closing braces at its end; ${dir}/build.log stays whole.
+  while IFS= read -r f; do
+    readiness_exempt "$f" "$flat" && continue
+    loop="For one that never exits (a server), wait on what it prints with an until-loop: until grep -q <ready> $f; do sleep 1; done"
+    case $f in */tasks/*.output) block "sleep before reading a background task's output. $wake. $loop";; esac
+    bg_writes "$f" "$2" && block "sleep before reading $f, which a background command of this session writes. $wake. $loop"
+  done < <(grep -oE "[^[:space:];|&<>\"'=()\`]+" <<<"$raw" | sed -E 's/\}+$//' | grep -E '/tasks/[^/]+\.output$|\.(log|out|txt)$' | sort -u)
+  grep -qE '(herdr\s+agent\s+(get|list|read)|orca-lc\s+(peers|inbox\s+read))\b' <<<"$after" && block "sleep before checking a peer. Its 'orca-lc notify' wakes this session once the turn ends; to block until it changes state, use 'herdr agent wait <peer> --until idle --timeout <ms>'"
+  grep -qE 'gh\s+(pr\s+(view|checks)|run\s+(view|list))\b' <<<"$after" && block "sleep around a CI poll. Run 'gh pr checks <n> --watch' with run_in_background: true and end the turn; its completion wakes this session"
+  return 0; }
+
 US=$'\x1f' RS=$'\x1e' GS=$'\x1d' PFX='^([A-Za-z_][A-Za-z0-9_]*=.*|env|command|exec|time|nohup)$'
 # tokenize <command>: the command's segments, into the caller's S_W (words, quotes removed, US-joined),
 # S_P (1 when fed by an unquoted |, not ||), S_R (redirects "op GS target", RS-joined, removed from the
@@ -468,6 +584,7 @@ case "$tool" in
       case "$r" in ""|session|orchestrator) ;; *) [ -n "$tk" ] && advise "Once this commit lands, report it: orca-lc notify $tk --role orchestrator \"<sha> <subject>\"";; esac
     fi
     [ -n "$root" ] || exit 0
+    [ "$(jq -r '.tool_input.run_in_background // false' <<<"$in")" = true ] || sleep_rule "$cmd" "$(jq -r '.transcript_path // empty' <<<"$in")"
     grep -qE '(^|[;&|]\s*)git\s+rebase\b' <<<"$cmd" && advise "After the rebase, run the gate's type check even when git reports no conflict: two edits to different lines of one logic rebase clean and still break the build."
     # discovery-shaped commands over source: the graph answers cheaper. Off until sourceGlob is set.
     src=$(jq -r '.sourceGlob // empty' "$root/.orca/config.json")

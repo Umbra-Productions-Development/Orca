@@ -1,0 +1,109 @@
+# pretool.sh blocks a sleep whose answer is already on its way and passes every other sleep;
+# orca-lc gate skips on a fresh marker.
+repo=$(new_repo '{"project":"proj","gate":"echo ran >> gate-runs.txt"}'); mkdir "$repo/sub"
+echo 'gate-runs.txt' >"$repo/.gitignore"; git -C "$repo" add -A; git -C "$repo" commit -qm ignore
+
+# The session started one background command that writes build.log.
+tp="$TMPDIR/transcript.jsonl"
+jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"make > /tmp/x/build.log 2>&1", run_in_background:true}}]}}' >"$tp"
+
+check() { # check <expected exit> <command> [run_in_background]; the hook's message is left in $out
+  out=$(jq -n --arg c "$2" --arg d "$repo" --arg t "$tp" --argjson bg "${3:-false}" \
+    '{cwd:$d, transcript_path:$t, tool_name:"Bash", tool_input:{command:$c, run_in_background:$bg}}' | bash "$ORCA_SRC/hooks/pretool.sh" 2>&1 >/dev/null)
+  assert_status $? "$1" "want exit $1: $2"
+}
+
+check 2 'sleep 240; tail -5 /tmp/x/build.log'
+check 2 'sleep 240; cat /tmp/claude-1000/p/s/tasks/b7gio8rq7.output'
+check 2 'sleep 25; herdr agent get t1-review'
+check 2 'sleep 60; orca-lc peers'
+check 2 'for i in $(seq 1 20); do gh pr view 8 --json statusCheckRollup; sleep 30; done'
+# A loop counts wherever it starts: on a later line, after then or do, or inside braces.
+check 2 $'cd foo\nwhile true; do gh pr view 8; sleep 30; done'
+check 2 'if true; then while true; do gh pr view 8; sleep 5; done; fi'
+check 2 '{ while true; do gh pr view 8; sleep 30; done; }'
+check 0 'sleep 240; echo done'
+check 0 'sleep 3; tail server.log'
+check 0 'until curl -s localhost:3000; do sleep 1; done'
+check 0 'sleep 240; tail -5 /tmp/x/build.log' true
+check 0 'herdr agent wait t1-review --until idle --timeout 600000'
+check 0 'gh pr checks 8 --watch'
+check 2 'sleep 5; herdr agent list'
+check 2 'sleep 5; herdr agent read t1-review'
+check 2 'sleep 5; orca-lc inbox read'
+check 0 'sleep 2; orca-lc inbox send t x'
+check 2 'sleep 30; gh pr checks 8'
+check 2 'sleep 30; gh run view 12'
+check 2 'sleep 30; gh run list'
+check 2 'sleep .5; gh pr view 8'
+# Quoted text and checks that ran before the sleep are not waits on them.
+check 0 'git commit -m "docs: sleep 30 before gh pr view"'
+check 0 "git commit -m \"the server's 'sleep 2; gh pr view 8' wait\""
+check 0 'gh pr view 83; sleep 2; echo ok'
+# Neither is a heredoc body or a comment.
+check 0 $'cat > notes.md <<EOF\nsleep 30; gh pr view 8\nEOF'
+check 0 $'cat > notes.md <<-\'EOF\'\n\tsleep 30; gh pr view 8\n\tEOF\necho ok'
+check 0 'sleep 2 # then gh pr view'
+check 2 $'cat > notes.md <<EOF\nnotes\nEOF\nsleep 30; gh pr view 8'
+check 2 'echo ${#x}; sleep 2; gh pr view 8'
+# A << in quotes, in a comment or in $(( )) starts no heredoc; a quoted delimiter is read whole.
+check 2 $'git commit -m "x<<EOF"\nsleep 30; gh pr view 8'
+check 2 $'echo hi # x<<EOF\nsleep 30; gh pr view 8'
+check 2 $'x=$((1<<N))\nsleep 30; gh pr view 8'
+check 2 $'cat <<\'END-1\'\nfoo\nEND-1\nsleep 30; gh pr view 8'
+# A heredoc in $( ) inside double quotes is one, and a quote in its body does not end the outer string.
+check 0 $'git commit -m "$(cat <<\'EOF\'\nA "quoted word\nsleep 30; gh pr view 8\nEOF\n)"'
+check 0 $'git commit -m "$(cat <<\'EOF\'\nfix: the gate\'s "fresh mark\nsleep 240; tail /tmp/x/build.log\nEOF\n)"'
+check 2 $'git commit -m "$(cat <<\'EOF\'\nA "quoted word\nEOF\n)"\nsleep 30; gh pr view 8'
+# The delimiter is its word with all quoting removed.
+check 2 $'cat <<$\'E\'\nhi\nE\nsleep 5; gh pr view 8'
+check 2 $'cat <<E"OF"\nhi\nEOF\nsleep 5; gh pr view 8'
+check 2 $'cat <<\\EOF\nhi\nEOF\nsleep 5; gh pr view 8'
+check 2 $'cat <<<"x"\nsleep 5; gh pr view 8'
+# Many heredocs take one pass, well inside the hook's timeout.
+many=""; for i in $(seq 200); do many+=$'cat <<\'EOF\'\n"a" "b" "c"\nEOF\n'; done
+SECONDS=0; check 0 "$many"; [ "$SECONDS" -le 5 ] || fail "200 heredocs took ${SECONDS}s"
+check 0 'echo "sleep 1"; tail /tmp/x/build.log; sleep 2; echo ok'
+check 0 'gh pr view 83; for i in 1 2; do echo $i; done; sleep 2; echo ok'
+check 0 'for i in 1 2; do gh pr view 8; done; sleep 2; echo ok'
+# A rotated log is another file than the one the background command writes.
+check 0 'sleep 5; cat /tmp/x/build.log.1'
+# A backtick or a closing brace ends the file name.
+check 2 'sleep 5; echo `cat /tmp/x/build.log`'
+check 2 'sleep 5; tail /tmp/x/build.log}'
+# A brace inside the name keeps it whole, so ${d}/build.log is not /tmp/x/build.log.
+check 0 'sleep 5; tail ${d}/build.log'
+# A glob is read as written, not expanded against the repo the hook runs in.
+touch "$repo/build.log"; check 0 'sleep 1; tail *.log'; rm "$repo/build.log"
+# A loop elsewhere in the command, or one with no condition on the file, is still a wait on a command that completes.
+check 2 'for i in 1 2; do echo $i; done; sleep 240; tail /tmp/x/build.log'
+check 2 'while sleep 60; do tail -5 /tmp/x/build.log; done'
+check 2 'until grep -q ok /tmp/x/build.log; do sleep 1; done; sleep 240; tail /tmp/x/build.log'
+
+# A background server never completes: a readiness loop on its log passes; a bare sleep is pointed at that loop.
+jq -nc '{type:"assistant", message:{content:[{type:"tool_use", input:{command:"npm run dev > server.log 2>&1", run_in_background:true}}]}}' >>"$tp"
+check 0 'until grep -q ready server.log; do sleep 1; done'
+check 0 'until grep -q ready "server.log"; do sleep 1; done'
+check 0 'while ! grep -q "ready" server.log; do sleep 1; done; tail server.log'
+check 2 'sleep 240; tail server.log; until grep -q ready server.log; do sleep 1; done'
+check 2 'sleep 3; tail server.log'
+assert_contains "$out" "until grep -q" "the block names the readiness loop"
+# A server started in the background without a redirect writes to its task output file instead.
+check 0 'until grep -q ready /tmp/claude-1000/p/s/tasks/abc.output; do sleep 1; done'
+check 2 'sleep 3; cat /tmp/claude-1000/p/s/tasks/abc.output'
+assert_contains "$out" "until grep -q" "the task-output block names the readiness loop"
+
+gate() { (cd "$repo/$1" && orca-lc gate --inline ${2:-} >/dev/null 2>&1); }
+runs() { wc -l <"$repo/gate-runs.txt" 2>/dev/null || echo 0; }
+expect_runs() { assert_eq "$(runs)" "$1" "want gate runs=$1: $2"; }
+touch "$repo/sub/new.txt"
+gate . && expect_runs 1 'first gate runs'
+gate . && expect_runs 1 'fresh marker skips'
+gate sub && expect_runs 1 'fresh marker skips from a subdirectory'
+gate . --force && expect_runs 2 '--force reruns'
+echo x >"$repo/sub/new.txt"; gate . && expect_runs 3 'an edit makes the marker stale'
+
+# Inside herdr a fresh marker skips before any pane opens. The pane path itself is covered in gate.test.sh.
+export HERDR_STUB; HERDR_STUB=$(mktemp -d); export PATH="$ORCA_SRC/tests/stub:$PATH"
+out=$(cd "$repo" && HERDR_ENV=1 orca-lc gate 2>&1); assert_contains "$out" "skipped" "fresh marker skips before opening a pane"
+expect_runs 3 'pane path skips on a fresh marker'; [ ! -s "$HERDR_STUB/calls" ] || fail "a fresh marker opened a pane"

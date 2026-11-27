@@ -11,13 +11,24 @@ Never run `install.sh` outside the checkout the install comes from, including te
 
 ## Gate
 
-`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. `orca-lc gate` returns the gate's own exit status as soon as the gate ends, however it ends; inside herdr a split pane only follows its log, closing on success and staying open on failure. A gate still running after `gateTimeoutMin` (30 minutes when unset) is stopped with `ORCA_GATE_TIMEOUT`, exit 124, when `timeout` or `gtimeout` is on PATH; without either the limit is not enforced.
+`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. When the marker is already fresh, the gate skips and says so; `--force` reruns it. `orca-lc gate` returns the gate's own exit status as soon as the gate ends, however it ends; inside herdr a split pane only follows its log, closing on success and staying open on failure. A gate still running after `gateTimeoutMin` (30 minutes when unset; `0` sets no limit) is stopped with `ORCA_GATE_TIMEOUT`, exit 124, when `timeout` or `gtimeout` is on PATH; without either the limit is not enforced.
 
 Run `orca-lc gate` in the foreground with a tool timeout above `gateTimeoutMin`; never in the background, never polled. In Claude Code that takes `BASH_MAX_TIMEOUT_MS` in the user's settings `env` at least that high (`2400000` for a 30-minute gate), or the call is moved to the background. When the tool moves it to the background anyway, the gate keeps running: never start a second one. Wait for its last line, `ORCA_GATE_PASS`, `ORCA_GATE_FAIL` or `ORCA_GATE_TIMEOUT`, in `<gitdir>/orca-gate.log`, as the `orca-verifier` brief does.
 
 `orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
 
 Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. An `orca-apply` subagent cannot dispatch it: it reports `orca-verifier` as `skipped: needs an agent`, and the orchestrator dispatches it after the report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
+
+## Waiting
+
+A background command, a subagent, or a peer's `orca-lc notify` wakes the session when it lands, but only between tool calls. A `sleep` running at that moment holds the result until the sleep ends.
+
+- Your own background command or subagent: end the turn. Its completion wakes you, inside a subagent too.
+- A peer: end the turn; its `orca-lc notify` wakes you. To block until it changes state: `herdr agent wait <peer> --until idle --timeout <ms>`.
+- CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
+- `orca-lc gate`: run it in the foreground with a tool timeout above `gateTimeoutMin` (see Gate above); it returns as soon as the gate ends.
+
+A hook blocks a `sleep` followed by a read of a background task's output (its task file, or a `.log`, `.out` or `.txt` file a background command writes), a peer check (`herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox read`) or a CI poll (`gh pr view|checks`, `gh run view|list`). Every other `sleep` passes, a bare one included.
 
 ## Test files
 

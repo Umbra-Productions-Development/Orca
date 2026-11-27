@@ -25,7 +25,8 @@ Ownership moves forward only: propose, then apply, then review until merge. Only
 
 ## What it enforces
 
-- **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree. `git push` is refused without a fresh marker; `git merge` is always refused.
+- **Gate:** `orca-lc gate` runs the project's gate command and marks the exact tree, and skips when that tree already passed (`--force` reruns it). `git push` is refused without a fresh marker; `git merge` is always refused.
+- **Waiting:** a `sleep` before reading a background task's output, checking a peer, or polling CI is refused; ending the turn gets the result sooner.
 - **Test lock:** edits to test files are blocked unless `orca-lc test-lock on` is set in the worktree that holds the file, whatever the session's cwd.
 - **Handoffs:** `orca-lc handoff write` creates a handoff that already carries the receiving role's rules. A handoff read once is archived, never over another. A ticket and role hold one live handoff at a time.
 - **Evidence:** `orca-lc evidence` writes the diff's blast radius and affected tests to one file that every review pass and the verifier read.
@@ -134,7 +135,7 @@ Open Claude Code in the worktree. The SessionStart hook prints the session's con
 | `baseBranch` | Branch new worktrees start from |
 | `gate` | Command that must pass before a push |
 | `leakCheck` | `true`: the gate also runs `orca-lc leak-check` on commits no remote has, and a hit fails it; `discover`, `role start` and `inbox send` refuse denylisted text, and pretool blocks such writes into the shared handoffs and discoveries, and any write there it could not scan (a stale install: re-run `install.sh`). Default off |
-| `gateTimeoutMin` | Minutes before a hung gate is stopped (`ORCA_GATE_TIMEOUT`, exit 124). Fractions allowed. Default `30`. Needs `timeout` or `gtimeout` on PATH; without either the limit is not enforced |
+| `gateTimeoutMin` | Minutes before a hung gate is stopped (`ORCA_GATE_TIMEOUT`, exit 124). Fractions allowed. Default `30`; `0` or less sets no limit. Needs `timeout` or `gtimeout` on PATH; without either the limit is not enforced |
 | `testCommand` | Test runner `test-affected` calls with the affected files |
 | `testGlob` | Regex for test file paths, guarded by the test lock. Matched against the edited file's absolute physical path (links resolved), so anchor it to a directory such as `[/\\]tests[/\\]`, not to the repo root (`^tests/` never matches) |
 | `sourceGlob` | Regex for source paths; when set, searches over them get pointed at the code graph |

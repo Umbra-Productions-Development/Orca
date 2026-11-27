@@ -5,7 +5,7 @@ set -uo pipefail
 USAGE='usage: orca-lc <command> [args]
   init [--yes]                     set up .orca/config.json (prompts; --yes accepts every proposal)
   context                          state for this session (SessionStart runs it)
-  gate [--inline]                  run the project gate, write the marker
+  gate [--inline] [--force]        run the project gate, write the marker (skipped when the marker is fresh)
   gate-fresh                       exit 0 when the marker matches the tree
   test-affected                    run only test files affected by the diff
   evidence [base]                  write blast radius + affected tests for the diff
@@ -78,7 +78,14 @@ lock() { if command -v flock >/dev/null; then exec 9>"$1"; flock -w 10 9 || die 
     die "lock held: $d (remove it if no orca-lc is running)"; done
   echo $$ >"$d/pid"; trap 'rm -rf "'"$d"'"' EXIT; }
 inherdr() { [ "${HERDR_ENV:-}" = 1 ]; }
-tree_sig() { printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD; git ls-files --others --exclude-standard | sort; } | sha1sum | cut -c1-12)"; }
+# The gate's inputs: HEAD, the diff, every untracked file (a symlink by its target; a directory or nested
+# repo by its name only), the config, .env and both leak-check denylists, all often untracked and all able to
+# change the gate's result. What envCommand prints is not in it: tree_sig never runs commands.
+tree_sig() { ( cd "$(git rev-parse --show-toplevel)" && printf '%s %s\n' "$(git rev-parse HEAD)" "$( { git diff HEAD
+  cat .orca/config.json .env .orca/denylist "$(leak_global)" 2>/dev/null
+  git ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+    printf '%s\n' "$f"; if [ -L "$f" ]; then readlink -- "$f"; elif [ -f "$f" ]; then git hash-object -- "$f"; fi; done
+  } | sha1sum | cut -c1-12)" ); }
 marker() { echo "$(gitdir)/orca-gate-ok"; }
 idfile() { echo "$(gitdir)/orca-session-${HERDR_PANE_ID:-nopane}.json"; }
 
@@ -142,14 +149,18 @@ load_env() { [ -f .env ] && { set -a; . ./.env; set +a; }
 run_gate() {
   rm -f "$(marker)"; load_env
   echo "orca-lc: gate on $(git branch --show-current) @ $(git rev-parse --short HEAD)"
-  local min t pid rc start=$SECONDS; min=$(cfg '.gateTimeoutMin' 30)
-  t=$(command -v timeout || command -v gtimeout) || echo "orca-lc: no timeout or gtimeout on PATH, gateTimeoutMin not enforced"
+  local min t="" pid rc start=$SECONDS; min=$(cfg '.gateTimeoutMin' 30)
+  # gateTimeoutMin 0 or less sets no limit: no timeout, so a 124 or 137 is the gate's own.
+  if awk -v m="$min" 'BEGIN { exit !(m > 0) }'; then
+    t=$(command -v timeout || command -v gtimeout) || echo "orca-lc: no timeout or gtimeout on PATH, gateTimeoutMin not enforced"
+  fi
   # set -m: the gate gets its own process group, and default INT (a job started without it ignores INT, and so do
   # its children). stdin stays /dev/null, as for any job, so a gate reading the terminal is never stopped.
   set -m
   if [ -n "$t" ]; then "$t" --kill-after=30s "${min}m" bash -c "$1" </dev/null & else bash -c "$1" </dev/null & fi; pid=$!
   set +m
   # That group is out of reach of a signal sent to ours (Ctrl-C, a tool killing the call): forward it there.
+  # This covers signals to orca-lc's process group: one to its pid alone ends the main shell, not this tee-pipeline subshell.
   # wait returns early on a trapped signal, so wait again until the gate is gone. stderr is dropped there: a gate
   # killed by a signal would otherwise get bash's job-status line ("Killed ... timeout ...") in its output.
   trap 'kill -TERM -- "-$pid" 2>/dev/null' INT TERM HUP
@@ -171,9 +182,11 @@ run_gate() {
 cmd_gate() {
   local r; r=$(root) || die "not in a repo"
   local g; g=$(cfg '.gate'); [ -n "$g" ] || die "no gate in .orca/config.json"
+  local inline="" force="" a; for a in "$@"; do case "$a" in --inline) inline=1;; --force) force=1;; esac; done
   cd "$r" || exit 1
+  if [ -z "$force" ] && cmd_gate_fresh; then echo "orca-lc: gate fresh for this tree, skipped (--force reruns it)"; echo "ORCA_GATE_PASS"; return 0; fi
   local log old pane="" rc; log="$(gitdir)/orca-gate.log"; old="$(gitdir)/orca-gate-pane"; : > "$log"
-  if [ "${1:-}" != "--inline" ] && inherdr; then
+  if [ -z "$inline" ] && inherdr; then
     [ -f "$old" ] && { herdr pane close "$(cat "$old")" >/dev/null 2>&1; rm -f "$old"; }
     pane=$(herdr pane split --current --direction down --cwd "$r" --no-focus 2>/dev/null | jq -r '.result.pane.pane_id // empty')
     # The pane only follows the log (and stops when this process ends); closing it cannot change the result.

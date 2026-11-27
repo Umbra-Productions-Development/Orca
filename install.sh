@@ -108,9 +108,10 @@ if [ -L "$probe/l" ]; then mode="link"; else mode="copy"; fi
 rm -rf "$probe"
 
 # shipped <copy> <source>: the copy is byte-equal to the source, or to a version of that same repo-relative path this
-# repository has committed. Copies are what ln -s makes in Git Bash on Windows without Developer Mode.
+# repository has committed, a merge's own resolution included (-m). A stash is a merge commit but nothing shipped,
+# so refs/stash is left out. Copies are what ln -s makes in Git Bash on Windows without Developer Mode.
 shipped() { cmp -s "$1" "$2" && return 0; local h; h=$(git -C "$here" hash-object --no-filters "$1" 2>/dev/null) || return 1
-  git -C "$here" log --all --format= --raw --no-abbrev -- "${2#"$here"/}" 2>/dev/null | awk -v h="$h" '$4 == h { f = 1 } END { exit !f }'; }
+  git -C "$here" log --exclude=refs/stash --all -m --format= --raw --no-abbrev -- "${2#"$here"/}" 2>/dev/null | awk -v h="$h" '$4 == h { f = 1 } END { exit !f }'; }
 # copied <source> <target>: the target is a copy of Orca's: a regular file that is shipped, or a non-empty directory
 # whose every entry, checked recursively, is (git ships no empty directory).
 copied() { local f n=0

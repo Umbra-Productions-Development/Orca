@@ -44,6 +44,9 @@ assert_contains "$out" ORCA_GATE_FAIL
 r=$(cfgr 'echo fine'); out=$(HERDR_ENV=1 HERDR_STUB_CLOSE_FAIL=1 gate "$r"); assert_status $? 0
 assert_contains "$out" ORCA_GATE_PASS
 
+# gateTimeoutMin 0 turns the limit off: a killed gate is a failure, not a timeout.
+r=$(cfgr 'kill -9 $$' '"gateTimeoutMin":0'); out=$(gate "$r" --inline); rc=$?
+[ "$rc" != 124 ] || fail "gateTimeoutMin 0 reported a killed gate as a timeout"; assert_contains "$out" ORCA_GATE_FAIL
 # A gate exiting 124 on its own, well before gateTimeoutMin, is a failure, not a timeout.
 r=$(cfgr 'exit 124'); out=$(gate "$r"); assert_status $? 1
 assert_contains "$out" ORCA_GATE_FAIL
@@ -84,15 +87,15 @@ fi
 # A file keeps what was written to it before the gate.
 r=$(cfgr 'echo GATE-RAN'); { echo before; (cd "$r" && orca-lc gate --inline); } > "$TMPDIR/out.txt" 2>&1
 assert_contains "$(cat "$TMPDIR/out.txt")" before; assert_contains "$(cat "$TMPDIR/out.txt")" GATE-RAN
-# A socket (a Node or Python caller capturing output) gets the gate's output and status.
+# A socket (a Node or Python caller capturing output) gets the gate's output and status. --force: the tree is already gated.
 if command -v python3 >/dev/null; then
   out=$(cd "$r" && python3 -I -c '
 import socket, subprocess, sys
 a, b = socket.socketpair()
-p = subprocess.Popen(["orca-lc", "gate", "--inline"], stdout=b, stderr=subprocess.STDOUT); b.close()
+p = subprocess.Popen(["orca-lc", "gate", "--inline", "--force"], stdout=b, stderr=subprocess.STDOUT); b.close()
 data = b"".join(iter(lambda: a.recv(65536), b""))
 sys.stdout.write(data.decode() + "status=%d\n" % p.wait())')
   assert_contains "$out" GATE-RAN; assert_contains "$out" ORCA_GATE_PASS; assert_contains "$out" status=0
 fi
 # A pipe gets the same.
-out=$(cd "$r" && orca-lc gate --inline | cat); assert_contains "$out" ORCA_GATE_PASS
+out=$(cd "$r" && orca-lc gate --inline --force | cat); assert_contains "$out" ORCA_GATE_PASS
