@@ -51,6 +51,18 @@ check 2 $'git commit -m "x<<EOF"\nsleep 30; gh pr view 8'
 check 2 $'echo hi # x<<EOF\nsleep 30; gh pr view 8'
 check 2 $'x=$((1<<N))\nsleep 30; gh pr view 8'
 check 2 $'cat <<\'END-1\'\nfoo\nEND-1\nsleep 30; gh pr view 8'
+# A heredoc in $( ) inside double quotes is one, and a quote in its body does not end the outer string.
+check 0 $'git commit -m "$(cat <<\'EOF\'\nA "quoted word\nsleep 30; gh pr view 8\nEOF\n)"'
+check 0 $'git commit -m "$(cat <<\'EOF\'\nfix: the gate\'s "fresh mark\nsleep 240; tail /tmp/x/build.log\nEOF\n)"'
+check 2 $'git commit -m "$(cat <<\'EOF\'\nA "quoted word\nEOF\n)"\nsleep 30; gh pr view 8'
+# The delimiter is its word with all quoting removed.
+check 2 $'cat <<$\'E\'\nhi\nE\nsleep 5; gh pr view 8'
+check 2 $'cat <<E"OF"\nhi\nEOF\nsleep 5; gh pr view 8'
+check 2 $'cat <<\\EOF\nhi\nEOF\nsleep 5; gh pr view 8'
+check 2 $'cat <<<"x"\nsleep 5; gh pr view 8'
+# Many heredocs take one pass, well inside the hook's timeout.
+many=""; for i in $(seq 200); do many+=$'cat <<\'EOF\'\n"a" "b" "c"\nEOF\n'; done
+SECONDS=0; check 0 "$many"; [ "$SECONDS" -le 5 ] || fail "200 heredocs took ${SECONDS}s"
 check 0 'echo "sleep 1"; tail /tmp/x/build.log; sleep 2; echo ok'
 check 0 'gh pr view 83; for i in 1 2; do echo $i; done; sleep 2; echo ok'
 check 0 'for i in 1 2; do gh pr view 8; done; sleep 2; echo ok'

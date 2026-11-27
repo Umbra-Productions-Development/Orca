@@ -55,45 +55,76 @@ absdir() { case "$2" in /*) echo "$2";; "~") echo "$HOME";; "~/"*) echo "$HOME/$
 SLEEP='(^|[^[:alnum:]_-])sleep[[:space:]]+[0-9.]'
 # What may stand before a loop keyword: the start, a separator or brace (a newline is flattened to ';'), or then/do/else.
 LOOP_AT='(^|[;&|({][[:space:]]*|[;&|({[:space:]](then|do|else)[[:space:]]+)'
-# mask_heredocs <text>: each heredoc body line replaced by as many x's; the line holding `<<` and the delimiter
-# stay. A `<<` starts a heredoc only where mask leaves it (not in quotes or a comment) and outside (( )), where it
-# is a shift. A quoted delimiter is read whole. Each body is masked before mask reads what follows it, since an
-# apostrophe in a body is no quote.
-mask_heredocs() { local t=$1 p=0 m a k end rest o s line pad
-  local op='(^|[^<])<<-?[[:space:]]*[^[:space:]<;&|()]' ar='\(\(([^)]|\)[^)])*\)\)'
-  local dl="^<<-?[[:space:]]*('([^']*)'|\"([^\"]*)\"|([^[:space:];&|<>()]+))"
-  while :; do
-    m=$(mask "$t"); m=${m:p}
-    while [[ $m =~ $ar ]]; do a=${BASH_REMATCH[0]}; printf -v pad '%*s' "${#a}" ''; m=${m/"$a"/${pad// /x}}; done
-    [[ $m =~ $op ]] || break
-    a=${m%%"${BASH_REMATCH[0]}"*}; k=$(( p + ${#a} + ${#BASH_REMATCH[1]} ))
-    [[ ${t:k} =~ $dl ]] || break
-    end=${BASH_REMATCH[2]}${BASH_REMATCH[3]}${BASH_REMATCH[4]//\\/}
-    rest=${t:k}; [[ $rest == *$'\n'* ]] || break
-    a=${rest%%$'\n'*}; o=${t:0:k+${#a}+1}; s=${t:${#o}}
-    while [ -n "$s" ]; do
-      line=${s%%$'\n'*}; s=${s:${#line}}
-      if [ "${line#"${line%%[!$'\t']*}"}" = "$end" ]; then o+=$line; break; fi
-      printf -v pad '%*s' "${#line}" ''; o+=${pad// /x}
-      [ -n "$s" ] && { o+=$'\n'; s=${s:1}; }
+# mask <text>: the text with each quoted string (quotes included), each comment (a # starting a word, to the end of
+# its line) and each heredoc body replaced by x's, one per character, so a commit message naming a sleep or a check
+# is not one, and an offset in the mask is the same offset in the text. One pass that nests the way bash reads:
+# inside "..", $( ) and backticks are code again, so a heredoc there has a body and a quote in that body does not
+# end the outer string, though all of it stays masked. Inside one kind of quote the other kind is plain text ("the
+# server's log"). A << in quotes, in a comment or in (( )) is no heredoc; a delimiter is its word with the quoting
+# removed. st is the stack of open frames: S '..', A $'..', D "..", C $( ), P ( ), B backticks, R (( )), ( a
+# parenthesis in (( )). Masked spans [ms, me) are byte offsets.
+mask() { local LC_ALL=C; local s=$1 n=${#1} i=0 c st="" q=0 ms=() me=() hd=() o="" p=0 k seg pad
+  while ((i < n)); do c=${s:i:1}
+    case ${st: -1} in
+      S) [ "$c" = "'" ] && _mpop;;
+      A) case $c in '\') i=$((i+1));; "'") _mpop;; esac;;
+      D) case $c in '\') i=$((i+1));; '"') _mpop;; '`') st+=B;; '$') _mdollar;; esac;;
+      R|'(') case $c in '(') st+='(';; ')') if [ "${st: -1}" = '(' ]; then st=${st%?}
+               elif [ "${s:i+1:1}" = ')' ]; then i=$((i+1)); st=${st%?}; fi;; esac;;
+      *) case $c in
+        "'") _mpush S;;
+        '"') _mpush D;;
+        '\') i=$((i+1));;
+        '$') if [ "${s:i+1:1}" = "'" ]; then i=$((i+1)); _mpush A; else _mdollar; fi;;
+        '`') if [ "${st: -1}" = B ]; then st=${st%?}; else st+=B; fi;;
+        '(') if [ "${s:i+1:1}" = '(' ]; then i=$((i+1)); st+=R; else st+=P; fi;;
+        ')') [[ ${st: -1} == [CP] ]] && st=${st%?};;
+        '#') if ((i == 0)) || [[ ${s:i-1:1} == [[:space:]\;\&\|\(] ]]; then
+               seg=${s:i}; seg=${seg%%$'\n'*}; ((q)) || { ms+=("$i"); me+=($((i+${#seg}))); }; i=$((i+${#seg}-1)); fi;;
+        '<') if [ "${s:i+1:1}" = '<' ]; then if [ "${s:i+2:1}" = '<' ]; then i=$((i+2)); else _mheredoc; fi; fi;;
+        $'\n') ((${#hd[@]})) && _mbodies;;
+      esac;;
+    esac
+    i=$((i+1))
+  done
+  ((q)) && me+=("$n")
+  for k in "${!ms[@]}"; do
+    # One x per character: a UTF-8 continuation byte adds none.
+    o+=${s:p:ms[k]-p}; seg=${s:ms[k]:me[k]-ms[k]}; seg=${seg//[$'\x80'-$'\xbf']/}
+    printf -v pad '%*s' "${#seg}" ''; o+=${pad// /x}; p=${me[k]}
+  done
+  printf '%s\n' "$o${s:p}"; }
+# mask's helpers, on its locals: open or close a quote frame (a masked span runs while any is open); read what
+# follows a $ (( ( or $(( opens a frame); read a heredoc's operator and delimiter at $i into hd; mask the bodies of
+# the pending heredocs after the newline at $i.
+_mpush() { ((q)) || ms+=("$i"); q=$((q+1)); st+=$1; }
+_mpop() { st=${st%?}; q=$((q-1)); ((q)) || me+=($((i+1))); }
+_mdollar() { if [ "${s:i+1:2}" = '((' ]; then i=$((i+2)); st+=R; elif [ "${s:i+1:1}" = '(' ]; then i=$((i+1)); st+=C; fi; }
+_mheredoc() { local j=$((i+2)) t=0 w="" x
+  [ "${s:j:1}" = - ] && { t=1; j=$((j+1)); }
+  while [[ ${s:j:1} == [[:blank:]] ]]; do j=$((j+1)); done
+  while ((j < n)); do x=${s:j:1}
+    case $x in
+      [[:space:]\;\&\|\<\>\(\)]) break;;
+      \\) j=$((j+1)); w+=${s:j:1};;
+      \') x=${s:j+1}; x=${x%%\'*}; w+=$x; j=$((j+${#x}+1));;
+      \") x=${s:j+1}; x=${x%%\"*}; w+=$x; j=$((j+${#x}+1));;
+      \$) if [ "${s:j+1:1}" = "'" ]; then j=$((j+1)); continue; fi; w+=$x;;
+      *) w+=$x;;
+    esac; j=$((j+1))
+  done
+  [ -n "$w" ] && hd+=("$t$w"); i=$((j-1)); }
+_mbodies() { local h b=$((i+1)) e l
+  for h in "${hd[@]}"; do e=$b
+    while ((e < n)); do l=${s:e}; l=${l%%$'\n'*}
+      [ "${h:0:1}" = 1 ] && l=${l#"${l%%[!$'\t']*}"}
+      [ "$l" = "${h:1}" ] && break
+      l=${s:e}; l=${l%%$'\n'*}; e=$((e+${#l}+1))
     done
-    t=$o$s; p=${#o}
+    ((q || e == b)) || { ms+=("$b"); me+=($((e < n ? e : n))); }
+    l=${s:e}; l=${l%%$'\n'*}; b=$((e+${#l}+1))
   done
-  printf '%s' "$t"; }
-# mask <text>: the text with each quoted string (quotes included) and each comment (a # starting a word, to the end
-# of its line) replaced by as many x's, so a commit message naming a sleep or a check is not one, and an offset in
-# the mask is the same offset in the text. Inside one kind of quote the other kind is plain text ("the server's
-# log"); inside a quote a # is plain text, and inside a comment a quote is.
-mask() { local s=$1 o="" pre q body pad
-  while pre=${s%%[\"\'#]*}; [ "$pre" != "$s" ]; do
-    q=${s:${#pre}:1}; s=${s:${#pre}+1}; o+=$pre
-    if [ "$q" = "#" ]; then
-      [[ -z $o || ${o: -1} == [[:space:]\;\&\|\(] ]] || { o+=$q; continue; }
-      body=$q${s%%$'\n'*}; s=${s:${#body}-1}
-    elif [[ $s == *"$q"* ]]; then body=$q${s%%"$q"*}$q; s=${s#*"$q"}; else body=$q$s; s=""; fi
-    printf -v pad '%*s' "${#body}" ''; o+=${pad// /x}
-  done
-  printf '%s\n' "$o$s"; }
+  hd=(); i=$((b-2)); }
 # after_done <text>: what follows the last 'done', or the whole text when there is none.
 after_done() { sed -E 's/.*(^|[;&|[:space:]])done([^[:alnum:]_]|$)//' <<<"$1"; }
 # from_sleep <text> <mask>: the text from its first unquoted sleep to the end; or, when that sleep sits in a loop
@@ -121,7 +152,7 @@ bg_writes() { [ -f "$2" ] && grep -F -- "$1" "$2" | jq -e --arg f "$1" 'select(.
 # wakes the session when the turn ends. Every other sleep passes. File checks read the command as written
 # (a path may be quoted); peer and CI checks read it masked.
 sleep_rule() { local flat masked raw after f loop wake="End the turn instead: its completion wakes this session, inside a subagent too"
-  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask_heredocs "$1"); masked=$(mask "$masked" | tr '\n' ';')
+  flat=$(tr '\n' ';' <<<"$1"); masked=$(mask "$1" | tr '\n' ';')
   grep -qE "$SLEEP" <<<"$masked" || return 0
   raw=$(from_sleep "$flat" "$masked"); after=$(from_sleep "$masked" "$masked")
   # A task output file is always a background task's; any other file counts when a background command names it.
