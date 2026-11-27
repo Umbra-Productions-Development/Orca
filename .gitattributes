@@ -1,0 +1,2 @@
+# Orca is bash; keep LF everywhere so scripts run on Linux regardless of the cloning OS.
+* text=auto eol=lf

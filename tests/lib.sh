@@ -1,0 +1,56 @@
+# Shared helpers for tests/*.test.sh. Sourced by tests/run.sh; needs only bash, git and jq.
+ORCA_SRC=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+export PATH="$ORCA_SRC/bin:$PATH" HERDR_ENV=0 GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
+export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
+unset ORCA_ROLE HERDR_PANE_ID HERDR_WORKSPACE_ID HERDR_TAB_ID CLAUDE_SESSION_ID
+# Every mktemp lands under the empty dir run.sh hands in and removes after the file; HOME sits there
+# too, so nothing reads or writes ~. CLAUDE_CONFIG_DIR would outrank HOME for Claude Code's config.
+TMPDIR=${ORCA_TEST_TMP:?lib.sh is sourced by tests/run.sh, which sets ORCA_TEST_TMP}
+export TMPDIR HOME="$TMPDIR/home"; mkdir "$HOME"; unset CLAUDE_CONFIG_DIR
+# codegraph and codebase-memory-mcp are stubbed: worktree up would index each temp repo into the real store.
+mkdir "$TMPDIR/bin"; for t in codegraph codebase-memory-mcp; do printf '#!/bin/sh\nexit 0\n' > "$TMPDIR/bin/$t"; chmod +x "$TMPDIR/bin/$t"; done
+export PATH="$TMPDIR/bin:$PATH"
+
+fails=0
+fail() { echo "  FAIL: $*"; fails=$((fails+1)); }
+assert_eq() { [ "$1" = "$2" ] || fail "${3:-expected '$2', got '$1'}"; }
+assert_contains() { grep -qF -- "$2" <<<"$1" || fail "${3:-'$2' not in: $1}"; }
+assert_not_contains() { if grep -qF -- "$2" <<<"$1"; then fail "${3:-'$2' unexpectedly in: $1}"; fi; }
+assert_status() { [ "$1" = "$2" ] || fail "${3:-exit $1, expected $2}"; }
+
+# native <path> -> the path as git prints it: Git Bash's mktemp gives /tmp/..., git gives C:/....
+# Identity where cygpath is absent.
+native() { if command -v cygpath >/dev/null; then cygpath -m "$1"; else echo "$1"; fi; }
+
+# new_repo [config-json] -> path of a fresh repo on main with one commit, a bare origin and
+# .orca/config.json. The repo sits alone in a temp dir, so worktrees orca-lc makes next to it
+# (in its parent) stay inside that dir.
+new_repo() {
+  local d cfg='{"project":"proj","gate":"true"}'; d=$(mktemp -d); [ -n "${1:-}" ] && cfg="$1"
+  git init -q --bare -b main "$d/remote.git"
+  git init -q -b main "$d/repo"
+  mkdir -p "$d/repo/.orca"; echo "$cfg" > "$d/repo/.orca/config.json"
+  echo seed > "$d/repo/README"; git -C "$d/repo" add -A; git -C "$d/repo" commit -qm seed
+  git -C "$d/repo" remote add origin "$d/remote.git"; git -C "$d/repo" push -q origin main
+  echo "$d/repo"
+}
+
+# hook_json <tool> <cwd> <command> [session_id] -> a PreToolUse payload for a Bash call; session_id only when given non-empty
+hook_json() { jq -n --arg t "$1" --arg c "$2" --arg x "$3" --arg s "${4-}" \
+  '{tool_name:$t, cwd:$c, tool_input:{command:$x}} + (if $s == "" then {} else {session_id:$s} end)'; }
+
+# payload <event> <cwd> [jq-object…] -> a documented hook input for the event (code.claude.com/docs/en/hooks):
+# the common fields plus the event's own, with each extra argument (a jq object expression, which may read
+# $ENV) merged over them in order, e.g. payload PreToolUse "$r" '{tool_name: "Edit", tool_input: {file_path: $ENV.F}}'
+payload() {
+  local ev=$1 cwd=$2 f='.' a; shift 2
+  for a in "$@"; do f+=" | . + ($a)"; done
+  jq -n --arg ev "$ev" --arg cwd "$cwd" '
+    {session_id: "test-session", transcript_path: "/dev/null", cwd: $cwd, permission_mode: "default", hook_event_name: $ev}
+    + ({SessionStart: {source: "startup", model: "claude-test"},
+        Stop: {stop_hook_active: false, last_assistant_message: "done", background_tasks: [], session_crons: []},
+        PreToolUse: {tool_name: "Bash", tool_input: {command: "true"}, tool_use_id: "toolu_test"},
+        PostToolUse: {tool_name: "Read", tool_input: {file_path: "/dev/null"}, tool_use_id: "toolu_test",
+                      tool_response: {type: "text"}}}[$ev] // {})
+    | '"$f"
+}

@@ -1,0 +1,202 @@
+---
+name: orca
+description: Working rules for a repository that carries .orca/config.json — gate before push, session roles, peers and messaging through herdr, handoffs, inbox, discoveries, change evidence for review. Load at session start in such a repo, and whenever pushing, handing off, contacting another session, or reviewing.
+---
+
+# orca
+
+`orca-lc` is a shell command; `orca-lc help` lists subcommands. `orca-lc context` prints the current state; the SessionStart hook already ran it.
+
+Never run `install.sh` outside the checkout the install comes from, including test clones and worktrees: it relinks `orca-lc`, the hooks, the skills and the agents to wherever it runs. It refuses when the links belong to another checkout; `--force` is for the user switching the install on purpose.
+
+## Gate
+
+`orca-lc gate` runs the project gate from `.orca/config.json` and writes a marker tied to the exact tree. A hook refuses `git push` without a fresh marker and refuses `git merge` always. Any commit or edit after the gate makes the marker stale; run it again. When the marker is already fresh, the gate skips and says so; `--force` reruns it. `orca-lc gate` returns the gate's own exit status as soon as the gate ends, however it ends; inside herdr a split pane only follows its log, closing on success and staying open on failure. A gate still running after `gateTimeoutMin` (30 minutes when unset; `0` sets no limit) is stopped with `ORCA_GATE_TIMEOUT`, exit 124, when `timeout` or `gtimeout` is on PATH; without either the limit is not enforced.
+
+Run `orca-lc gate` in the foreground with a tool timeout above `gateTimeoutMin`; never in the background, never polled. In Claude Code that takes `BASH_MAX_TIMEOUT_MS` in the user's settings `env` at least that high (`2400000` for a 30-minute gate), or the call is moved to the background. When the tool moves it to the background anyway, the gate keeps running: never start a second one. Wait for its last line, `ORCA_GATE_PASS`, `ORCA_GATE_FAIL` or `ORCA_GATE_TIMEOUT`, in `<gitdir>/orca-gate.log`, as the `orca-verifier` brief does.
+
+`orca-lc test-affected` runs only the test files the diff reaches. Use it as the inner loop; it never replaces the gate.
+
+Before reporting a task done: `orca-lc gate` passed, output shown, then dispatch the `orca-verifier` agent and paste its report. An `orca-apply` subagent cannot dispatch it: it reports `orca-verifier` as `skipped: needs an agent`, and the orchestrator dispatches it after the report. The Stop hook shows the user, not you, anything still undone, so check the gate, the tree and the test lock yourself.
+
+## Waiting
+
+A background command, a subagent, or a peer's `orca-lc notify` wakes the session when it lands, but only between tool calls. A `sleep` running at that moment holds the result until the sleep ends.
+
+- Your own background command or subagent: end the turn. Its completion wakes you, inside a subagent too.
+- A peer: end the turn; its `orca-lc notify` wakes you. To block until it changes state: `herdr agent wait <peer> --until idle --timeout <ms>`.
+- CI: `gh pr checks <n> --watch` with `run_in_background: true`, then end the turn.
+- `orca-lc gate`: run it in the foreground with a tool timeout above `gateTimeoutMin` (see Gate above); it returns as soon as the gate ends.
+
+A hook blocks a `sleep` followed by a read of a background task's output (its task file, or a `.log`, `.out` or `.txt` file a background command writes), a peer check (`herdr agent get|list|read`, `orca-lc peers`, `orca-lc inbox read`) or a CI poll (`gh pr view|checks`, `gh run view|list`). Every other `sleep` passes, a bare one included.
+
+## Test files
+
+Edits to test files, creating a new one included, are blocked by default. When the test itself is wrong or a scenario is missing: `orca-lc test-lock on`, make the change, say why in the commit body, `orca-lc test-lock off`.
+
+## Identity, peers, messages
+
+Herdr is the session board. Your identity was written once at start; `orca-lc name` prints it, nothing else changes it. `orca-lc peers` lists live sessions across every worktree of this repo. The first column is the notify target.
+
+Two channels, one header. Every cross-session message opens with `[orca from <session-id-prefix> <name> cwd=<path>]`. `orca-lc notify` writes it for you. `SendMessage` does not, so write it yourself.
+
+- `orca-lc notify <target> "<text>"` for a short fact, a question, or when the peer may not be live. Target is a session id prefix from `peers`, an exact name, a pane id, or a ticket with `--role`. A ticket with several live sessions goes to the recorded owner, or refuses and lists them when there is none. The recipient is printed on every send; read it.
+- `SendMessage` for anything longer than a few lines, when the peer is live.
+- A message carries a conclusion and a path, never a transcript. Over 30 lines: write a handoff and send its path.
+- Never message a `blocked` peer. Never wait on a peer past two minutes; send and move on.
+- A session that finds a relation between tickets reports it to the orchestrator, which records it in the tracker and notifies the other ticket.
+
+## Roles
+
+A ticket's herdr workspace holds one tab per session. In Claude Code, apply and review run by default as subagents of the orchestrator with no tab (see Apply and review as subagents); their tabs below are for driving them by hand:
+
+| Tab | Agent | Started by |
+|---|---|---|
+| orchestrator | `<ticket>-orchestrator` | the user |
+| propose | `<ticket>-propose` | `orca-lc role start <ticket> propose` |
+| apply | `<ticket>-apply` | `orca-lc role start <ticket> apply` |
+| review | `<ticket>-review` | `orca-lc role start <ticket> review` |
+
+A role is defined by its domain; the Owns lines below are examples, not the whole of it. Work outside propose, apply, and review belongs to the orchestrator, which may start extra sessions for it with `orca-lc role start <ticket> <name>`, writing their scope into the handoff.
+
+- One live session per role. `orca-lc role start` refuses when the role's live session already received a handoff, and names it; `--new` clears an idle one (`/clear`) and gives it the new handoff, so each job starts from a fresh context without a second process. A session that is working, blocked, or in any other state but idle or done (herdr's `unknown` included) always refuses. Names such as `review2`, `reviewer` or `code-review` fold into their role (`review`, and the same for `propose` and `apply`).
+- `role start` is safe to rerun: the handoff and first prompt go out once. The same body again prints `already sent: <handoff>` once it was sent, sends only what is missing otherwise, and resends a handoff whose session is gone before reading it. A different body while the last handoff is sent and unread refuses; `--new` replaces it.
+- A session stuck at a startup prompt makes `role start` print herdr's own error, the tab, the pane and the pane's last lines. Answer the prompt in that tab and rerun the same command. `roleStartTimeoutMs` (default 60000, at most 300000) is how long a new session gets to reach its prompt.
+- An extra session (any other name) replaces the one before it, never stacks: `role start` refuses while another extra is live on the ticket, and `--replace <name>` exits that one first.
+- On each report from a role session, including every round of an apply/review loop, the orchestrator retires it: `orca-lc role retire <ticket> <role> --wait` (waits up to an hour for a working or `unknown` session to go idle, then exits it; a session blocked at a prompt is refused, for the user to answer in its tab). Orchestrators are never retired. A retired role's tab stays: the next `role start` for that role runs in it, and `claude --resume` there lists its history. Retire sends `/exit`, which is Claude Code syntax; other runtimes are not covered yet. An `orca-apply` or `orca-review` subagent is never retired: it has no herdr session, and its report ends it.
+- `role start` refuses to open a new session when available memory is under `minFreeMemMb` (default 3000), and lists the ticket's idle sessions to retire. Reusing a session, or `--replace`, which exits one for each it opens, skips the check, as does a system without `/proc/meminfo` (macOS).
+- One owner at a time, moving forward only: propose until the proposal is committed, then apply, then review until merge. `role start` records it; `orca-lc role owner <ticket>` prints it, and `orca-lc notify <ticket>` reaches it. An extra session becomes owner only through `orca-lc role owner <ticket> --set <name>`.
+- Only the owner edits the tree: every session shares one index and HEAD. Commit before switching refs; an uncommitted change follows the checkout or is lost.
+- Role sessions report each commit and decision to the orchestrator, which relays what another role needs.
+- A superseded role answers questions in its own domain and takes no new work.
+- Push, PRs, and tracker writes happen only when the user asks for them in the current turn.
+
+The tracker is the one `orca-lc config tracker` names. When it prints nothing, ask the user where tickets live before writing to any.
+
+### orchestrator
+Owns: the user's entry point; the stack, seeded database, and migrations before apply starts; starting each session, or dispatching the apply and review subagents, and writing its handoff; routing findings and decisions; relaying edge notices; PRs and tracker writes; extra sessions for work no role owns.
+Never: explores, writes specs or code, or reviews; plans before propose reports; or answers propose's open questions unless the user delegates them. A handoff it writes names the work and who to report to, never "check their work".
+
+### propose
+Owns: ticket refresh, exploration, pre-proposal context, grilling, the proposal artifacts, and every fix to them. Grilling runs through the `grilling` skill, Orca's or a third-party one of the same name, after exploration and before the proposal. Whichever skill runs, the settled decisions go into the change's `design.md` under `## Decisions`, one line each with who decided, and decisions outside the ticket go to the orchestrator as follow-ups.
+Never: writes code or reviews its own proposal.
+
+### apply
+Owns: implementing the committed proposal: tasks.md, commits, the gate, and fixes for review findings. Before the gate, it runs every entry in `applyChecks` (see Checks), then fixes each thing a check raises or states in the commit body why it stays. It fixes what the change introduced; a problem that predates the change goes to the orchestrator as a note, not into the diff.
+Never: changes what the proposal means (a proposal problem goes to the orchestrator), or sets up the environment.
+
+### review
+Owns: review of the proposal before apply and of the code after apply: the review passes, the entries in `reviewChecks`, the verifier, reconcile and the tiered findings file (see Code review), and posting the review to the PR once the user approves it. The ticket's stack ports are in its handoff. Each finding is checked against the code before it enters the report or the PR; a claim that cannot be shown in the code is dropped.
+Never: fixes what it finds; findings go to the orchestrator.
+
+### Apply and review as subagents
+
+In Claude Code, the orchestrator runs apply and review by default as background subagents of its own session, the `orca-apply` and `orca-review` agents, one subagent per job:
+
+- Brief each with a handoff from `orca-lc handoff write <ticket> apply|review` and the prompt `read handoff <file> and work it`.
+- Before each dispatch, record the owner: `orca-lc role owner <ticket> --set apply|review`. The subagent is the owner while it works.
+- Never two subagents in the same worktree at once: apply, review, apply run strictly in sequence, each after the previous one reported.
+- A report whose first line is `BLOCKED: <question>`: ask the user, then continue the same subagent with `SendMessage` carrying the answer.
+- A subagent cannot dispatch agents. `orca-apply` reports its `applyChecks` agent entries and `orca-verifier` as `skipped: needs an agent`, for the orchestrator to dispatch after the report. `orca-review` does the same with every agent the Code review runs, the default passes and `orca-verifier` included: it reports them before reconciling, the orchestrator dispatches them from the ticket's worktree with the inputs the report names, then continues the same review subagent with `SendMessage` carrying their reports, and review reconciles and writes the findings file.
+- After a crash, `SendMessage` the old subagent. When that is refused, write a fresh handoff with `orca-lc handoff write` carrying the same scope, since the first subagent's Read archived the old one, and dispatch a new subagent with the prompt `read handoff <file> and work it; continue from git log`.
+
+Subagents do not appear on the herdr board and have no tab. `orca-lc role start <ticket> apply|review` stays the way to drive a role by hand in its own session.
+
+## Handoffs
+
+`orca-lc handoff write <ticket> <role>` prints a fresh file path, already carrying that role's Owns and Never lines from this skill; write the handoff below them, never `/tmp`. Reading a handoff you wrote leaves it in place; a subagent of your session reading it consumes it, since it reads to work it. `orca-lc role start` writes the handoff itself from stdin. Reference specs, commits and PRs by path or URL. `orca-lc handoff read <ticket> [role]` prints the latest and archives it; reading a handoff file with Read does the same through a hook. Do not read a handoff you are not going to work. A ticket names the same handoffs in any case. A ticket and role hold one live handoff: `write` refuses while another session's is unconsumed; pass `--as <name>` only when taking it over is the point.
+
+## Evidence for review and verify
+
+`orca-lc evidence [base]` writes the diff's blast radius (codebase-memory `detect_changes`) and affected test files (`codegraph affected`) to one file and prints its path. Run it once before the code review and before dispatching `orca-verifier`; give every pass and the verifier that path.
+
+## Code review
+
+This is the review of the code after apply; proposal review keeps its own form and may write to the same findings file, which the code review overwrites. After `orca-lc evidence`, the review session:
+
+1. Computes the review paths: the diff's paths since the merge-base with the base, minus those matching `reviewExcludes` from `.orca/config.json`. The `when` patterns of `reviewPasses` and `reviewChecks` match against these paths.
+2. Dispatches the default passes `orca-complexity`, `orca-spec` and `orca-standards`, minus those `skipDefaultPasses` names, then every `reviewPasses` entry, giving each the evidence path, the base and the `reviewExcludes` regex. Then runs every `reviewChecks` entry over the review paths. A review run as the `orca-review` subagent dispatches none of these agents, nor the verifier in step 3: it reports them for the orchestrator (see Apply and review as subagents). For the default passes:
+   - A `reviewPasses` entry naming a default pass is not run again.
+   - A `reviewPasses` entry naming a skipped default is not run at all.
+   - A skipped default stays in the passes table as `skipped: off in skipDefaultPasses`, adding `(also in reviewPasses)` when listed there too.
+   - A name in `skipDefaultPasses` that is not a default pass (a typo, `orca-verifier`) is ignored, and the findings file header gets the line `skipDefaultPasses: unknown pass <name>, ignored`.
+3. Dispatches `orca-verifier` from the ticket's worktree. Its gate run is the review's only gate run, on the ticket's stack; the session runs no gate of its own. The verifier runs the gate and the task check over the whole diff, not the review paths; a change at a path matching `reviewExcludes` is never one of its unasked-change findings, only listed as excluded.
+4. Reconciles and writes the findings file.
+
+### Reconcile
+
+Each default pass and `orca-verifier` end with a `## Findings` list, one entry per finding:
+
+```
+- `path:line[-line]` — <claim> — <evidence: what in the code shows it> — suggested: blocker|should fix|suggestion
+```
+
+`none` means nothing found; `skipped: <reason>` means the pass did not apply. Read other `reviewPasses` and `reviewChecks` results in the same terms, restating their findings in this shape.
+
+1. Collect findings from every pass, check and the verifier.
+2. Check each against the code; drop any claim the code does not show.
+3. Merge: two findings are one when they point at the same file with overlapping or adjacent line ranges and share a root cause. The merged finding cites every source and takes the highest suggested tier.
+4. Tier each, starting from its suggested tier:
+   - **Blocker**: fixed before merge; a `Keeping it` answer does not close it. A failing gate, or one the verifier reports `not run` (the review then has no gate run), is always a Blocker, and so is a `reviewChecks` hit the entry calls blocking.
+   - **Should fix**: fixed in this PR, or answered `Keeping it: <reason>`.
+   - **Suggestion**: optional.
+
+The findings file is `<gitdir>/orca-findings.md` (`git rev-parse --git-dir`), overwritten by each review. It lists every pass and check with its result, or `skipped` and the reason. The `skipDefaultPasses:` header line appears only when there is an unknown name:
+
+```
+# Review — <branch> @ <sha> vs <base>
+skipDefaultPasses: unknown pass <name>, ignored
+
+## Passes
+| Pass | Result |
+|---|---|
+| orca-complexity | 2 findings |
+| orca-standards | skipped: no standardsFile |
+
+## Findings
+### Blocker
+- `path:line` — claim — evidence — sources: orca-spec, orca-verifier
+### Should fix
+none
+### Suggestion
+none
+```
+
+An empty tier reads `none`. The verdict is APPROVE when Blocker and Should fix are both `none`, otherwise COMMENT.
+
+## Checks
+
+`reviewPasses`, `applyChecks` and `reviewChecks` take the same entries:
+
+- A name with a colon or no matching agent type is a skill, dispatched as a `general-purpose` agent told to invoke it. Words after the name are the skill's arguments. An `orca-apply` or `orca-review` subagent, which cannot dispatch agents, invokes it itself with the Skill tool.
+- A name matching an agent type is dispatched as that agent. A subagent reports it as `skipped: needs an agent` for the orchestrator (see Apply and review as subagents).
+- `{"do": "<instruction>"}` is carried out by the session itself, as written.
+- Any entry written as an object may add `"when": "<regex>"`: it runs only when a path matches. For `reviewPasses` and `reviewChecks` that is a review path (the diff's paths minus `reviewExcludes`, see Code review); for `applyChecks` it is any path in the diff.
+
+Each entry's result goes in the findings file's passes table (see Reconcile).
+
+## Pull requests
+
+One pull request carries one openspec change. A change is never cut into several pull requests because it runs past a size estimate; a size budget decides at propose time how a ticket splits into changes, not how a change splits into pull requests. Small changes may share one pull request while their combined counted size, measured against the pull request's real base (the base branch, or the branch below it in a stack), stays under `prShareLimit` in `.orca/config.json`. With `prShareLimit` absent, nothing is counted: no size budget splits the ticket into changes, and each change is its own pull request unless the proposal groups changes into one by decision. The project's own size tool does the counting. This overrides any project skill that cuts one change into several pull requests by size.
+
+A ticket's branch carries the ticket id from its first push: `orca-lc` reads the ticket from the worktree path or the branch name through `ticketPattern`. Renaming a branch on GitHub closes every open pull request whose head is that branch; it does not carry them over. When a pull request is already open on a branch without the id, keep the name, or tell the user the rename closes the pull request and a new one replaces it before doing it.
+
+## Posting a review
+
+A review reaches the PR only when the user approves posting it, as one GitHub review:
+
+- Body: ``Reviewed at `<sha>` against `<base>`: <verdict>``, then the criteria checked.
+- One inline comment per finding, opening **Blocker** —, **Should fix** — or **Suggestion** —.
+- APPROVE when nothing is blocker or should-fix; otherwise COMMENT.
+
+The author answers each thread with `Fixed in <sha>: …` or `Keeping it: …` and resolves it. A Blocker is closed only by a fix.
+
+Run `gh` from inside the repository. A repository whose account comes from a direnv `.envrc` token is invisible to the gh account otherwise, and GitHub answers 404. From a shell that did not load it, use `direnv exec <repo> gh …`.
+
+## Discoveries
+
+A discovery is a rule worth keeping across tickets. Use `/discover` when the user asks, or when a hook blocked you for a reason no discovery covers. `orca-lc triage` lists discoveries nothing enforces yet. Once its hook, skill, or memory exists, `orca-lc discover set <slug> <enforced-by>` then `orca-lc discover archive <slug>` moves it out of the live directory. A domain fact that needs no enforcement is `reference` and stays live.
+
+## Archive
+
+When archiving an OpenSpec change and codebase-memory is installed, register one codebase-memory ADR per decision in its `design.md`: one-line decision, path to the archived `design.md`, symbols it governs. Pointer only, never the argument.

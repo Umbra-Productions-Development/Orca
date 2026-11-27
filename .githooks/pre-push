@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Refuses a push whose commits carry a term from the local denylists: ~/.config/orca/denylist,
+# then .orca/denylist in this clone. Both are untracked; a committed list would itself be the leak.
+# Syntax follows .gitignore: one pattern per line, `#` comments, `*` wildcard, `!` re-allows,
+# last matching line wins. Matching ignores case and only hits whole words.
+# Enable once per clone: git config core.hooksPath .githooks
+# The scan is `orca-lc leak-check --pre-push`, run from this checkout so it needs no install.
+exec "$(git rev-parse --show-toplevel)/bin/orca-lc" leak-check --pre-push
