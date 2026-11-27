@@ -31,6 +31,10 @@ Anything else passes with no message. The file match goes through the transcript
 
 `tree_sig` runs from the repository root. It adds `.orca/config.json`, `.env`, `.orca/denylist` and the global denylist, all often untracked, so a change to the gate command, the environment or a denylist makes the marker stale. What `envCommand` prints is outside the signature, since `tree_sig` runs no commands; a change there needs `--force`. Each untracked entry adds its name, then a regular file its blob hash and a symlink its target; a directory or nested repo adds its name only, so one entry git cannot hash no longer stops the rest. Before this, editing an untracked file kept the marker fresh, and `git ls-files --others` run from a subdirectory listed only that subdirectory.
 
+## Install
+
+`install.sh` refreshes a copied file only when the copy is a version Orca shipped: one of the blobs `git log --all --raw` lists for that path. That listing shows no diff for a merge commit, so a version a merge produced while resolving a conflict was never found, and the copy was kept as the user's own. Bringing main into this branch resolved conflicts in `bin/orca-lc` and `skills/orca/SKILL.md`, which made `install.test.sh` fail. `shipped` now passes `-m`, which lists a merge's diff against each parent, and `--exclude=refs/stash`, since a stash is a merge commit whose working-tree version Orca never shipped.
+
 ## Decisions
 
 - Orca first; porting to a sibling CLI is a separate step, and any change to that CLI, a client repository or a repository skill is escalated to the user first — user.

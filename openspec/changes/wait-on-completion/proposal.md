@@ -8,6 +8,7 @@ Sessions sit idle while the result they wait for is already queued. Claude Code 
 - `bin/orca-lc`: `gate` skips when the marker is fresh; `--force` reruns it. `tree_sig` runs from the repository root and hashes untracked contents, `.orca/config.json`, `.env` and both leak-check denylists, so a change to the gate command, the environment or a denylist makes the marker stale. What `envCommand` prints is outside it.
 - `bin/orca-lc`, two follow-ups to the gate code from #106: `gateTimeoutMin` `0` or less sets no limit, so a killed gate is reported as `ORCA_GATE_FAIL`, not `ORCA_GATE_TIMEOUT`; and the comment on `run_gate`'s trap says signal forwarding covers orca-lc's process group, not its pid alone. `README.md`, `skills/orca/SKILL.md` and `docs/daily-use.md` say `0` sets no limit.
 - `tests/gate.test.sh`: a case for `gateTimeoutMin` `0`, and `--force` where it reruns the gate on a tree it already gated, since a fresh tree now skips.
+- `install.sh`: `shipped` also finds a version that only a merge committed. Bringing main into this branch resolved conflicts in `bin/orca-lc` and `skills/orca/SKILL.md`, so their versions here exist only in a merge, and `install.test.sh` reported a copy of one as kept. A stash is left out.
 - `skills/orca/SKILL.md`: a "Waiting" section, and one sentence on the skip in "Gate".
 - `README.md`: the skip and the sleep block in "What it enforces".
 - `docs/daily-use.md`: the gate skip, `--force` and what makes the mark stale; the verifier's gate run skips on a fresh mark.

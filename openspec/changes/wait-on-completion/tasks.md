@@ -20,4 +20,8 @@
 
 - [x] 4.1 `tests/wait-on-completion.test.sh` and `tests/gate-fresh.test.sh` (new cases for unhashable untracked entries, a retargeted symlink, a changed gate command, `.env` and denylist) pass; `tests/gate.test.sh` (a `gateTimeoutMin` `0` case, `--force` on reruns over a gated tree) and `tests/pretool-merge.test.sh` pass.
 - [x] 4.2 Run the hook in the local test site: the peer and CI shapes block, `sleep; echo done` passes. The skip is covered by the test only, because the test site's gate already fails for reasons unrelated to this change.
+
+## 5. Install
+
+- [x] 5.1 `install.sh`: `shipped` reads merge diffs (`git log -m`) and leaves out `refs/stash`, so a copy of a version only a merge committed is refreshed, not kept; `tests/install.test.sh` passes.
 - [ ] 4.3 Re-measure one week after landing.
